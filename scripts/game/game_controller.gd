@@ -156,6 +156,7 @@ func _recompile_world(reason: String) -> void:
 		return
 	_input_locked = true
 	_last_recompile_reason = reason
+	_last_replay_steps = []
 	print("[Recompile] begin reason=%s" % reason)
 	var current_player_position: Vector2i = _world.player_position
 	var queue_before_compile: Array[ChangeRecord] = _queue.entries()

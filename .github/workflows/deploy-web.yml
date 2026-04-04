@@ -23,14 +23,15 @@ jobs:
 
       - name: Write build metadata
         run: |
-          mkdir -p config
+          mkdir -p generated
           SHORT_SHA="${GITHUB_SHA::7}"
-          BUILD_DATE="$(date -u +%Y-%m-%d)"
-          cat > config/build_info.cfg <<EOF
-          [build]
-          version="0.1.0"
-          commit="${SHORT_SHA}"
-          build_date="${BUILD_DATE}"
+          BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          cat > generated/build_info.json <<EOF
+          {
+            "version": "0.1.0",
+            "short_sha": "${SHORT_SHA}",
+            "build_date": "${BUILD_DATE}"
+          }
           EOF
 
       - name: Setup Godot

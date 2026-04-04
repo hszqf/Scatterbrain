@@ -91,6 +91,12 @@ func _run_case(case_data: Dictionary) -> bool:
 			passed = _assert_level001_two_left_moves_state_is_stable(context)
 		"debug_snapshot_has_real_values_not_placeholders":
 			passed = _assert_debug_snapshot_has_real_values_not_placeholders(context)
+		"empty_pushout_does_not_create_replay_steps":
+			passed = _assert_empty_pushout_does_not_create_replay_steps(context)
+		"controller_empty_overflow_snapshot_replay_is_none":
+			passed = _assert_controller_empty_overflow_snapshot_replay_is_none(context)
+		"build_info_display_uses_generated_build_file_or_dev":
+			passed = _assert_build_info_display_uses_generated_build_file_or_dev(context)
 		"compiler_does_not_duplicate_same_ghost_repeatedly":
 			passed = _assert_compiler_does_not_duplicate_same_ghost_repeatedly(context)
 		"level001_three_left_moves_no_stale_ghost":
@@ -527,6 +533,85 @@ func _assert_debug_snapshot_has_real_values_not_placeholders(context: Dictionary
 		and snapshot.contains("Position(box_0 -> (2, 1))")
 
 
+func _assert_empty_pushout_does_not_create_replay_steps(context: Dictionary) -> bool:
+	var defaults: WorldDefaults = context["defaults"]
+	var queue: ChangeQueue = context["queue"]
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "empty_a"))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "empty_b"))
+	var queue_before_compile: Array[ChangeRecord] = queue.entries()
+	var result: CompileResult = _compiler.compile(defaults, queue, defaults.player_start)
+	var builder := ReplayPayloadBuilder.new()
+	var replay_steps: Array[Dictionary] = builder.build_steps(defaults, queue_before_compile, result.pushed_out_changes)
+	var has_empty_pushout: bool = false
+	for pushed: ChangeRecord in result.pushed_out_changes:
+		if pushed.type == ChangeRecord.ChangeType.EMPTY:
+			has_empty_pushout = true
+	return has_empty_pushout \
+		and replay_steps.is_empty() \
+		and str(replay_steps).find(":(0, 0)->(0, 0)") == -1
+
+
+func _assert_controller_empty_overflow_snapshot_replay_is_none(context: Dictionary) -> bool:
+	var controller: GameController = context["controller"]
+	controller.request_empty_change()
+	controller.request_empty_change()
+	var queue_entries: Array[ChangeRecord] = context["queue"].entries()
+	var snapshot: String = _formatter.build_snapshot(
+		context["world"],
+		queue_entries,
+		String(controller.get("_last_recompile_reason")),
+		controller.get("_last_replay_steps")
+	)
+	return queue_entries.size() == 1 \
+		and queue_entries[0].type == ChangeRecord.ChangeType.EMPTY \
+		and snapshot.contains("replay=none") \
+		and not snapshot.contains(":(0, 0)->(0, 0)")
+
+
+func _assert_build_info_display_uses_generated_build_file_or_dev(_context: Dictionary) -> bool:
+	var build_info_path: String = BuildInfo.BUILD_INFO_PATH
+	var build_info_absolute_path: String = ProjectSettings.globalize_path(build_info_path)
+	var original_exists: bool = FileAccess.file_exists(build_info_path)
+	var original_text: String = ""
+	if original_exists:
+		var original_file: FileAccess = FileAccess.open(build_info_path, FileAccess.READ)
+		if original_file != null:
+			original_text = original_file.get_as_text()
+	_ensure_generated_dir_exists(build_info_absolute_path)
+
+	var fallback_text: String = ""
+	var generated_text: String = ""
+	var passed: bool = false
+	DirAccess.remove_absolute(build_info_absolute_path)
+	fallback_text = BuildInfo.display_text()
+
+	var writer: FileAccess = FileAccess.open(build_info_path, FileAccess.WRITE)
+	if writer != null:
+		writer.store_string("{\"version\":\"9.9.9\",\"short_sha\":\"abc1234\",\"build_date\":\"2026-04-04T00:00:00Z\"}")
+		writer.flush()
+		writer = null
+		generated_text = BuildInfo.display_text()
+	passed = fallback_text == "dev" and generated_text == "v9.9.9 · abc1234"
+
+	if original_exists:
+		var restore_file: FileAccess = FileAccess.open(build_info_path, FileAccess.WRITE)
+		if restore_file != null:
+			restore_file.store_string(original_text)
+	else:
+		DirAccess.remove_absolute(build_info_absolute_path)
+	return passed
+
+
+func _ensure_generated_dir_exists(build_info_absolute_path: String) -> void:
+	var slash_index: int = build_info_absolute_path.rfind("/")
+	if slash_index == -1:
+		return
+	var dir_path: String = build_info_absolute_path.substr(0, slash_index)
+	if DirAccess.dir_exists_absolute(dir_path):
+		return
+	DirAccess.make_dir_recursive_absolute(dir_path)
+
+
 func _assert_compiler_does_not_duplicate_same_ghost_repeatedly(_context: Dictionary) -> bool:
 	var defaults := WorldDefaults.new()
 	defaults.board_size = Vector2i(3, 1)
@@ -909,6 +994,47 @@ func _build_cases() -> Array[Dictionary]:
 			"name": "debug_snapshot_has_real_values_not_placeholders",
 			"context_mode": "controller_level001",
 			"action": "format DebugSnapshot after deterministic Level001 moves",
+		},
+		{
+			"id": "empty_pushout_does_not_create_replay_steps",
+			"name": "empty_pushout_does_not_create_replay_steps",
+			"action": "compile empty-only overflow and ensure replay steps stay empty",
+			"blueprint": {
+				"board_size": Vector2i(3, 1),
+				"player_start": Vector2i(0, 0),
+				"exit_position": Vector2i(2, 0),
+				"memory_capacity": 1,
+				"floors": [Vector3i(0, 0, 0), Vector3i(1, 0, 0), Vector3i(2, 0, 0)],
+				"walls": [],
+				"boxes": [],
+			},
+		},
+		{
+			"id": "controller_empty_overflow_snapshot_replay_is_none",
+			"name": "controller_empty_overflow_snapshot_replay_is_none",
+			"action": "GameController empty overflow should keep replay=none",
+			"blueprint": {
+				"board_size": Vector2i(3, 1),
+				"player_start": Vector2i(0, 0),
+				"exit_position": Vector2i(2, 0),
+				"memory_capacity": 1,
+				"floors": [Vector3i(0, 0, 0), Vector3i(1, 0, 0), Vector3i(2, 0, 0)],
+				"walls": [],
+				"boxes": [],
+			},
+		},
+		{
+			"id": "build_info_display_uses_generated_build_file_or_dev",
+			"name": "build_info_display_uses_generated_build_file_or_dev",
+			"action": "BuildInfo falls back to dev and uses generated short_sha when present",
+			"blueprint": {
+				"board_size": Vector2i(1, 1),
+				"player_start": Vector2i(0, 0),
+				"exit_position": Vector2i(0, 0),
+				"floors": [Vector3i(0, 0, 0)],
+				"walls": [],
+				"boxes": [],
+			},
 		},
 		{
 			"id": "compiler_does_not_duplicate_same_ghost_repeatedly",
