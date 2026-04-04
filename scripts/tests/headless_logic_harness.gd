@@ -103,34 +103,51 @@ func _build_context(blueprint: Dictionary) -> Dictionary:
 
 
 func _build_controller_context(blueprint: Dictionary) -> Dictionary:
+	var level_scene: PackedScene = _build_level_scene_from_blueprint(blueprint)
+	var runtime_data: LevelRuntimeData = _build_runtime_data_from_level_scene(level_scene)
 	var controller: GameController = GAME_ROOT_SCENE.instantiate()
-	controller.level_scene = LEVEL_ROOT_SCENE
+	controller.level_scene = level_scene
 	get_root().add_child(controller)
-	var baseline: Dictionary = _build_context(blueprint)
-	var world: CompiledWorld = baseline["world"]
-	var queue: ChangeQueue = baseline["queue"]
-	var defaults: WorldDefaults = baseline["defaults"]
 	var board_view: BoardView = controller.get_node(controller.board_view_path)
 	var queue_view: MemoryQueueView = controller.get_node(controller.queue_view_path)
-	var status_label: Label = controller.get_node(controller.status_label_path)
 	board_view.call("_ready")
 	queue_view.call("_ready")
-	controller.set("_board_view", board_view)
-	controller.set("_queue_view", queue_view)
-	controller.set("_status_label", status_label)
-	controller.set("_defaults", defaults)
-	controller.set("_world", world)
-	controller.set("_queue", queue)
-	board_view.set_board_size(defaults.board_size)
-	board_view.sync_world(world)
-	queue_view.render_queue(queue.entries(), defaults.memory_capacity, defaults.obsession_capacity)
+	controller.call("_ready")
+	var defaults: WorldDefaults = controller.get("_defaults")
+	var world: CompiledWorld = controller.get("_world")
+	var queue: ChangeQueue = controller.get("_queue")
 	return {
 		"controller": controller,
-		"runtime_data": baseline["runtime_data"],
+		"runtime_data": runtime_data,
 		"defaults": defaults,
 		"queue": queue,
 		"world": world,
 	}
+
+
+func _build_level_scene_from_blueprint(blueprint: Dictionary) -> PackedScene:
+	var level_root: LevelRoot = _instantiate_level_root_from_blueprint(blueprint)
+	_assign_child_owners(level_root, level_root)
+	var packed_level: PackedScene = PackedScene.new()
+	var pack_result: int = packed_level.pack(level_root)
+	assert(pack_result == OK, "Failed to pack blueprint LevelRoot scene")
+	level_root.queue_free()
+	return packed_level
+
+
+func _build_runtime_data_from_level_scene(level_scene: PackedScene) -> LevelRuntimeData:
+	var level_root: LevelRoot = level_scene.instantiate()
+	get_root().add_child(level_root)
+	var runtime_data: LevelRuntimeData = level_root.build_runtime_data()
+	get_root().remove_child(level_root)
+	level_root.queue_free()
+	return runtime_data
+
+
+func _assign_child_owners(node: Node, owner: Node) -> void:
+	for child: Node in node.get_children():
+		child.owner = owner
+		_assign_child_owners(child, owner)
 
 
 func _instantiate_level_root_from_blueprint(blueprint: Dictionary) -> LevelRoot:
@@ -140,10 +157,12 @@ func _instantiate_level_root_from_blueprint(blueprint: Dictionary) -> LevelRoot:
 	level_root.memory_capacity = 8
 
 	var grid: Node = level_root.get_node("Grid")
+	grid.owner = level_root
 	level_root.set("_grid", grid)
 	var slice := Node2D.new()
 	slice.name = "Slice_0"
 	grid.add_child(slice)
+	slice.owner = level_root
 
 	for y: int in range(blueprint["board_size"].y):
 		for x: int in range(blueprint["board_size"].x):
@@ -156,6 +175,7 @@ func _instantiate_level_root_from_blueprint(blueprint: Dictionary) -> LevelRoot:
 			cell.is_player_spawn = false
 			cell.is_exit = false
 			slice.add_child(cell)
+			cell.owner = level_root
 
 	for wall_pos: Vector3i in blueprint["walls"]:
 		var wall_cell: LevelCell = level_root.get_node("Grid/Slice_0/Cell_%d_%d_0" % [wall_pos.x, wall_pos.y])

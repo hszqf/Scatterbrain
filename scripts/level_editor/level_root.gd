@@ -134,12 +134,13 @@ func build_runtime_data() -> LevelRuntimeData:
 
 
 func _ensure_slice(z: int) -> Node2D:
+	var grid: Node2D = _resolve_grid()
 	var slice_name: String = "Slice_%d" % z
-	if _grid.has_node(slice_name):
-		return _grid.get_node(slice_name)
+	if grid.has_node(slice_name):
+		return grid.get_node(slice_name)
 	var node := Node2D.new()
 	node.name = slice_name
-	_grid.add_child(node)
+	grid.add_child(node)
 	node.owner = owner
 	return node
 
@@ -165,7 +166,8 @@ func _rebuild_slice_cells(slice: Node2D, z: int) -> void:
 
 
 func _remove_out_of_range_slices() -> void:
-	for child: Node in _grid.get_children():
+	var grid: Node2D = _resolve_grid()
+	for child: Node in grid.get_children():
 		if not child.name.begins_with("Slice_"):
 			continue
 		var z_text: String = child.name.trim_prefix("Slice_")
@@ -188,7 +190,8 @@ func _remove_out_of_range_cells(slice: Node2D, z: int) -> void:
 
 func _all_cells() -> Array[LevelCell]:
 	var cells: Array[LevelCell] = []
-	for slice_node: Node in _grid.get_children():
+	var grid: Node2D = _resolve_grid()
+	for slice_node: Node in grid.get_children():
 		for cell_node: Node in slice_node.get_children():
 			if cell_node is LevelCell:
 				cells.append(cell_node)
@@ -197,3 +200,9 @@ func _all_cells() -> Array[LevelCell]:
 
 func _cell_name(coord: Vector3i) -> String:
 	return "Cell_%d_%d_%d" % [coord.x, coord.y, coord.z]
+
+
+func _resolve_grid() -> Node2D:
+	if _grid == null and has_node("Grid"):
+		_grid = get_node("Grid")
+	return _grid
