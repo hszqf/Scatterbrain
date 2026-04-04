@@ -81,7 +81,7 @@ layout_mode = 2
 size_flags_vertical = 3
 
 [node name="BottomPanel" type="Panel" parent="CanvasLayer/UIRoot/MainVBox"]
-custom_minimum_size = Vector2(0, 132)
+custom_minimum_size = Vector2(0, 176)
 layout_mode = 2
 
 [node name="BottomRow" type="HBoxContainer" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel"]
@@ -95,81 +95,81 @@ offset_right = -8.0
 offset_bottom = -8.0
 grow_horizontal = 2
 grow_vertical = 2
-theme_override_constants/separation = 8
+theme_override_constants/separation = 12
 
 [node name="MovePad" type="GridContainer" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomRow"]
 layout_mode = 2
 size_flags_horizontal = 3
 columns = 3
-theme_override_constants/h_separation = 6
-theme_override_constants/v_separation = 6
+theme_override_constants/h_separation = 10
+theme_override_constants/v_separation = 10
 
 [node name="PadBlankA" type="Control" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomRow/MovePad"]
-custom_minimum_size = Vector2(40, 36)
+custom_minimum_size = Vector2(56, 56)
 layout_mode = 2
 
 [node name="UpButton" type="Button" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomRow/MovePad"]
-custom_minimum_size = Vector2(40, 36)
+custom_minimum_size = Vector2(56, 56)
 layout_mode = 2
 text = "↑"
 
 [node name="PadBlankB" type="Control" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomRow/MovePad"]
-custom_minimum_size = Vector2(40, 36)
+custom_minimum_size = Vector2(56, 56)
 layout_mode = 2
 
 [node name="LeftButton" type="Button" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomRow/MovePad"]
-custom_minimum_size = Vector2(40, 36)
+custom_minimum_size = Vector2(56, 56)
 layout_mode = 2
 text = "←"
 
 [node name="PadBlankC" type="Control" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomRow/MovePad"]
-custom_minimum_size = Vector2(40, 36)
+custom_minimum_size = Vector2(56, 56)
 layout_mode = 2
 
 [node name="RightButton" type="Button" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomRow/MovePad"]
-custom_minimum_size = Vector2(40, 36)
+custom_minimum_size = Vector2(56, 56)
 layout_mode = 2
 text = "→"
 
 [node name="PadBlankD" type="Control" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomRow/MovePad"]
-custom_minimum_size = Vector2(40, 36)
+custom_minimum_size = Vector2(56, 56)
 layout_mode = 2
 
 [node name="DownButton" type="Button" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomRow/MovePad"]
-custom_minimum_size = Vector2(40, 36)
+custom_minimum_size = Vector2(56, 56)
 layout_mode = 2
 text = "↓"
 
 [node name="PadBlankE" type="Control" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomRow/MovePad"]
-custom_minimum_size = Vector2(40, 36)
+custom_minimum_size = Vector2(56, 56)
 layout_mode = 2
 
 [node name="ActionColumn" type="VBoxContainer" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomRow"]
 layout_mode = 2
 size_flags_horizontal = 1
 alignment = 1
-theme_override_constants/separation = 6
+theme_override_constants/separation = 10
 
 [node name="MeditateButton" type="Button" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomRow/ActionColumn"]
-custom_minimum_size = Vector2(76, 40)
+custom_minimum_size = Vector2(104, 56)
 layout_mode = 2
-text = "◌ REST"
+text = "REST"
 
 [node name="RestartButton" type="Button" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomRow/ActionColumn"]
-custom_minimum_size = Vector2(76, 40)
+custom_minimum_size = Vector2(104, 56)
 layout_mode = 2
-text = "↺ RST"
+text = "RST"
 
 [node name="CopyLogButton" type="Button" parent="CanvasLayer/UIRoot"]
 layout_mode = 1
 anchors_preset = 1
 anchor_left = 1.0
 anchor_right = 1.0
-offset_left = -34.0
+offset_left = -54.0
 offset_top = 6.0
 offset_right = -8.0
-offset_bottom = 32.0
-text = "⧉"
+offset_bottom = 34.0
+text = "LOG"
 
 [node name="CopyLogFeedback" type="Label" parent="CanvasLayer/UIRoot"]
 layout_mode = 1

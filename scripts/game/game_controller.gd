@@ -144,7 +144,7 @@ func _post_player_move() -> void:
 func _check_win() -> void:
 	if _world.player_position == _world.exit_position:
 		_is_complete = true
-		_status_label.text = "CLEAR! press R / RST"
+		_status_label.text = "CLEAR • R/RST"
 
 
 func _recompile_world(reason: String) -> void:
@@ -181,7 +181,7 @@ func _recompile_world(reason: String) -> void:
 func _update_status() -> void:
 	if _is_complete:
 		return
-	_status_label.text = "MOVE: WASD/Arrows • SPACE: REST"
+	_status_label.text = "MOVE WASD/ARROWS • REST SPACE"
 
 
 func _layout_board() -> void:
