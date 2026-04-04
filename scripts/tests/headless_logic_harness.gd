@@ -3,10 +3,12 @@ extends SceneTree
 const EXIT_OK: int = 0
 const EXIT_FAIL: int = 1
 const LEVEL_ROOT_SCENE: PackedScene = preload("res://scenes/levels/LevelRoot.tscn")
+const LEVEL001_SCENE: PackedScene = preload("res://scenes/levels/Level001.tscn")
 const GAME_ROOT_SCENE: PackedScene = preload("res://scenes/game/GameRoot.tscn")
 
 var _compiler: WorldCompiler = WorldCompiler.new()
 var _resolver: PlayerMoveResolver = PlayerMoveResolver.new()
+var _formatter: DebugLogFormatter = DebugLogFormatter.new()
 
 
 func _init() -> void:
@@ -22,14 +24,29 @@ func _init() -> void:
 
 
 func _run_case(case_data: Dictionary) -> bool:
-	var is_controller_case: bool = String(case_data["id"]).begins_with("controller_")
-	var context: Dictionary = await _build_controller_context(case_data["blueprint"]) if is_controller_case else _build_context(case_data["blueprint"])
+	var case_id: String = String(case_data["id"])
+	var context_mode: String = String(case_data.get("context_mode", "blueprint"))
+	if context_mode == "blueprint" and case_id.begins_with("controller_"):
+		context_mode = "controller_blueprint"
+	var context: Dictionary = {}
+	var is_controller_case: bool = false
+	match context_mode:
+		"controller_blueprint":
+			context = await _build_controller_context(case_data["blueprint"])
+			is_controller_case = true
+		"controller_level001":
+			context = await _build_controller_context_from_level_scene(LEVEL001_SCENE)
+			is_controller_case = true
+		"level001":
+			context = _build_level_context(LEVEL001_SCENE)
+		_:
+			context = _build_context(case_data["blueprint"])
 	print("=== CASE: %s ===" % case_data["name"])
 	print("initial state: %s" % _format_state(context["world"], context["queue"], context["runtime_data"], context["defaults"]))
 	print("action: %s" % case_data["action"])
 
 	var passed: bool = false
-	match case_data["id"]:
+	match case_id:
 		"chain_levelroot_runtime_data":
 			passed = _assert_runtime_data_output(context)
 		"chain_world_defaults_mapping":
@@ -68,8 +85,16 @@ func _run_case(case_data: Dictionary) -> bool:
 			passed = _assert_compile_pushes_out_oldest_unpinned(context)
 		"controller_replay_locks_input_then_unlocks":
 			passed = await _assert_controller_replay_locks_input_then_unlocks(context)
+		"level001_layout_matches_expected":
+			passed = _assert_level001_layout_matches_expected(context)
+		"level001_two_left_moves_state_is_stable":
+			passed = _assert_level001_two_left_moves_state_is_stable(context)
+		"debug_snapshot_has_real_values_not_placeholders":
+			passed = _assert_debug_snapshot_has_real_values_not_placeholders(context)
+		"compiler_does_not_duplicate_same_ghost_repeatedly":
+			passed = _assert_compiler_does_not_duplicate_same_ghost_repeatedly(context)
 		_:
-			push_error("Unknown case id: %s" % case_data["id"])
+			push_error("Unknown case id: %s" % case_id)
 			passed = false
 
 	print("final state: %s" % _format_state(context["world"], context["queue"], context["runtime_data"], context["defaults"]))
@@ -106,8 +131,25 @@ func _build_context(blueprint: Dictionary) -> Dictionary:
 	}
 
 
+func _build_level_context(level_scene: PackedScene) -> Dictionary:
+	var runtime_data: LevelRuntimeData = _build_runtime_data_from_level_scene(level_scene)
+	var defaults: WorldDefaults = WorldDefaults.from_runtime_data(runtime_data)
+	var queue: ChangeQueue = ChangeQueue.new()
+	var world: CompiledWorld = _compiler.compile(defaults, queue, defaults.player_start).world
+	return {
+		"runtime_data": runtime_data,
+		"defaults": defaults,
+		"queue": queue,
+		"world": world,
+	}
+
+
 func _build_controller_context(blueprint: Dictionary) -> Dictionary:
 	var level_scene: PackedScene = _build_level_scene_from_blueprint(blueprint)
+	return await _build_controller_context_from_level_scene(level_scene)
+
+
+func _build_controller_context_from_level_scene(level_scene: PackedScene) -> Dictionary:
 	var runtime_data: LevelRuntimeData = _build_runtime_data_from_level_scene(level_scene)
 	var controller: GameController = GAME_ROOT_SCENE.instantiate()
 	controller.level_scene = level_scene
@@ -424,6 +466,96 @@ func _assert_controller_replay_locks_input_then_unlocks(context: Dictionary) -> 
 	return locked_during and unlocked_after
 
 
+func _assert_level001_layout_matches_expected(context: Dictionary) -> bool:
+	var runtime_data: LevelRuntimeData = context["runtime_data"]
+	var expected_walls: Array[Vector3i] = [
+		Vector3i(0, 0, 0), Vector3i(1, 0, 0), Vector3i(2, 0, 0), Vector3i(3, 0, 0), Vector3i(4, 0, 0), Vector3i(5, 0, 0),
+		Vector3i(0, 1, 0),
+		Vector3i(0, 2, 0), Vector3i(1, 2, 0), Vector3i(2, 2, 0), Vector3i(3, 2, 0), Vector3i(4, 2, 0), Vector3i(5, 2, 0),
+	]
+	return runtime_data.grid_size == Vector3i(6, 3, 1) \
+		and runtime_data.player_start == Vector3i(5, 1, 0) \
+		and runtime_data.exit_position == Vector3i(1, 1, 0) \
+		and _sorted_vec3_array(runtime_data.boxes) == [Vector3i(3, 1, 0)] \
+		and _sorted_vec3_array(runtime_data.walls) == _sorted_vec3_array(expected_walls)
+
+
+func _assert_level001_two_left_moves_state_is_stable(context: Dictionary) -> bool:
+	var first_move: Dictionary = _controller_handle_move(context, Vector2i.LEFT)
+	var first_player_position: Vector2i = (context["world"] as CompiledWorld).player_position
+	var first_queue_size: int = context["queue"].size()
+	var second_move: Dictionary = _controller_handle_move(context, Vector2i.LEFT)
+	var world: CompiledWorld = context["world"]
+	var queue_entries: Array[ChangeRecord] = context["queue"].entries()
+	var replay_steps: Array[Dictionary] = context["controller"].get("_last_replay_steps")
+
+	return first_move["player_moved"] \
+		and first_player_position == Vector2i(4, 1) \
+		and first_queue_size == 0 \
+		and second_move["player_moved"] \
+		and world.player_position == Vector2i(3, 1) \
+		and _sorted_vec2_array(world.entity_positions.values()) == [Vector2i(2, 1)] \
+		and queue_entries.size() == 1 \
+		and queue_entries[0].type == ChangeRecord.ChangeType.POSITION \
+		and queue_entries[0].subject_id == &"box_0" \
+		and queue_entries[0].target_position == Vector2i(2, 1) \
+		and _count_ghost_entries(queue_entries, &"box_0", Vector2i(2, 1)) == 0 \
+		and replay_steps.is_empty()
+
+
+func _assert_debug_snapshot_has_real_values_not_placeholders(context: Dictionary) -> bool:
+	_controller_handle_move(context, Vector2i.LEFT)
+	_controller_handle_move(context, Vector2i.LEFT)
+	var controller: GameController = context["controller"]
+	var world: CompiledWorld = context["world"]
+	var snapshot: String = _formatter.build_snapshot(
+		world,
+		context["queue"].entries(),
+		String(controller.get("_last_recompile_reason")),
+		controller.get("_last_replay_steps")
+	)
+	return not snapshot.contains("boxes=%s") \
+		and snapshot.contains("boxes=") \
+		and snapshot.contains("board_size=(6, 3)") \
+		and snapshot.contains("queue=[") \
+		and not snapshot.contains("queue=%s") \
+		and snapshot.contains("(2, 1)") \
+		and snapshot.contains("Position(box_0 -> (2, 1))")
+
+
+func _assert_compiler_does_not_duplicate_same_ghost_repeatedly(_context: Dictionary) -> bool:
+	var defaults := WorldDefaults.new()
+	defaults.board_size = Vector2i(3, 1)
+	defaults.player_start = Vector2i(1, 0)
+	defaults.exit_position = Vector2i(2, 0)
+	defaults.memory_capacity = 8
+	defaults.floor_cells = [Vector2i(0, 0), Vector2i(1, 0), Vector2i(2, 0)]
+	defaults.wall_positions = []
+	defaults.default_entity_positions = {&"box_0": Vector2i(0, 0)}
+
+	var queue := ChangeQueue.new()
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.POSITION, &"box_0", Vector2i(1, 0), false, "conflict_with_player"))
+
+	var result: CompileResult = _compiler.compile(defaults, queue, defaults.player_start)
+	var final_entries: Array[ChangeRecord] = result.queue_entries
+	var duplicate_ghost_count: int = _count_ghost_entries(final_entries, &"box_0", Vector2i(1, 0))
+
+	return not result.reached_safety_limit \
+		and result.generated_ghost_changes.size() == 1 \
+		and duplicate_ghost_count == 1 \
+		and final_entries.size() == 2 \
+		and final_entries[0].type == ChangeRecord.ChangeType.POSITION \
+		and final_entries[1].type == ChangeRecord.ChangeType.GHOST
+
+
+func _count_ghost_entries(entries: Array[ChangeRecord], subject_id: StringName, target: Vector2i) -> int:
+	var count: int = 0
+	for entry: ChangeRecord in entries:
+		if entry.type == ChangeRecord.ChangeType.GHOST and entry.subject_id == subject_id and entry.target_position == target:
+			count += 1
+	return count
+
+
 func _format_state(world: CompiledWorld, queue: ChangeQueue, runtime_data: LevelRuntimeData, defaults: WorldDefaults) -> String:
 	return "player=%s boxes=%s walls=%s floors=%s runtime[player=%s exit=%s floors=%s walls=%s boxes=%s] defaults[player=%s exit=%s floors=%s walls=%s boxes=%s]" % [
 		world.player_position,
@@ -725,6 +857,37 @@ func _build_cases() -> Array[Dictionary]:
 				"floors": [Vector3i(0, 0, 0), Vector3i(1, 0, 0), Vector3i(2, 0, 0), Vector3i(3, 0, 0), Vector3i(4, 0, 0)],
 				"walls": [],
 				"boxes": [Vector3i(1, 0, 0)],
+			},
+		},
+		{
+			"id": "level001_layout_matches_expected",
+			"name": "level001_layout_matches_expected",
+			"context_mode": "level001",
+			"action": "load scenes/levels/Level001.tscn and verify runtime mapping",
+		},
+		{
+			"id": "level001_two_left_moves_state_is_stable",
+			"name": "level001_two_left_moves_state_is_stable",
+			"context_mode": "controller_level001",
+			"action": "GameController on Level001 then LEFT, LEFT",
+		},
+		{
+			"id": "debug_snapshot_has_real_values_not_placeholders",
+			"name": "debug_snapshot_has_real_values_not_placeholders",
+			"context_mode": "controller_level001",
+			"action": "format DebugSnapshot after deterministic Level001 moves",
+		},
+		{
+			"id": "compiler_does_not_duplicate_same_ghost_repeatedly",
+			"name": "compiler_does_not_duplicate_same_ghost_repeatedly",
+			"action": "compile conflicting Position change and assert ghost dedupe",
+			"blueprint": {
+				"board_size": Vector2i(2, 1),
+				"player_start": Vector2i(0, 0),
+				"exit_position": Vector2i(1, 0),
+				"floors": [Vector3i(0, 0, 0), Vector3i(1, 0, 0)],
+				"walls": [],
+				"boxes": [],
 			},
 		},
 	]

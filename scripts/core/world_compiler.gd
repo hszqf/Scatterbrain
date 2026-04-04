@@ -17,7 +17,9 @@ func compile(defaults: WorldDefaults, queue: ChangeQueue, player_position: Vecto
 		result.pushed_out_changes.append_array(removed)
 
 		current_world = _build_base_world(defaults, player_position)
-		var generated: Array[ChangeRecord] = _apply_changes(defaults, working_queue.entries(), current_world)
+		var queue_entries: Array[ChangeRecord] = working_queue.entries()
+		var existing_ghost_keys: Dictionary[String, bool] = _collect_existing_ghost_keys(queue_entries)
+		var generated: Array[ChangeRecord] = _apply_changes(defaults, queue_entries, current_world, existing_ghost_keys)
 
 		if generated.is_empty():
 			stabilized = true
@@ -56,14 +58,34 @@ func _build_base_world(defaults: WorldDefaults, player_position: Vector2i) -> Co
 	return world
 
 
-func _apply_changes(_defaults: WorldDefaults, entries: Array[ChangeRecord], world: CompiledWorld) -> Array[ChangeRecord]:
+func _apply_changes(
+	_defaults: WorldDefaults,
+	entries: Array[ChangeRecord],
+	world: CompiledWorld,
+	existing_ghost_keys: Dictionary[String, bool]
+) -> Array[ChangeRecord]:
 	var generated_ghost_changes: Array[ChangeRecord] = []
+	var generated_ghost_keys: Dictionary[String, bool] = {}
 	for change: ChangeRecord in entries:
 		match change.type:
 			ChangeRecord.ChangeType.POSITION:
-				_apply_position_like_change(change, world, generated_ghost_changes, true)
+				_apply_position_like_change(
+					change,
+					world,
+					generated_ghost_changes,
+					true,
+					existing_ghost_keys,
+					generated_ghost_keys
+				)
 			ChangeRecord.ChangeType.GHOST:
-				_apply_position_like_change(change, world, generated_ghost_changes, false)
+				_apply_position_like_change(
+					change,
+					world,
+					generated_ghost_changes,
+					false,
+					existing_ghost_keys,
+					generated_ghost_keys
+				)
 			ChangeRecord.ChangeType.EMPTY:
 				continue
 			_:
@@ -75,7 +97,9 @@ func _apply_position_like_change(
 	change: ChangeRecord,
 	world: CompiledWorld,
 	generated_ghost_changes: Array[ChangeRecord],
-	allow_generate_ghost: bool
+	allow_generate_ghost: bool,
+	existing_ghost_keys: Dictionary[String, bool],
+	generated_ghost_keys: Dictionary[String, bool]
 ) -> void:
 	if change.subject_id == &"":
 		return
@@ -94,6 +118,10 @@ func _apply_position_like_change(
 	world.entity_positions.erase(change.subject_id)
 	world.ghost_entities[change.subject_id] = target
 	if allow_generate_ghost:
+		var key: String = _ghost_key(change.subject_id, target)
+		if existing_ghost_keys.has(key) or generated_ghost_keys.has(key):
+			return
+		generated_ghost_keys[key] = true
 		generated_ghost_changes.append(
 			ChangeRecord.new(
 				ChangeRecord.ChangeType.GHOST,
@@ -103,6 +131,19 @@ func _apply_position_like_change(
 				"auto-generated ghost"
 			)
 		)
+
+
+func _collect_existing_ghost_keys(entries: Array[ChangeRecord]) -> Dictionary[String, bool]:
+	var keys: Dictionary[String, bool] = {}
+	for entry: ChangeRecord in entries:
+		if entry.type != ChangeRecord.ChangeType.GHOST:
+			continue
+		keys[_ghost_key(entry.subject_id, entry.target_position)] = true
+	return keys
+
+
+func _ghost_key(subject_id: StringName, target: Vector2i) -> String:
+	return "%s|%d|%d" % [subject_id, target.x, target.y]
 
 
 func _can_place_box(world: CompiledWorld, target: Vector2i, ignore_entity_id: StringName = &"") -> bool:
