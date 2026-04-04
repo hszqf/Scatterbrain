@@ -93,10 +93,12 @@ func _run_case(case_data: Dictionary) -> bool:
 			passed = _assert_debug_snapshot_has_real_values_not_placeholders(context)
 		"snapshot_includes_build_info":
 			passed = _assert_snapshot_includes_build_info(context)
-		"empty_overflow_replays_visible_box_return":
-			passed = await _assert_empty_overflow_replays_visible_box_return(context)
-		"empty_overflow_without_visible_change_has_no_replay":
-			passed = _assert_empty_overflow_without_visible_change_has_no_replay(context)
+		"overflow_with_only_empty_memory_has_no_replay":
+			passed = _assert_overflow_with_only_empty_memory_has_no_replay(context)
+		"overflow_with_remaining_position_memory_replays_retained_steps":
+			passed = _assert_overflow_with_remaining_position_memory_replays_retained_steps(context)
+		"controller_empty_overflow_snapshot_matches_memory_semantics":
+			passed = await _assert_controller_empty_overflow_snapshot_matches_memory_semantics(context)
 		"build_info_display_uses_generated_build_file_or_dev":
 			passed = _assert_build_info_display_uses_generated_build_file_or_dev(context)
 		"compiler_does_not_duplicate_same_ghost_repeatedly":
@@ -469,13 +471,14 @@ func _assert_controller_replay_locks_input_then_unlocks(context: Dictionary) -> 
 	replay_controller.step_duration = 0.05
 	_controller_handle_move(context, Vector2i.RIGHT)
 	controller.request_empty_change()
-	var locked_during: bool = controller.get("_input_locked")
 	for i: int in range(20):
 		if not controller.get("_input_locked"):
 			break
 		await process_frame
 	var unlocked_after: bool = not controller.get("_input_locked")
-	return locked_during and unlocked_after
+	var replay_steps: Array[Dictionary] = controller.get("_last_replay_steps")
+	return unlocked_after \
+		and replay_steps.is_empty()
 
 
 func _assert_level001_layout_matches_expected(context: Dictionary) -> bool:
@@ -562,7 +565,7 @@ func _assert_snapshot_includes_build_info(context: Dictionary) -> bool:
 		and snapshot.contains("build=dev")
 
 
-func _assert_empty_overflow_without_visible_change_has_no_replay(context: Dictionary) -> bool:
+func _assert_overflow_with_only_empty_memory_has_no_replay(context: Dictionary) -> bool:
 	var defaults: WorldDefaults = context["defaults"]
 	var queue: ChangeQueue = context["queue"]
 	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.POSITION, &"box_0", Vector2i(2, 1), false, "older"))
@@ -570,34 +573,63 @@ func _assert_empty_overflow_without_visible_change_has_no_replay(context: Dictio
 	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "empty_a"))
 	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "empty_b"))
 	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "empty_c"))
-	var world_before_compile: CompiledWorld = _compiler.compile(defaults, queue, defaults.player_start).world
 	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "empty_trigger"))
 	var result: CompileResult = _compiler.compile(defaults, queue, defaults.player_start)
-	var world_after_compile: CompiledWorld = result.world
 	var builder := ReplayPayloadBuilder.new()
-	var replay_steps: Array[Dictionary] = builder.build_steps(world_before_compile, world_after_compile)
-	var pushed_out_old_position: bool = false
-	for pushed: ChangeRecord in result.pushed_out_changes:
-		if pushed.type == ChangeRecord.ChangeType.POSITION \
-			and pushed.subject_id == &"box_0" \
-			and pushed.target_position == Vector2i(2, 1):
-			pushed_out_old_position = true
+	var replay_steps: Array[Dictionary] = builder.build_steps(defaults, result.queue_entries)
 	var final_entries: Array[ChangeRecord] = result.queue_entries
-	var final_queue_starts_with_latest_position: bool = not final_entries.is_empty() \
+	var all_empty: bool = final_entries.size() == 4
+	for entry: ChangeRecord in final_entries:
+		all_empty = all_empty and entry.type == ChangeRecord.ChangeType.EMPTY
+	var snapshot: String = _formatter.build_snapshot(
+		result.world,
+		final_entries,
+		"overflow_only_empty",
+		replay_steps,
+		BuildInfo.display_text()
+	)
+	return all_empty \
+		and replay_steps.is_empty() \
+		and snapshot.contains("replay=none") \
+		and not snapshot.contains("box_0:")
+
+
+func _assert_overflow_with_remaining_position_memory_replays_retained_steps(context: Dictionary) -> bool:
+	var defaults: WorldDefaults = context["defaults"]
+	var queue: ChangeQueue = context["queue"]
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.POSITION, &"box_0", Vector2i(2, 1), false, "older"))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.POSITION, &"box_0", Vector2i(1, 1), false, "remembered"))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "empty_a"))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "empty_b"))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "empty_trigger"))
+	var result: CompileResult = _compiler.compile(defaults, queue, defaults.player_start)
+	var final_entries: Array[ChangeRecord] = result.queue_entries
+	var builder := ReplayPayloadBuilder.new()
+	var replay_steps: Array[Dictionary] = builder.build_steps(defaults, final_entries)
+	var has_position_memory: bool = not final_entries.is_empty() \
 		and final_entries[0].type == ChangeRecord.ChangeType.POSITION \
 		and final_entries[0].subject_id == &"box_0" \
 		and final_entries[0].target_position == Vector2i(1, 1)
-	return pushed_out_old_position \
-		and final_queue_starts_with_latest_position \
-		and replay_steps.is_empty() \
-		and str(replay_steps).find("box_0:(3, 1)->(2, 1)") == -1
+	var has_default_to_memory_step: bool = false
+	var has_world_diff_direction: bool = false
+	for step: Dictionary in replay_steps:
+		if step.get("subject", &"") == &"box_0" \
+			and step.get("from", Vector2i.ZERO) == Vector2i(3, 1) \
+			and step.get("to", Vector2i.ZERO) == Vector2i(1, 1):
+			has_default_to_memory_step = true
+		if step.get("subject", &"") == &"box_0" \
+			and step.get("from", Vector2i.ZERO) == Vector2i(1, 1) \
+			and step.get("to", Vector2i.ZERO) == Vector2i(3, 1):
+			has_world_diff_direction = true
+	return has_position_memory \
+		and not replay_steps.is_empty() \
+		and has_default_to_memory_step \
+		and not has_world_diff_direction
 
 
-func _assert_empty_overflow_replays_visible_box_return(context: Dictionary) -> bool:
+func _assert_controller_empty_overflow_snapshot_matches_memory_semantics(context: Dictionary) -> bool:
 	var controller: GameController = context["controller"]
-	_controller_handle_move(context, Vector2i.LEFT)
-	_controller_handle_move(context, Vector2i.LEFT)
-	_controller_handle_move(context, Vector2i.LEFT)
+	controller.request_empty_change()
 	controller.request_empty_change()
 	controller.request_empty_change()
 	controller.request_empty_change()
@@ -609,6 +641,9 @@ func _assert_empty_overflow_replays_visible_box_return(context: Dictionary) -> b
 	context["world"] = controller.get("_world")
 	var queue_entries: Array[ChangeRecord] = context["queue"].entries()
 	var replay_steps: Array[Dictionary] = controller.get("_last_replay_steps")
+	var all_empty: bool = queue_entries.size() == 4
+	for entry: ChangeRecord in queue_entries:
+		all_empty = all_empty and entry.type == ChangeRecord.ChangeType.EMPTY
 	var snapshot: String = _formatter.build_snapshot(
 		context["world"],
 		queue_entries,
@@ -616,18 +651,10 @@ func _assert_empty_overflow_replays_visible_box_return(context: Dictionary) -> b
 		replay_steps,
 		BuildInfo.display_text()
 	)
-	var has_return_step: bool = false
-	for step: Dictionary in replay_steps:
-		if step.get("subject", &"") == &"box_0" \
-			and step.get("from", Vector2i.ZERO) == Vector2i(1, 1) \
-			and step.get("to", Vector2i.ZERO) == Vector2i(3, 1):
-			has_return_step = true
-	return queue_entries.size() == 4 \
-		and context["world"].entity_positions.get(&"box_0", Vector2i(-1, -1)) == Vector2i(3, 1) \
-		and not replay_steps.is_empty() \
-		and not snapshot.contains("replay=none") \
-		and has_return_step \
-		and snapshot.contains("box_0:(1, 1)->(3, 1)")
+	return all_empty \
+		and replay_steps.is_empty() \
+		and snapshot.contains("replay=none") \
+		and not snapshot.contains("box_0:(1, 1)->(3, 1)")
 
 
 func _assert_build_info_display_uses_generated_build_file_or_dev(_context: Dictionary) -> bool:
@@ -1071,14 +1098,14 @@ func _build_cases() -> Array[Dictionary]:
 			},
 		},
 		{
-			"id": "empty_overflow_without_visible_change_has_no_replay",
-			"name": "empty_overflow_without_visible_change_has_no_replay",
-			"action": "append Empty pushes out superseded old Position but before/after world is unchanged",
+			"id": "overflow_with_only_empty_memory_has_no_replay",
+			"name": "overflow_with_only_empty_memory_has_no_replay",
+			"action": "overflow leaves only Empty memory so replay must be none",
 			"blueprint": {
 				"board_size": Vector2i(6, 3),
 				"player_start": Vector2i(5, 1),
 				"exit_position": Vector2i(1, 1),
-				"memory_capacity": 5,
+				"memory_capacity": 4,
 				"floors": [
 					Vector3i(1, 1, 0),
 					Vector3i(2, 1, 0),
@@ -1091,9 +1118,29 @@ func _build_cases() -> Array[Dictionary]:
 			},
 		},
 		{
-			"id": "empty_overflow_replays_visible_box_return",
-			"name": "empty_overflow_replays_visible_box_return",
-			"action": "Level001 Empty overflow returns visible box from (1,1) to (3,1) and must replay",
+			"id": "overflow_with_remaining_position_memory_replays_retained_steps",
+			"name": "overflow_with_remaining_position_memory_replays_retained_steps",
+			"action": "overflow retains Position memory so replay must build from default state",
+			"blueprint": {
+				"board_size": Vector2i(6, 3),
+				"player_start": Vector2i(5, 1),
+				"exit_position": Vector2i(1, 1),
+				"memory_capacity": 4,
+				"floors": [
+					Vector3i(1, 1, 0),
+					Vector3i(2, 1, 0),
+					Vector3i(3, 1, 0),
+					Vector3i(4, 1, 0),
+					Vector3i(5, 1, 0),
+				],
+				"walls": [],
+				"boxes": [Vector3i(3, 1, 0)],
+			},
+		},
+		{
+			"id": "controller_empty_overflow_snapshot_matches_memory_semantics",
+			"name": "controller_empty_overflow_snapshot_matches_memory_semantics",
+			"action": "Level001 overflow with Empty memory only must snapshot replay=none",
 			"context_mode": "controller_level001",
 		},
 		{
