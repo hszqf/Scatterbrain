@@ -3,6 +3,7 @@ extends Node
 
 ## Orchestrates level runtime, input handling, change queue updates, and recompiles.
 @export var level_resource: LevelDefinition
+@export var level_scene: PackedScene
 @export var board_view_path: NodePath
 @export var queue_view_path: NodePath
 @export var status_label_path: NodePath
@@ -122,7 +123,7 @@ func _find_solid_box_at(pos: Vector2i) -> StringName:
 func _reset_level() -> void:
 	_is_complete = false
 	_queue.clear()
-	_defaults = WorldDefaults.from_level(level_resource)
+	_defaults = _build_defaults()
 	_world = CompiledWorld.new()
 	_world.board_size = _defaults.board_size
 	_world.player_position = _defaults.player_start
@@ -132,3 +133,21 @@ func _reset_level() -> void:
 	_board_view.sync_world(_world)
 	_queue_view.render_queue(_queue.entries(), _defaults.memory_capacity, _defaults.obsession_capacity)
 	_update_status()
+
+
+func _build_defaults() -> WorldDefaults:
+	if level_scene != null:
+		var root: Node = level_scene.instantiate()
+		add_child(root)
+		if root is LevelRoot:
+			var runtime_data: LevelRuntimeData = (root as LevelRoot).build_runtime_data()
+			remove_child(root)
+			root.queue_free()
+			return WorldDefaults.from_runtime_data(runtime_data)
+		remove_child(root)
+		root.queue_free()
+		push_error("level_scene must instantiate LevelRoot")
+	if level_resource != null:
+		return WorldDefaults.from_level(level_resource)
+	push_error("No level source configured on GameController")
+	return WorldDefaults.from_level(LevelDefinition.new())

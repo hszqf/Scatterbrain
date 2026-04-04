@@ -20,3 +20,16 @@ static func from_level(level: LevelDefinition) -> WorldDefaults:
 	for i: int in range(level.box_start_positions.size()):
 		defaults.default_entity_positions[StringName("box_%d" % i)] = level.box_start_positions[i]
 	return defaults
+
+
+static func from_runtime_data(level_data: LevelRuntimeData) -> WorldDefaults:
+	var defaults := WorldDefaults.new()
+	defaults.board_size = Vector2i(level_data.grid_size.x, level_data.grid_size.y)
+	defaults.player_start = Vector2i(level_data.player_start.x, level_data.player_start.y)
+	defaults.exit_position = Vector2i(level_data.exit_position.x, level_data.exit_position.y)
+	defaults.memory_capacity = level_data.memory_capacity
+	defaults.obsession_capacity = 0
+	for i: int in range(level_data.boxes.size()):
+		var box_coord: Vector3i = level_data.boxes[i]
+		defaults.default_entity_positions[StringName("box_%d" % i)] = Vector2i(box_coord.x, box_coord.y)
+	return defaults
