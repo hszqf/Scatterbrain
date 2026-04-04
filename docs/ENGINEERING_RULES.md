@@ -154,10 +154,12 @@
 - 发布产物必须是静态目录，不允许人工上传构建文件。
 
 ## 19) 版本信息来源（UI Build Info）
-- 运行时版本信息统一来自 `config/build_info.cfg` 的 `[build]` 段，禁止在场景文本中硬编码版本字符串。
-- UI 显示格式：`v{version} · {commit}`，若 `build_date` 非空则追加 ` · {build_date}`。
-- 本地运行/headless 默认使用仓库内文件：`version="0.1.0"`、`commit="dev"`（用于无 Git 注入环境）。
-- GitHub Pages 构建在 `.github/workflows/deploy-web.yml` 的 `Write build metadata` 步骤中覆盖该文件：
-  - `commit` 使用 `${GITHUB_SHA::7}`；
-  - `build_date` 使用 UTC 日期（`YYYY-MM-DD`）。
-- 因此 Pages 上线产物会反映对应 workflow 构建提交的 short sha，本地则稳定显示 `dev` fallback。
+- 运行时版本信息统一来自构建时生成文件 `generated/build_info.json`，禁止在场景文本硬编码，也禁止从文档手抄版本。
+- `build_info.json` 至少包含：`version`、`short_sha`、`build_date`。
+- `BuildInfo.display_text()` 规则：
+  - 文件存在且 `short_sha` 有效：显示 `v{version} · {short_sha}`（若 version 为空则显示 `build {short_sha}`）。
+  - 文件不存在/内容无效：显示 `dev`。
+- GitHub Pages 构建在 `.github/workflows/deploy-web.yml` 的 `Write build metadata` 步骤写入该文件：
+  - `short_sha` 使用 `${GITHUB_SHA::7}`；
+  - `build_date` 使用 UTC 时间（ISO8601，`YYYY-MM-DDTHH:MM:SSZ`）。
+- 因此 Pages 上线产物会反映对应 workflow 构建提交的 short sha，本地未生成文件时稳定显示 `dev` fallback。
