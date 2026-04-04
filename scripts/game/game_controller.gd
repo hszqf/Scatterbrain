@@ -29,6 +29,7 @@ var _input_locked: bool = false
 var _is_complete: bool = false
 var _last_recompile_reason: String = "init"
 var _last_replay_steps: Array[Dictionary] = []
+var _feedback_clear_at_msec: int = 0
 
 
 func _ready() -> void:
@@ -43,6 +44,9 @@ func _ready() -> void:
 
 func _process(_delta: float) -> void:
 	_layout_board()
+	if _feedback_clear_at_msec > 0 and Time.get_ticks_msec() >= _feedback_clear_at_msec:
+		_debug_feedback_label.text = ""
+		_feedback_clear_at_msec = 0
 	if _input_locked:
 		return
 	var intent: InputRouter.Intent = _input_router.poll_intent()
@@ -107,10 +111,11 @@ func copy_debug_log() -> void:
 	var text: String = _debug_log_formatter.build_snapshot(_world, _queue.entries(), _last_recompile_reason, _last_replay_steps)
 	DisplayServer.clipboard_set(text)
 	if DisplayServer.clipboard_get() == text:
-		_debug_feedback_label.text = "日志已复制"
+		_debug_feedback_label.text = "LOG copied"
 	else:
 		print(text)
-		_debug_feedback_label.text = "复制失败，已输出到控制台"
+		_debug_feedback_label.text = "Copy failed; printed log"
+	_feedback_clear_at_msec = Time.get_ticks_msec() + 1400
 
 
 func _handle_move(direction: Vector2i) -> void:
@@ -139,7 +144,7 @@ func _post_player_move() -> void:
 func _check_win() -> void:
 	if _world.player_position == _world.exit_position:
 		_is_complete = true
-		_status_label.text = "过关！按 R 或底部重开"
+		_status_label.text = "CLEAR! press R / RST"
 
 
 func _recompile_world(reason: String) -> void:
@@ -176,7 +181,7 @@ func _recompile_world(reason: String) -> void:
 func _update_status() -> void:
 	if _is_complete:
 		return
-	_status_label.text = "方向键/WASD 或底部按钮:移动  Space/沉思:沉思"
+	_status_label.text = "MOVE: WASD/Arrows • SPACE: REST"
 
 
 func _layout_board() -> void:
@@ -185,7 +190,23 @@ func _layout_board() -> void:
 	var area_pos: Vector2 = _board_center_anchor.global_position
 	var area_size: Vector2 = _board_center_anchor.size
 	var board_size: Vector2 = _board_view.board_pixel_size()
-	_board_view.position = area_pos + ((area_size - board_size) * 0.5)
+	if board_size == Vector2.ZERO:
+		return
+	var scale_fit_x: float = area_size.x / board_size.x
+	var scale_fit_y: float = area_size.y / board_size.y
+	var base_scale: float = min(scale_fit_x, scale_fit_y)
+	var is_portrait: bool = area_size.y > area_size.x
+	var target_scale: float = min(base_scale, 1.0)
+	if is_portrait:
+		target_scale = min(base_scale * 0.98, 1.05)
+	var clamped_scale: float = clamp(target_scale, 0.65, 1.2)
+	_board_view.scale = Vector2.ONE * clamped_scale
+	var drawn_size: Vector2 = board_size * clamped_scale
+	var top_bias: float = area_size.y * (0.12 if is_portrait else 0.18)
+	var max_top: float = max(area_size.y - drawn_size.y, 0.0)
+	var top_offset: float = clamp(top_bias, 0.0, max_top)
+	var centered_x: float = (area_size.x - drawn_size.x) * 0.5
+	_board_view.position = area_pos + Vector2(centered_x, top_offset)
 
 
 func _reset_level() -> void:
