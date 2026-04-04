@@ -16,6 +16,7 @@ var _compiler: WorldCompiler = WorldCompiler.new()
 var _queue: ChangeQueue = ChangeQueue.new()
 var _world: CompiledWorld
 var _input_router: InputRouter = InputRouter.new()
+var _move_resolver: PlayerMoveResolver = PlayerMoveResolver.new()
 var _input_locked: bool = false
 var _is_complete: bool = false
 
@@ -47,35 +48,15 @@ func _process(_delta: float) -> void:
 
 
 func _handle_move(direction: Vector2i) -> void:
-	var target: Vector2i = _world.player_position + direction
-	if not _world.is_inside(target):
-		return
-	if not _world.has_floor_at(target):
-		return
-	if _world.has_wall_at(target):
+	var resolution: Dictionary = _move_resolver.resolve_move(_world, direction)
+	if not resolution["player_moved"]:
 		return
 
-	var box_id: StringName = _find_solid_box_at(target)
-	if box_id == &"":
-		_world.player_position = target
+	var change: ChangeRecord = resolution["change"]
+	if change == null:
 		_post_player_move()
 		return
-
-	var push_target: Vector2i = target + direction
-	if not _world.is_inside(push_target):
-		return
-	if _world.has_wall_at(push_target):
-		return
-	if _find_solid_box_at(push_target) != &"":
-		return
-
-	_world.player_position = target
-	if _world.has_floor_at(push_target):
-		append_change(ChangeRecord.new(ChangeRecord.ChangeType.POSITION, box_id, push_target, false, "push"))
-		return
-
-	_world.entity_positions.erase(box_id)
-	append_change(ChangeRecord.new(ChangeRecord.ChangeType.POSITION, box_id, push_target, false, "push fall"))
+	append_change(change)
 
 
 func append_change(change: ChangeRecord) -> void:
@@ -122,12 +103,6 @@ func _update_status() -> void:
 		return
 	_status_label.text = "方向键/WASD:移动  Space:沉思  R:重开"
 
-
-func _find_solid_box_at(pos: Vector2i) -> StringName:
-	for entity_id: StringName in _world.entity_positions.keys():
-		if _world.entity_positions[entity_id] == pos:
-			return entity_id
-	return &""
 
 
 func _reset_level() -> void:

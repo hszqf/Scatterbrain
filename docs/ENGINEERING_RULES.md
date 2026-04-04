@@ -22,6 +22,7 @@
 - `scenes/levels/`：可视化关卡编辑场景（`LevelRoot`、`LevelCell` 与具体关卡场景）。
 - `levels/`：历史遗留目录，不得作为运行时关卡入口。
 - `docs/`：架构与规范文档，改架构必须更新本文件。
+- `scripts/tests/`：headless 逻辑测试入口（文本断言，不做画面比较）。
 
 ## 4) 单一关卡真源（强约束）
 - 现在**只支持** scene-based level editing。
@@ -114,3 +115,9 @@
 ## Assumptions / Deviations
 - 第一版没有伤害、死亡、敌人、机关与门桥系统。
 - 第一版未开放执念操作，仅保留队列字段与 UI 展示位。
+
+## 14) Headless 逻辑测试
+- 逻辑测试必须通过 headless 脚本执行，不依赖编辑器手动操作。
+- 基础回归入口：`godot --headless --path . --script scripts/tests/headless_logic_harness.gd`。
+- 每个 case 必须输出：case 名称、initial state、action、final state、PASS/FAIL。
+- 该 harness 仅验证核心规则（移动/推箱/落空），不进行截图或视觉断言。
