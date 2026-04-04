@@ -29,7 +29,7 @@ func render_queue(entries: Array[ChangeRecord], capacity: int, obsession_capacit
 		label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		label.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		label.add_theme_font_size_override("font_size", 12)
-		label.text = _slot_symbol(entries[i]) if has_entry else "·"
+		label.text = _slot_symbol(entries[i]) if has_entry else "-"
 		slot.add_child(label)
 		var marker: ColorRect = ColorRect.new()
 		marker.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -49,11 +49,11 @@ func render_queue(entries: Array[ChangeRecord], capacity: int, obsession_capacit
 func _slot_symbol(entry: ChangeRecord) -> String:
 	match entry.type:
 		ChangeRecord.ChangeType.POSITION:
-			return "↔"
+			return "POS"
 		ChangeRecord.ChangeType.EMPTY:
-			return "○"
+			return "EMP"
 		ChangeRecord.ChangeType.GHOST:
-			return "◌"
+			return "GST"
 		_:
 			return "?"
 

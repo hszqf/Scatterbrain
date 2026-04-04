@@ -66,11 +66,23 @@ func _apply_changes(
 ) -> Array[ChangeRecord]:
 	var generated_ghost_changes: Array[ChangeRecord] = []
 	var generated_ghost_keys: Dictionary[String, bool] = {}
-	for change: ChangeRecord in entries:
+	var last_position_like_index_by_subject: Dictionary[StringName, int] = {}
+	for i: int in range(entries.size()):
+		var position_like_entry: ChangeRecord = entries[i]
+		if position_like_entry.type != ChangeRecord.ChangeType.POSITION and position_like_entry.type != ChangeRecord.ChangeType.GHOST:
+			continue
+		if position_like_entry.subject_id == &"":
+			continue
+		last_position_like_index_by_subject[position_like_entry.subject_id] = i
+
+	for i: int in range(entries.size()):
+		var change: ChangeRecord = entries[i]
 		match change.type:
 			ChangeRecord.ChangeType.POSITION:
 				_apply_position_like_change(
 					change,
+					i,
+					last_position_like_index_by_subject,
 					world,
 					generated_ghost_changes,
 					true,
@@ -80,6 +92,8 @@ func _apply_changes(
 			ChangeRecord.ChangeType.GHOST:
 				_apply_position_like_change(
 					change,
+					i,
+					last_position_like_index_by_subject,
 					world,
 					generated_ghost_changes,
 					false,
@@ -95,6 +109,8 @@ func _apply_changes(
 
 func _apply_position_like_change(
 	change: ChangeRecord,
+	index: int,
+	last_position_like_index_by_subject: Dictionary[StringName, int],
 	world: CompiledWorld,
 	generated_ghost_changes: Array[ChangeRecord],
 	allow_generate_ghost: bool,
@@ -118,6 +134,9 @@ func _apply_position_like_change(
 	world.entity_positions.erase(change.subject_id)
 	world.ghost_entities[change.subject_id] = target
 	if allow_generate_ghost:
+		var last_position_like_index: int = last_position_like_index_by_subject.get(change.subject_id, index)
+		if index != last_position_like_index:
+			return
 		var key: String = _ghost_key(change.subject_id, target)
 		if existing_ghost_keys.has(key) or generated_ghost_keys.has(key):
 			return

@@ -93,6 +93,10 @@ func _run_case(case_data: Dictionary) -> bool:
 			passed = _assert_debug_snapshot_has_real_values_not_placeholders(context)
 		"compiler_does_not_duplicate_same_ghost_repeatedly":
 			passed = _assert_compiler_does_not_duplicate_same_ghost_repeatedly(context)
+		"level001_three_left_moves_no_stale_ghost":
+			passed = _assert_level001_three_left_moves_no_stale_ghost(context)
+		"memory_queue_symbols_are_ascii_safe":
+			passed = _assert_memory_queue_symbols_are_ascii_safe(context)
 		_:
 			push_error("Unknown case id: %s" % case_id)
 			passed = false
@@ -548,6 +552,35 @@ func _assert_compiler_does_not_duplicate_same_ghost_repeatedly(_context: Diction
 		and final_entries[1].type == ChangeRecord.ChangeType.GHOST
 
 
+func _assert_level001_three_left_moves_no_stale_ghost(context: Dictionary) -> bool:
+	_controller_handle_move(context, Vector2i.LEFT)
+	_controller_handle_move(context, Vector2i.LEFT)
+	var third_move: Dictionary = _controller_handle_move(context, Vector2i.LEFT)
+	var world: CompiledWorld = context["world"]
+	var queue_entries: Array[ChangeRecord] = context["queue"].entries()
+	var replay_steps: Array[Dictionary] = context["controller"].get("_last_replay_steps")
+	var has_ghost_to_two_one: bool = _count_ghost_entries(queue_entries, &"box_0", Vector2i(2, 1)) > 0
+	var position_count: int = 0
+	for entry: ChangeRecord in queue_entries:
+		if entry.type == ChangeRecord.ChangeType.POSITION:
+			position_count += 1
+	return third_move["player_moved"] \
+		and world.player_position == Vector2i(2, 1) \
+		and _sorted_vec2_array(world.entity_positions.values()) == [Vector2i(1, 1)] \
+		and queue_entries.size() == 2 \
+		and position_count == 2 \
+		and not has_ghost_to_two_one \
+		and replay_steps.is_empty()
+
+
+func _assert_memory_queue_symbols_are_ascii_safe(_context: Dictionary) -> bool:
+	var view := MemoryQueueView.new()
+	var position_symbol: String = view._slot_symbol(ChangeRecord.new(ChangeRecord.ChangeType.POSITION, &"box_0", Vector2i(0, 0)))
+	var empty_symbol: String = view._slot_symbol(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO))
+	var ghost_symbol: String = view._slot_symbol(ChangeRecord.new(ChangeRecord.ChangeType.GHOST, &"box_0", Vector2i(0, 0)))
+	return position_symbol == "POS" and empty_symbol == "EMP" and ghost_symbol == "GST"
+
+
 func _count_ghost_entries(entries: Array[ChangeRecord], subject_id: StringName, target: Vector2i) -> int:
 	var count: int = 0
 	for entry: ChangeRecord in entries:
@@ -886,6 +919,25 @@ func _build_cases() -> Array[Dictionary]:
 				"player_start": Vector2i(0, 0),
 				"exit_position": Vector2i(1, 0),
 				"floors": [Vector3i(0, 0, 0), Vector3i(1, 0, 0)],
+				"walls": [],
+				"boxes": [],
+			},
+		},
+		{
+			"id": "level001_three_left_moves_no_stale_ghost",
+			"name": "level001_three_left_moves_no_stale_ghost",
+			"context_mode": "controller_level001",
+			"action": "GameController on Level001 then LEFT, LEFT, LEFT and assert no stale ghost",
+		},
+		{
+			"id": "memory_queue_symbols_are_ascii_safe",
+			"name": "memory_queue_symbols_are_ascii_safe",
+			"action": "assert queue slot symbols are POS/EMP/GST",
+			"blueprint": {
+				"board_size": Vector2i(1, 1),
+				"player_start": Vector2i(0, 0),
+				"exit_position": Vector2i(0, 0),
+				"floors": [Vector3i(0, 0, 0)],
 				"walls": [],
 				"boxes": [],
 			},
