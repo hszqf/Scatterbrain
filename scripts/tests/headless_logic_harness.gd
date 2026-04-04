@@ -91,8 +91,10 @@ func _run_case(case_data: Dictionary) -> bool:
 			passed = _assert_level001_two_left_moves_state_is_stable(context)
 		"debug_snapshot_has_real_values_not_placeholders":
 			passed = _assert_debug_snapshot_has_real_values_not_placeholders(context)
-		"empty_pushout_does_not_create_replay_steps":
-			passed = _assert_empty_pushout_does_not_create_replay_steps(context)
+		"snapshot_includes_build_info":
+			passed = _assert_snapshot_includes_build_info(context)
+		"empty_pushout_with_superseded_position_creates_no_replay":
+			passed = _assert_empty_pushout_with_superseded_position_creates_no_replay(context)
 		"controller_empty_overflow_snapshot_replay_is_none":
 			passed = _assert_controller_empty_overflow_snapshot_replay_is_none(context)
 		"build_info_display_uses_generated_build_file_or_dev":
@@ -466,7 +468,7 @@ func _assert_controller_replay_locks_input_then_unlocks(context: Dictionary) -> 
 	var replay_controller: ReplayController = controller.get_node(controller.replay_controller_path)
 	replay_controller.step_duration = 0.05
 	_controller_handle_move(context, Vector2i.RIGHT)
-	_controller_handle_move(context, Vector2i.RIGHT)
+	controller.request_empty_change()
 	var locked_during: bool = controller.get("_input_locked")
 	for i: int in range(20):
 		if not controller.get("_input_locked"):
@@ -522,7 +524,8 @@ func _assert_debug_snapshot_has_real_values_not_placeholders(context: Dictionary
 		world,
 		context["queue"].entries(),
 		String(controller.get("_last_recompile_reason")),
-		controller.get("_last_replay_steps")
+		controller.get("_last_replay_steps"),
+		BuildInfo.display_text()
 	)
 	return not snapshot.contains("boxes=%s") \
 		and snapshot.contains("boxes=") \
@@ -533,26 +536,68 @@ func _assert_debug_snapshot_has_real_values_not_placeholders(context: Dictionary
 		and snapshot.contains("Position(box_0 -> (2, 1))")
 
 
-func _assert_empty_pushout_does_not_create_replay_steps(context: Dictionary) -> bool:
+func _assert_snapshot_includes_build_info(context: Dictionary) -> bool:
+	var build_info_path: String = BuildInfo.BUILD_INFO_PATH
+	var build_info_absolute_path: String = ProjectSettings.globalize_path(build_info_path)
+	var original_exists: bool = FileAccess.file_exists(build_info_path)
+	var original_text: String = ""
+	if original_exists:
+		var original_file: FileAccess = FileAccess.open(build_info_path, FileAccess.READ)
+		if original_file != null:
+			original_text = original_file.get_as_text()
+	DirAccess.remove_absolute(build_info_absolute_path)
+	var snapshot: String = _formatter.build_snapshot(
+		context["world"],
+		context["queue"].entries(),
+		"harness",
+		[],
+		BuildInfo.display_text()
+	)
+	if original_exists:
+		_ensure_generated_dir_exists(build_info_absolute_path)
+		var restore_file: FileAccess = FileAccess.open(build_info_path, FileAccess.WRITE)
+		if restore_file != null:
+			restore_file.store_string(original_text)
+	return snapshot.contains("build=") \
+		and snapshot.contains("build=dev")
+
+
+func _assert_empty_pushout_with_superseded_position_creates_no_replay(context: Dictionary) -> bool:
 	var defaults: WorldDefaults = context["defaults"]
 	var queue: ChangeQueue = context["queue"]
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.POSITION, &"box_0", Vector2i(2, 1), false, "older"))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.POSITION, &"box_0", Vector2i(1, 1), false, "newer"))
 	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "empty_a"))
 	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "empty_b"))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "empty_c"))
 	var queue_before_compile: Array[ChangeRecord] = queue.entries()
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "empty_trigger"))
 	var result: CompileResult = _compiler.compile(defaults, queue, defaults.player_start)
 	var builder := ReplayPayloadBuilder.new()
 	var replay_steps: Array[Dictionary] = builder.build_steps(defaults, queue_before_compile, result.pushed_out_changes)
-	var has_empty_pushout: bool = false
+	var pushed_out_old_position: bool = false
 	for pushed: ChangeRecord in result.pushed_out_changes:
-		if pushed.type == ChangeRecord.ChangeType.EMPTY:
-			has_empty_pushout = true
-	return has_empty_pushout \
+		if pushed.type == ChangeRecord.ChangeType.POSITION \
+			and pushed.subject_id == &"box_0" \
+			and pushed.target_position == Vector2i(2, 1):
+			pushed_out_old_position = true
+	var final_entries: Array[ChangeRecord] = result.queue_entries
+	var final_queue_starts_with_latest_position: bool = not final_entries.is_empty() \
+		and final_entries[0].type == ChangeRecord.ChangeType.POSITION \
+		and final_entries[0].subject_id == &"box_0" \
+		and final_entries[0].target_position == Vector2i(1, 1)
+	return pushed_out_old_position \
+		and final_queue_starts_with_latest_position \
 		and replay_steps.is_empty() \
-		and str(replay_steps).find(":(0, 0)->(0, 0)") == -1
+		and str(replay_steps).find("box_0:(3, 1)->(2, 1)") == -1
 
 
 func _assert_controller_empty_overflow_snapshot_replay_is_none(context: Dictionary) -> bool:
 	var controller: GameController = context["controller"]
+	_controller_handle_move(context, Vector2i.LEFT)
+	_controller_handle_move(context, Vector2i.LEFT)
+	_controller_handle_move(context, Vector2i.LEFT)
+	controller.request_empty_change()
 	controller.request_empty_change()
 	controller.request_empty_change()
 	var queue_entries: Array[ChangeRecord] = context["queue"].entries()
@@ -560,12 +605,14 @@ func _assert_controller_empty_overflow_snapshot_replay_is_none(context: Dictiona
 		context["world"],
 		queue_entries,
 		String(controller.get("_last_recompile_reason")),
-		controller.get("_last_replay_steps")
+		controller.get("_last_replay_steps"),
+		BuildInfo.display_text()
 	)
-	return queue_entries.size() == 1 \
-		and queue_entries[0].type == ChangeRecord.ChangeType.EMPTY \
+	return queue_entries.size() == 4 \
+		and queue_entries[0].type == ChangeRecord.ChangeType.POSITION \
+		and queue_entries[0].target_position == Vector2i(1, 1) \
 		and snapshot.contains("replay=none") \
-		and not snapshot.contains(":(0, 0)->(0, 0)")
+		and not snapshot.contains("box_0:(3, 1)->(2, 1)")
 
 
 func _assert_build_info_display_uses_generated_build_file_or_dev(_context: Dictionary) -> bool:
@@ -996,32 +1043,43 @@ func _build_cases() -> Array[Dictionary]:
 			"action": "format DebugSnapshot after deterministic Level001 moves",
 		},
 		{
-			"id": "empty_pushout_does_not_create_replay_steps",
-			"name": "empty_pushout_does_not_create_replay_steps",
-			"action": "compile empty-only overflow and ensure replay steps stay empty",
+			"id": "snapshot_includes_build_info",
+			"name": "snapshot_includes_build_info",
+			"action": "DebugSnapshot includes build=dev fallback",
 			"blueprint": {
-				"board_size": Vector2i(3, 1),
+				"board_size": Vector2i(1, 1),
 				"player_start": Vector2i(0, 0),
-				"exit_position": Vector2i(2, 0),
-				"memory_capacity": 1,
-				"floors": [Vector3i(0, 0, 0), Vector3i(1, 0, 0), Vector3i(2, 0, 0)],
+				"exit_position": Vector2i(0, 0),
+				"floors": [Vector3i(0, 0, 0)],
 				"walls": [],
 				"boxes": [],
+			},
+		},
+		{
+			"id": "empty_pushout_with_superseded_position_creates_no_replay",
+			"name": "empty_pushout_with_superseded_position_creates_no_replay",
+			"action": "append Empty causes superseded old Position pushout and replay remains empty",
+			"blueprint": {
+				"board_size": Vector2i(6, 3),
+				"player_start": Vector2i(5, 1),
+				"exit_position": Vector2i(1, 1),
+				"memory_capacity": 5,
+				"floors": [
+					Vector3i(1, 1, 0),
+					Vector3i(2, 1, 0),
+					Vector3i(3, 1, 0),
+					Vector3i(4, 1, 0),
+					Vector3i(5, 1, 0),
+				],
+				"walls": [],
+				"boxes": [Vector3i(3, 1, 0)],
 			},
 		},
 		{
 			"id": "controller_empty_overflow_snapshot_replay_is_none",
 			"name": "controller_empty_overflow_snapshot_replay_is_none",
 			"action": "GameController empty overflow should keep replay=none",
-			"blueprint": {
-				"board_size": Vector2i(3, 1),
-				"player_start": Vector2i(0, 0),
-				"exit_position": Vector2i(2, 0),
-				"memory_capacity": 1,
-				"floors": [Vector3i(0, 0, 0), Vector3i(1, 0, 0), Vector3i(2, 0, 0)],
-				"walls": [],
-				"boxes": [],
-			},
+			"context_mode": "controller_level001",
 		},
 		{
 			"id": "build_info_display_uses_generated_build_file_or_dev",
