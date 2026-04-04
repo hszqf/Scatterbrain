@@ -112,7 +112,7 @@ func on_copy_log_pressed() -> void:
 
 
 func copy_debug_log() -> void:
-	var text: String = _debug_log_formatter.build_snapshot(_world, _queue.entries(), _last_recompile_reason, _last_replay_steps)
+	var text: String = _debug_log_formatter.build_snapshot(_world, _queue.entries(), _last_recompile_reason, _last_replay_steps, BuildInfo.display_text())
 	DisplayServer.clipboard_set(text)
 	if DisplayServer.clipboard_get() == text:
 		_debug_feedback_label.text = "LOG copied"

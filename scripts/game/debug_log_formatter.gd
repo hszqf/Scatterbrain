@@ -6,10 +6,12 @@ func build_snapshot(
 	world: CompiledWorld,
 	queue_entries: Array[ChangeRecord],
 	recompile_reason: String,
-	replay_steps: Array[Dictionary]
+	replay_steps: Array[Dictionary],
+	build_text: String
 ) -> String:
 	var lines: Array[String] = []
 	lines.append("[DebugSnapshot]")
+	lines.append("build=%s" % build_text)
 	lines.append("player=%s" % world.player_position)
 	lines.append("boxes=%s" % str(_sorted_vec2(world.entity_positions.values())))
 	lines.append("queue=%s" % str(_queue_summary(queue_entries)))
