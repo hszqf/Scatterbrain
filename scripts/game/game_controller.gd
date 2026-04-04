@@ -9,6 +9,7 @@ extends Node
 @export var status_label_path: NodePath
 @export var debug_feedback_label_path: NodePath
 @export var board_center_anchor_path: NodePath
+@export var build_info_label_path: NodePath
 
 var _board_view: BoardView
 var _replay_controller: ReplayController
@@ -16,6 +17,7 @@ var _queue_view: MemoryQueueView
 var _status_label: Label
 var _debug_feedback_label: Label
 var _board_center_anchor: Control
+var _build_info_label: Label
 
 var _defaults: WorldDefaults
 var _compiler: WorldCompiler = WorldCompiler.new()
@@ -39,6 +41,8 @@ func _ready() -> void:
 	_status_label = get_node(status_label_path)
 	_debug_feedback_label = get_node(debug_feedback_label_path)
 	_board_center_anchor = get_node(board_center_anchor_path)
+	_build_info_label = get_node(build_info_label_path)
+	_build_info_label.text = BuildInfo.display_text()
 	_reset_level()
 
 
