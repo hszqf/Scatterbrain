@@ -65,7 +65,6 @@ func _handle_move(direction: Vector2i) -> void:
 
 	_world.player_position = target
 	append_change(ChangeRecord.new(ChangeRecord.ChangeType.POSITION, box_id, push_target, false, "push"))
-	_post_player_move()
 
 
 func append_change(change: ChangeRecord) -> void:
@@ -88,7 +87,8 @@ func _check_win() -> void:
 func _recompile_world(reason: String) -> void:
 	_input_locked = true
 	print("[Recompile] begin reason=%s" % reason)
-	var result: CompileResult = _compiler.compile(_defaults, _queue)
+	var current_player_position: Vector2i = _world.player_position
+	var result: CompileResult = _compiler.compile(_defaults, _queue, current_player_position)
 	_world = result.world
 
 	_queue.clear()

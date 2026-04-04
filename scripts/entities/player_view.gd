@@ -11,4 +11,4 @@ func set_board_position(pos: Vector2i, cell_size: int) -> void:
 
 
 func _draw() -> void:
-	draw_rect(Rect2(Vector2(-28, -28), Vector2(56, 56)), Color.WHITE, true)
+	draw_circle(Vector2.ZERO, 22.0, Color("48d7d7"))
