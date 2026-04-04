@@ -11,6 +11,7 @@ var _player_view: PlayerView
 var _exit_view: ExitView
 var _box_layer: Node2D
 var _boxes: Dictionary[StringName, BoxView] = {}
+var _world: CompiledWorld
 
 
 func _ready() -> void:
@@ -20,6 +21,7 @@ func _ready() -> void:
 
 
 func sync_world(world: CompiledWorld) -> void:
+	_world = world
 	_player_view.set_board_position(world.player_position, cell_size)
 	_exit_view.set_board_position(world.exit_position, cell_size)
 
@@ -50,6 +52,18 @@ func _draw() -> void:
 		return
 	var bg := Rect2(Vector2.ZERO, Vector2(world_size.x * cell_size, world_size.y * cell_size))
 	draw_rect(bg, Color("11161d"), true)
+
+	if _world != null:
+		for y: int in range(world_size.y):
+			for x: int in range(world_size.x):
+				var cell := Vector2i(x, y)
+				var cell_rect := Rect2(Vector2(x * cell_size, y * cell_size), Vector2(cell_size, cell_size))
+				if _world.has_floor_at(cell):
+					draw_rect(cell_rect, Color("232d3a"), true)
+				if _world.has_wall_at(cell):
+					var pad: float = float(cell_size) * 0.11
+					draw_rect(cell_rect.grow(-pad), Color("6f7f97"), true)
+
 	for y: int in range(world_size.y + 1):
 		draw_line(Vector2(0, y * cell_size), Vector2(world_size.x * cell_size, y * cell_size), Color("2b3644"), 1.5)
 	for x: int in range(world_size.x + 1):

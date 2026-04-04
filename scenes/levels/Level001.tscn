@@ -1,0 +1,108 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/level_editor/level_root.gd" id="1"]
+[ext_resource type="Script" path="res://scripts/level_editor/level_cell.gd" id="2"]
+
+[node name="Level001" type="Node2D"]
+script = ExtResource("1")
+grid_size = Vector3i(6, 3, 1)
+memory_capacity = 4
+auto_rebuild_in_editor = false
+
+[node name="Grid" type="Node2D" parent="."]
+
+[node name="Slice_0" type="Node2D" parent="Grid"]
+
+[node name="Cell_0_0_0" type="Node2D" parent="Grid/Slice_0"]
+script = ExtResource("2")
+coord = Vector3i(0, 0, 0)
+has_floor = true
+
+[node name="Cell_1_0_0" type="Node2D" parent="Grid/Slice_0"]
+script = ExtResource("2")
+coord = Vector3i(1, 0, 0)
+has_floor = true
+
+[node name="Cell_2_0_0" type="Node2D" parent="Grid/Slice_0"]
+script = ExtResource("2")
+coord = Vector3i(2, 0, 0)
+has_floor = true
+
+[node name="Cell_3_0_0" type="Node2D" parent="Grid/Slice_0"]
+script = ExtResource("2")
+coord = Vector3i(3, 0, 0)
+has_floor = true
+
+[node name="Cell_4_0_0" type="Node2D" parent="Grid/Slice_0"]
+script = ExtResource("2")
+coord = Vector3i(4, 0, 0)
+has_floor = true
+
+[node name="Cell_5_0_0" type="Node2D" parent="Grid/Slice_0"]
+script = ExtResource("2")
+coord = Vector3i(5, 0, 0)
+has_floor = true
+
+[node name="Cell_0_1_0" type="Node2D" parent="Grid/Slice_0"]
+script = ExtResource("2")
+coord = Vector3i(0, 1, 0)
+has_floor = true
+
+[node name="Cell_1_1_0" type="Node2D" parent="Grid/Slice_0"]
+script = ExtResource("2")
+coord = Vector3i(1, 1, 0)
+has_floor = true
+is_player_spawn = true
+
+[node name="Cell_2_1_0" type="Node2D" parent="Grid/Slice_0"]
+script = ExtResource("2")
+coord = Vector3i(2, 1, 0)
+has_floor = true
+
+[node name="Cell_3_1_0" type="Node2D" parent="Grid/Slice_0"]
+script = ExtResource("2")
+coord = Vector3i(3, 1, 0)
+has_floor = true
+content_type = 2
+
+[node name="Cell_4_1_0" type="Node2D" parent="Grid/Slice_0"]
+script = ExtResource("2")
+coord = Vector3i(4, 1, 0)
+has_floor = true
+
+[node name="Cell_5_1_0" type="Node2D" parent="Grid/Slice_0"]
+script = ExtResource("2")
+coord = Vector3i(5, 1, 0)
+has_floor = true
+is_exit = true
+
+[node name="Cell_0_2_0" type="Node2D" parent="Grid/Slice_0"]
+script = ExtResource("2")
+coord = Vector3i(0, 2, 0)
+has_floor = true
+
+[node name="Cell_1_2_0" type="Node2D" parent="Grid/Slice_0"]
+script = ExtResource("2")
+coord = Vector3i(1, 2, 0)
+has_floor = true
+
+[node name="Cell_2_2_0" type="Node2D" parent="Grid/Slice_0"]
+script = ExtResource("2")
+coord = Vector3i(2, 2, 0)
+has_floor = true
+
+[node name="Cell_3_2_0" type="Node2D" parent="Grid/Slice_0"]
+script = ExtResource("2")
+coord = Vector3i(3, 2, 0)
+has_floor = true
+
+[node name="Cell_4_2_0" type="Node2D" parent="Grid/Slice_0"]
+script = ExtResource("2")
+coord = Vector3i(4, 2, 0)
+has_floor = true
+
+[node name="Cell_5_2_0" type="Node2D" parent="Grid/Slice_0"]
+script = ExtResource("2")
+coord = Vector3i(5, 2, 0)
+has_floor = true
+
