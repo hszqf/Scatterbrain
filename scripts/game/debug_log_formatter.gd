@@ -11,13 +11,13 @@ func build_snapshot(
 	var lines: Array[String] = []
 	lines.append("[DebugSnapshot]")
 	lines.append("player=%s" % world.player_position)
-	lines.append("boxes=%s" % _sorted_vec2(world.entity_positions.values()))
-	lines.append("queue=%s" % _queue_summary(queue_entries))
+	lines.append("boxes=%s" % str(_sorted_vec2(world.entity_positions.values())))
+	lines.append("queue=%s" % str(_queue_summary(queue_entries)))
 	lines.append("board_size=%s" % world.board_size)
-	lines.append("floors=%d sample=%s" % [world.floor_cells.size(), _sample_positions(world.floor_cells.keys())])
-	lines.append("walls=%d sample=%s" % [world.wall_positions.size(), _sample_positions(world.wall_positions.keys())])
+	lines.append("floors=%d sample=%s" % [world.floor_cells.size(), str(_sample_positions(world.floor_cells.keys()))])
+	lines.append("walls=%d sample=%s" % [world.wall_positions.size(), str(_sample_positions(world.wall_positions.keys()))])
 	lines.append("recompile_reason=%s" % recompile_reason)
-	lines.append("replay=%s" % _replay_summary(replay_steps))
+	lines.append("replay=%s" % str(_replay_summary(replay_steps)))
 	return "\n".join(lines)
 
 

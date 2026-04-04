@@ -112,7 +112,7 @@ layout_mode = 2
 [node name="UpButton" type="Button" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomRow/MovePad"]
 custom_minimum_size = Vector2(56, 56)
 layout_mode = 2
-text = "↑"
+text = "UP"
 
 [node name="PadBlankB" type="Control" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomRow/MovePad"]
 custom_minimum_size = Vector2(56, 56)
@@ -121,7 +121,7 @@ layout_mode = 2
 [node name="LeftButton" type="Button" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomRow/MovePad"]
 custom_minimum_size = Vector2(56, 56)
 layout_mode = 2
-text = "←"
+text = "LT"
 
 [node name="PadBlankC" type="Control" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomRow/MovePad"]
 custom_minimum_size = Vector2(56, 56)
@@ -130,7 +130,7 @@ layout_mode = 2
 [node name="RightButton" type="Button" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomRow/MovePad"]
 custom_minimum_size = Vector2(56, 56)
 layout_mode = 2
-text = "→"
+text = "RT"
 
 [node name="PadBlankD" type="Control" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomRow/MovePad"]
 custom_minimum_size = Vector2(56, 56)
@@ -139,7 +139,7 @@ layout_mode = 2
 [node name="DownButton" type="Button" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomRow/MovePad"]
 custom_minimum_size = Vector2(56, 56)
 layout_mode = 2
-text = "↓"
+text = "DN"
 
 [node name="PadBlankE" type="Control" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomRow/MovePad"]
 custom_minimum_size = Vector2(56, 56)
