@@ -2,7 +2,6 @@ class_name GameController
 extends Node
 
 ## Orchestrates level runtime, input handling, change queue updates, and recompiles.
-@export var level_resource: LevelDefinition
 @export var level_scene: PackedScene
 @export var board_view_path: NodePath
 @export var queue_view_path: NodePath
@@ -51,6 +50,10 @@ func _handle_move(direction: Vector2i) -> void:
 	var target: Vector2i = _world.player_position + direction
 	if not _world.is_inside(target):
 		return
+	if not _world.has_floor_at(target):
+		return
+	if _world.has_wall_at(target):
+		return
 
 	var box_id: StringName = _find_solid_box_at(target)
 	if box_id == &"":
@@ -61,11 +64,18 @@ func _handle_move(direction: Vector2i) -> void:
 	var push_target: Vector2i = target + direction
 	if not _world.is_inside(push_target):
 		return
-	if _world.is_solid_at(push_target):
+	if _world.has_wall_at(push_target):
+		return
+	if _find_solid_box_at(push_target) != &"":
 		return
 
 	_world.player_position = target
-	append_change(ChangeRecord.new(ChangeRecord.ChangeType.POSITION, box_id, push_target, false, "push"))
+	if _world.has_floor_at(push_target):
+		append_change(ChangeRecord.new(ChangeRecord.ChangeType.POSITION, box_id, push_target, false, "push"))
+		return
+
+	_world.entity_positions.erase(box_id)
+	append_change(ChangeRecord.new(ChangeRecord.ChangeType.POSITION, box_id, push_target, false, "push fall"))
 
 
 func append_change(change: ChangeRecord) -> void:
@@ -128,6 +138,10 @@ func _reset_level() -> void:
 	_world.board_size = _defaults.board_size
 	_world.player_position = _defaults.player_start
 	_world.exit_position = _defaults.exit_position
+	for floor_pos: Vector2i in _defaults.floor_cells:
+		_world.floor_cells[floor_pos] = true
+	for wall_pos: Vector2i in _defaults.wall_positions:
+		_world.wall_positions[wall_pos] = true
 	_world.entity_positions = _defaults.default_entity_positions.duplicate()
 	_board_view.set_board_size(_defaults.board_size)
 	_board_view.sync_world(_world)
@@ -136,18 +150,20 @@ func _reset_level() -> void:
 
 
 func _build_defaults() -> WorldDefaults:
-	if level_scene != null:
-		var root: Node = level_scene.instantiate()
-		add_child(root)
-		if root is LevelRoot:
-			var runtime_data: LevelRuntimeData = (root as LevelRoot).build_runtime_data()
-			remove_child(root)
-			root.queue_free()
-			return WorldDefaults.from_runtime_data(runtime_data)
-		remove_child(root)
+	if level_scene == null:
+		push_error("GameController.level_scene is required and cannot be null.")
+		assert(false, "GameController requires level_scene")
+		return null
+
+	var root: Node = level_scene.instantiate()
+	if root is not LevelRoot:
 		root.queue_free()
 		push_error("level_scene must instantiate LevelRoot")
-	if level_resource != null:
-		return WorldDefaults.from_level(level_resource)
-	push_error("No level source configured on GameController")
-	return WorldDefaults.from_level(LevelDefinition.new())
+		assert(false, "level_scene must instantiate LevelRoot")
+		return null
+
+	add_child(root)
+	var runtime_data: LevelRuntimeData = (root as LevelRoot).build_runtime_data()
+	remove_child(root)
+	root.queue_free()
+	return WorldDefaults.from_runtime_data(runtime_data)

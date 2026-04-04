@@ -45,8 +45,14 @@ func _build_base_world(defaults: WorldDefaults, player_position: Vector2i) -> Co
 	world.board_size = defaults.board_size
 	world.player_position = player_position
 	world.exit_position = defaults.exit_position
+	for floor_pos: Vector2i in defaults.floor_cells:
+		world.floor_cells[floor_pos] = true
+	for wall_pos: Vector2i in defaults.wall_positions:
+		world.wall_positions[wall_pos] = true
 	for entity_id: StringName in defaults.default_entity_positions.keys():
-		world.entity_positions[entity_id] = defaults.default_entity_positions[entity_id]
+		var entity_pos: Vector2i = defaults.default_entity_positions[entity_id]
+		if _can_place_box(world, entity_pos, entity_id):
+			world.entity_positions[entity_id] = entity_pos
 	return world
 
 
@@ -73,27 +79,44 @@ func _apply_position_like_change(
 ) -> void:
 	if change.subject_id == &"":
 		return
-	var target: Vector2i = change.target_position
-	var blocked: bool = (target == world.player_position)
-	if not blocked:
-		for entity_id: StringName in world.entity_positions.keys():
-			if entity_id != change.subject_id and world.entity_positions[entity_id] == target:
-				blocked = true
-				break
 
-	if blocked:
+	var target: Vector2i = change.target_position
+	if not world.is_inside(target) or not world.has_floor_at(target) or world.has_wall_at(target):
 		world.entity_positions.erase(change.subject_id)
-		world.ghost_entities[change.subject_id] = target
-		if allow_generate_ghost:
-			generated_ghost_changes.append(
-				ChangeRecord.new(
-					ChangeRecord.ChangeType.GHOST,
-					change.subject_id,
-					target,
-					false,
-					"auto-generated ghost"
-				)
-			)
-	else:
+		world.ghost_entities.erase(change.subject_id)
+		return
+
+	if _can_place_box(world, target, change.subject_id):
 		world.ghost_entities.erase(change.subject_id)
 		world.entity_positions[change.subject_id] = target
+		return
+
+	world.entity_positions.erase(change.subject_id)
+	world.ghost_entities[change.subject_id] = target
+	if allow_generate_ghost:
+		generated_ghost_changes.append(
+			ChangeRecord.new(
+				ChangeRecord.ChangeType.GHOST,
+				change.subject_id,
+				target,
+				false,
+				"auto-generated ghost"
+			)
+		)
+
+
+func _can_place_box(world: CompiledWorld, target: Vector2i, ignore_entity_id: StringName = &"") -> bool:
+	if not world.is_inside(target):
+		return false
+	if not world.has_floor_at(target):
+		return false
+	if world.has_wall_at(target):
+		return false
+	if target == world.player_position:
+		return false
+	for entity_id: StringName in world.entity_positions.keys():
+		if entity_id == ignore_entity_id:
+			continue
+		if world.entity_positions[entity_id] == target:
+			return false
+	return true
