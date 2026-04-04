@@ -4,10 +4,10 @@ extends RefCounted
 const MAX_ITERATIONS: int = 4
 
 ## Applies memory queue changes onto default world and resolves ghost collisions.
-func compile(defaults: WorldDefaults, queue: ChangeQueue) -> CompileResult:
+func compile(defaults: WorldDefaults, queue: ChangeQueue, player_position: Vector2i) -> CompileResult:
 	var result := CompileResult.new()
 	var working_queue: ChangeQueue = queue
-	var current_world: CompiledWorld = _build_base_world(defaults)
+	var current_world: CompiledWorld = _build_base_world(defaults, player_position)
 	var iteration: int = 0
 	var stabilized: bool = false
 
@@ -16,7 +16,7 @@ func compile(defaults: WorldDefaults, queue: ChangeQueue) -> CompileResult:
 		var removed: Array[ChangeRecord] = working_queue.normalize_to_capacity(defaults.memory_capacity)
 		result.pushed_out_changes.append_array(removed)
 
-		current_world = _build_base_world(defaults)
+		current_world = _build_base_world(defaults, player_position)
 		var generated: Array[ChangeRecord] = _apply_changes(defaults, working_queue.entries(), current_world)
 
 		if generated.is_empty():
@@ -40,10 +40,10 @@ func compile(defaults: WorldDefaults, queue: ChangeQueue) -> CompileResult:
 	return result
 
 
-func _build_base_world(defaults: WorldDefaults) -> CompiledWorld:
+func _build_base_world(defaults: WorldDefaults, player_position: Vector2i) -> CompiledWorld:
 	var world := CompiledWorld.new()
 	world.board_size = defaults.board_size
-	world.player_position = defaults.player_start
+	world.player_position = player_position
 	world.exit_position = defaults.exit_position
 	for entity_id: StringName in defaults.default_entity_positions.keys():
 		world.entity_positions[entity_id] = defaults.default_entity_positions[entity_id]
