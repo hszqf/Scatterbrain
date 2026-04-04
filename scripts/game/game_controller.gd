@@ -138,10 +138,13 @@ func _reset_level() -> void:
 func _build_defaults() -> WorldDefaults:
 	if level_scene != null:
 		var root: Node = level_scene.instantiate()
+		add_child(root)
 		if root is LevelRoot:
 			var runtime_data: LevelRuntimeData = (root as LevelRoot).build_runtime_data()
+			remove_child(root)
 			root.queue_free()
 			return WorldDefaults.from_runtime_data(runtime_data)
+		remove_child(root)
 		root.queue_free()
 		push_error("level_scene must instantiate LevelRoot")
 	if level_resource != null:
