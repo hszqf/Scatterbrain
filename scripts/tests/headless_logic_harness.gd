@@ -3,6 +3,7 @@ extends SceneTree
 const EXIT_OK: int = 0
 const EXIT_FAIL: int = 1
 const LEVEL_ROOT_SCENE: PackedScene = preload("res://scenes/levels/LevelRoot.tscn")
+const GAME_ROOT_SCENE: PackedScene = preload("res://scenes/game/GameRoot.tscn")
 
 var _compiler: WorldCompiler = WorldCompiler.new()
 var _resolver: PlayerMoveResolver = PlayerMoveResolver.new()
@@ -21,7 +22,8 @@ func _init() -> void:
 
 
 func _run_case(case_data: Dictionary) -> bool:
-	var context: Dictionary = _build_context(case_data["blueprint"])
+	var is_controller_case: bool = String(case_data["id"]).begins_with("controller_")
+	var context: Dictionary = _build_controller_context(case_data["blueprint"]) if is_controller_case else _build_context(case_data["blueprint"])
 	print("=== CASE: %s ===" % case_data["name"])
 	print("initial state: %s" % _format_state(context["world"], context["queue"], context["runtime_data"], context["defaults"]))
 	print("action: %s" % case_data["action"])
@@ -52,6 +54,16 @@ func _run_case(case_data: Dictionary) -> bool:
 			passed = _assert_gameplay_push_to_void(context)
 		"gameplay_recompile_keeps_player_position":
 			passed = _assert_recompile_keeps_player(context)
+		"controller_walk_success":
+			passed = _assert_controller_walk_success(context)
+		"controller_walk_block_wall":
+			passed = _assert_controller_walk_block_wall(context)
+		"controller_walk_block_no_floor":
+			passed = _assert_controller_walk_block_no_floor(context)
+		"controller_push_box_to_floor":
+			passed = _assert_controller_push_box_to_floor(context)
+		"controller_push_box_to_void":
+			passed = _assert_controller_push_box_to_void(context)
 		_:
 			push_error("Unknown case id: %s" % case_data["id"])
 			passed = false
@@ -60,12 +72,69 @@ func _run_case(case_data: Dictionary) -> bool:
 	print("queue state: %s" % _format_queue(context["queue"].entries()))
 	print("result: %s" % ("PASS" if passed else "FAIL"))
 	print("")
+	if is_controller_case:
+		var controller: GameController = context["controller"]
+		get_root().remove_child(controller)
+		controller.queue_free()
 	return passed
 
 
 func _build_context(blueprint: Dictionary) -> Dictionary:
-	var level_root: LevelRoot = LEVEL_ROOT_SCENE.instantiate()
+	var level_root: LevelRoot = _instantiate_level_root_from_blueprint(blueprint)
 	get_root().add_child(level_root)
+
+	var runtime_data: LevelRuntimeData = level_root.build_runtime_data()
+	var defaults: WorldDefaults = WorldDefaults.from_runtime_data(runtime_data)
+	var queue: ChangeQueue = ChangeQueue.new()
+	var compiled: CompileResult = _compiler.compile(defaults, queue, defaults.player_start)
+	var world: CompiledWorld = compiled.world
+
+	queue.clear()
+	for entry: ChangeRecord in compiled.queue_entries:
+		queue.append(entry)
+
+	level_root.queue_free()
+	return {
+		"runtime_data": runtime_data,
+		"defaults": defaults,
+		"queue": queue,
+		"world": world,
+	}
+
+
+func _build_controller_context(blueprint: Dictionary) -> Dictionary:
+	var controller: GameController = GAME_ROOT_SCENE.instantiate()
+	controller.level_scene = LEVEL_ROOT_SCENE
+	get_root().add_child(controller)
+	var baseline: Dictionary = _build_context(blueprint)
+	var world: CompiledWorld = baseline["world"]
+	var queue: ChangeQueue = baseline["queue"]
+	var defaults: WorldDefaults = baseline["defaults"]
+	var board_view: BoardView = controller.get_node(controller.board_view_path)
+	var queue_view: MemoryQueueView = controller.get_node(controller.queue_view_path)
+	var status_label: Label = controller.get_node(controller.status_label_path)
+	board_view.call("_ready")
+	queue_view.call("_ready")
+	controller.set("_board_view", board_view)
+	controller.set("_queue_view", queue_view)
+	controller.set("_status_label", status_label)
+	controller.set("_defaults", defaults)
+	controller.set("_world", world)
+	controller.set("_queue", queue)
+	board_view.set_board_size(defaults.board_size)
+	board_view.sync_world(world)
+	queue_view.render_queue(queue.entries(), defaults.memory_capacity, defaults.obsession_capacity)
+	return {
+		"controller": controller,
+		"runtime_data": baseline["runtime_data"],
+		"defaults": defaults,
+		"queue": queue,
+		"world": world,
+	}
+
+
+func _instantiate_level_root_from_blueprint(blueprint: Dictionary) -> LevelRoot:
+	var level_root: LevelRoot = LEVEL_ROOT_SCENE.instantiate()
 	level_root.auto_rebuild_in_editor = false
 	level_root.grid_size = Vector3i(blueprint["board_size"].x, blueprint["board_size"].y, 1)
 	level_root.memory_capacity = 8
@@ -99,24 +168,7 @@ func _build_context(blueprint: Dictionary) -> Dictionary:
 	spawn_cell.is_player_spawn = true
 	var exit_cell: LevelCell = level_root.get_node("Grid/Slice_0/Cell_%d_%d_0" % [blueprint["exit_position"].x, blueprint["exit_position"].y])
 	exit_cell.is_exit = true
-
-	var runtime_data: LevelRuntimeData = level_root.build_runtime_data()
-	var defaults: WorldDefaults = WorldDefaults.from_runtime_data(runtime_data)
-	var queue: ChangeQueue = ChangeQueue.new()
-	var compiled: CompileResult = _compiler.compile(defaults, queue, defaults.player_start)
-	var world: CompiledWorld = compiled.world
-
-	queue.clear()
-	for entry: ChangeRecord in compiled.queue_entries:
-		queue.append(entry)
-
-	level_root.queue_free()
-	return {
-		"runtime_data": runtime_data,
-		"defaults": defaults,
-		"queue": queue,
-		"world": world,
-	}
+	return level_root
 
 
 func _apply_official_move(context: Dictionary, direction: Vector2i) -> Dictionary:
@@ -254,6 +306,75 @@ func _assert_recompile_keeps_player(context: Dictionary) -> bool:
 	var _resolution: Dictionary = _apply_official_move(context, Vector2i.RIGHT)
 	var world: CompiledWorld = context["world"]
 	return world.player_position == Vector2i(1, 0) and world.player_position != defaults.player_start
+
+
+func _controller_handle_move(context: Dictionary, direction: Vector2i) -> Dictionary:
+	var controller: GameController = context["controller"]
+	var queue: ChangeQueue = context["queue"]
+	var before_position: Vector2i = (context["world"] as CompiledWorld).player_position
+	var before_queue_size: int = queue.size()
+	controller.call("_handle_move", direction)
+	var world: CompiledWorld = controller.get("_world")
+	context["world"] = world
+	return {
+		"before_position": before_position,
+		"before_queue_size": before_queue_size,
+		"after_queue_size": queue.size(),
+		"player_moved": world.player_position != before_position,
+	}
+
+
+func _assert_controller_walk_success(context: Dictionary) -> bool:
+	var move_result: Dictionary = _controller_handle_move(context, Vector2i.RIGHT)
+	var world: CompiledWorld = context["world"]
+	return move_result["player_moved"] \
+		and world.player_position == Vector2i(1, 0) \
+		and move_result["before_queue_size"] == move_result["after_queue_size"] \
+		and move_result["after_queue_size"] == 0
+
+
+func _assert_controller_walk_block_wall(context: Dictionary) -> bool:
+	var move_result: Dictionary = _controller_handle_move(context, Vector2i.RIGHT)
+	var world: CompiledWorld = context["world"]
+	return not move_result["player_moved"] \
+		and world.player_position == Vector2i(0, 0) \
+		and move_result["before_queue_size"] == move_result["after_queue_size"] \
+		and move_result["after_queue_size"] == 0
+
+
+func _assert_controller_walk_block_no_floor(context: Dictionary) -> bool:
+	var move_result: Dictionary = _controller_handle_move(context, Vector2i.RIGHT)
+	var world: CompiledWorld = context["world"]
+	return not move_result["player_moved"] \
+		and world.player_position == Vector2i(0, 0) \
+		and move_result["before_queue_size"] == move_result["after_queue_size"] \
+		and move_result["after_queue_size"] == 0
+
+
+func _assert_controller_push_box_to_floor(context: Dictionary) -> bool:
+	var move_result: Dictionary = _controller_handle_move(context, Vector2i.RIGHT)
+	var world: CompiledWorld = context["world"]
+	var queue_entries: Array[ChangeRecord] = context["queue"].entries()
+	return move_result["player_moved"] \
+		and world.player_position == Vector2i(1, 0) \
+		and world.has_box_at(Vector2i(2, 0)) \
+		and queue_entries.size() == 1 \
+		and queue_entries[0].type == ChangeRecord.ChangeType.POSITION \
+		and queue_entries[0].target_position == Vector2i(2, 0) \
+		and world.entity_positions.size() == 1
+
+
+func _assert_controller_push_box_to_void(context: Dictionary) -> bool:
+	var move_result: Dictionary = _controller_handle_move(context, Vector2i.RIGHT)
+	var world: CompiledWorld = context["world"]
+	var queue_entries: Array[ChangeRecord] = context["queue"].entries()
+	return move_result["player_moved"] \
+		and world.player_position == Vector2i(1, 0) \
+		and not world.has_box_at(Vector2i(2, 0)) \
+		and world.entity_positions.size() == 0 \
+		and world.ghost_entities.size() == 0 \
+		and queue_entries.size() == 1 \
+		and queue_entries[0].type == ChangeRecord.ChangeType.POSITION
 
 
 func _format_state(world: CompiledWorld, queue: ChangeQueue, runtime_data: LevelRuntimeData, defaults: WorldDefaults) -> String:
@@ -462,6 +583,71 @@ func _build_cases() -> Array[Dictionary]:
 				"player_start": Vector2i(0, 0),
 				"exit_position": Vector2i(2, 0),
 				"floors": [Vector3i(0, 0, 0), Vector3i(1, 0, 0), Vector3i(2, 0, 0)],
+				"walls": [],
+				"boxes": [Vector3i(1, 0, 0)],
+			},
+		},
+		{
+			"id": "controller_walk_success",
+			"name": "controller_walk_success",
+			"action": "GameController move RIGHT",
+			"blueprint": {
+				"board_size": Vector2i(3, 1),
+				"player_start": Vector2i(0, 0),
+				"exit_position": Vector2i(2, 0),
+				"floors": [Vector3i(0, 0, 0), Vector3i(1, 0, 0), Vector3i(2, 0, 0)],
+				"walls": [],
+				"boxes": [],
+			},
+		},
+		{
+			"id": "controller_walk_block_wall",
+			"name": "controller_walk_block_wall",
+			"action": "GameController move RIGHT",
+			"blueprint": {
+				"board_size": Vector2i(3, 1),
+				"player_start": Vector2i(0, 0),
+				"exit_position": Vector2i(2, 0),
+				"floors": [Vector3i(0, 0, 0), Vector3i(1, 0, 0), Vector3i(2, 0, 0)],
+				"walls": [Vector3i(1, 0, 0)],
+				"boxes": [],
+			},
+		},
+		{
+			"id": "controller_walk_block_no_floor",
+			"name": "controller_walk_block_no_floor",
+			"action": "GameController move RIGHT",
+			"blueprint": {
+				"board_size": Vector2i(3, 1),
+				"player_start": Vector2i(0, 0),
+				"exit_position": Vector2i(2, 0),
+				"floors": [Vector3i(0, 0, 0), Vector3i(2, 0, 0)],
+				"walls": [],
+				"boxes": [],
+			},
+		},
+		{
+			"id": "controller_push_box_to_floor",
+			"name": "controller_push_box_to_floor",
+			"action": "GameController push RIGHT",
+			"blueprint": {
+				"board_size": Vector2i(3, 1),
+				"player_start": Vector2i(0, 0),
+				"exit_position": Vector2i(2, 0),
+				"floors": [Vector3i(0, 0, 0), Vector3i(1, 0, 0), Vector3i(2, 0, 0)],
+				"walls": [],
+				"boxes": [Vector3i(1, 0, 0)],
+			},
+		},
+		{
+			"id": "controller_push_box_to_void",
+			"name": "controller_push_box_to_void",
+			"action": "GameController push RIGHT to void",
+			"blueprint": {
+				"board_size": Vector2i(3, 1),
+				"player_start": Vector2i(0, 0),
+				"exit_position": Vector2i(1, 0),
+				"floors": [Vector3i(0, 0, 0), Vector3i(1, 0, 0)],
 				"walls": [],
 				"boxes": [Vector3i(1, 0, 0)],
 			},
