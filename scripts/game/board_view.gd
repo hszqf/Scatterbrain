@@ -1,0 +1,72 @@
+class_name BoardView
+extends Node2D
+
+## Renders board grid and synchronizes entity visual nodes.
+@export var cell_size: int = 96
+@export var player_path: NodePath
+@export var exit_path: NodePath
+@export var box_layer_path: NodePath
+
+var _player_view: PlayerView
+var _exit_view: ExitView
+var _box_layer: Node2D
+var _boxes: Dictionary[StringName, BoxView] = {}
+
+
+func _ready() -> void:
+	_player_view = get_node(player_path)
+	_exit_view = get_node(exit_path)
+	_box_layer = get_node(box_layer_path)
+
+
+func sync_world(world: CompiledWorld) -> void:
+	_player_view.set_board_position(world.player_position, cell_size)
+	_exit_view.set_board_position(world.exit_position, cell_size)
+
+	for entity_id: StringName in world.entity_positions.keys():
+		var box_view: BoxView = _ensure_box(entity_id)
+		box_view.visible = true
+		box_view.set_board_position(world.entity_positions[entity_id], cell_size)
+		box_view.set_is_ghost(false)
+
+	for entity_id: StringName in world.ghost_entities.keys():
+		var ghost_view: BoxView = _ensure_box(entity_id)
+		ghost_view.visible = true
+		ghost_view.set_board_position(world.ghost_entities[entity_id], cell_size)
+		ghost_view.set_is_ghost(true)
+
+	for entity_id: StringName in _boxes.keys():
+		if not world.entity_positions.has(entity_id) and not world.ghost_entities.has(entity_id):
+			_boxes[entity_id].visible = false
+
+	queue_redraw()
+
+
+func _draw() -> void:
+	if _player_view == null:
+		return
+	var world_size: Vector2i = _player_view.board_size_hint
+	if world_size == Vector2i.ZERO:
+		return
+	var bg := Rect2(Vector2.ZERO, Vector2(world_size.x * cell_size, world_size.y * cell_size))
+	draw_rect(bg, Color("11161d"), true)
+	for y: int in range(world_size.y + 1):
+		draw_line(Vector2(0, y * cell_size), Vector2(world_size.x * cell_size, y * cell_size), Color("2b3644"), 1.5)
+	for x: int in range(world_size.x + 1):
+		draw_line(Vector2(x * cell_size, 0), Vector2(x * cell_size, world_size.y * cell_size), Color("2b3644"), 1.5)
+
+
+func set_board_size(size: Vector2i) -> void:
+	_player_view.board_size_hint = size
+	queue_redraw()
+
+
+func _ensure_box(entity_id: StringName) -> BoxView:
+	if _boxes.has(entity_id):
+		return _boxes[entity_id]
+	var box_scene: PackedScene = preload("res://scenes/entities/BoxView.tscn")
+	var node: BoxView = box_scene.instantiate()
+	node.name = String(entity_id)
+	_box_layer.add_child(node)
+	_boxes[entity_id] = node
+	return node

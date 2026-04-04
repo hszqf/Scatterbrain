@@ -1,0 +1,27 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://scripts/game/game_controller.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/game/BoardView.tscn" id="2"]
+[ext_resource type="PackedScene" path="res://scenes/game/MemoryQueueView.tscn" id="3"]
+[ext_resource type="Resource" path="res://levels/level_001.tres" id="4"]
+
+[node name="GameRoot" type="Node"]
+script = ExtResource("1")
+level_resource = ExtResource("4")
+board_view_path = NodePath("CanvasLayer/BoardView")
+queue_view_path = NodePath("CanvasLayer/MemoryQueueView")
+status_label_path = NodePath("CanvasLayer/StatusLabel")
+
+[node name="CanvasLayer" type="CanvasLayer" parent="."]
+
+[node name="BoardView" parent="CanvasLayer" instance=ExtResource("2")]
+position = Vector2(40, 24)
+
+[node name="MemoryQueueView" parent="CanvasLayer" instance=ExtResource("3")]
+
+[node name="StatusLabel" type="Label" parent="CanvasLayer"]
+layout_mode = 0
+offset_left = 40.0
+offset_top = 8.0
+offset_right = 760.0
+offset_bottom = 28.0
