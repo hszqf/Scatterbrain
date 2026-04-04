@@ -85,7 +85,7 @@
 5. 本轮产生的幽灵变化先收集，编译结束后统一追加。
 6. 若追加后再次超容，开启下一轮完整重编译。
 7. 单次输入最多触发 4 轮编译，超限报错并保留最后稳定结果。
-8. `game` 层 replay 必须基于 `world_before_compile` 与 `world_after_compile` 的可见实体差异生成；仅当可见 world 发生变化时播放 replay，播放结束后再同步最终 `CompiledWorld`。
+8. `game` 层 replay 必须基于 `WorldDefaults + CompileResult.queue_entries`（即 surviving queue）生成，表示“剩余记忆如何从默认世界重建 remembered world”；禁止使用 `world_before_compile` / `world_after_compile` 可见差分生成 replay。
 
 ## 10) 变化队列规则
 - 队列保存变化事实，不保存推箱动画过程。

@@ -159,12 +159,11 @@ func _recompile_world(reason: String) -> void:
 	_last_replay_steps = []
 	print("[Recompile] begin reason=%s" % reason)
 	var current_player_position: Vector2i = _world.player_position
-	var world_before_compile: CompiledWorld = _world
 	var result: CompileResult = _compiler.compile(_defaults, _queue, current_player_position)
 	var world_after_compile: CompiledWorld = result.world
 	var replay_steps: Array[Dictionary] = []
 	if not result.pushed_out_changes.is_empty():
-		replay_steps = _replay_payload_builder.build_steps(world_before_compile, world_after_compile)
+		replay_steps = _replay_payload_builder.build_steps(_defaults, result.queue_entries)
 	_last_replay_steps = replay_steps
 
 	if _replay_controller.has_steps(replay_steps):
