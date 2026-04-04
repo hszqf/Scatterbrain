@@ -2,7 +2,7 @@ class_name BoardView
 extends Node2D
 
 ## Renders board grid and synchronizes entity visual nodes.
-@export var cell_size: int = 96
+@export var cell_size: int = 72
 @export var player_path: NodePath
 @export var exit_path: NodePath
 @export var box_layer_path: NodePath
@@ -42,6 +42,17 @@ func sync_world(world: CompiledWorld) -> void:
 			_boxes[entity_id].visible = false
 
 	queue_redraw()
+
+
+func board_to_pixel_center(pos: Vector2i) -> Vector2:
+	return Vector2((pos.x + 0.5) * cell_size, (pos.y + 0.5) * cell_size)
+
+
+func board_pixel_size() -> Vector2:
+	if _player_view == null:
+		return Vector2.ZERO
+	var world_size: Vector2i = _player_view.board_size_hint
+	return Vector2(world_size.x * cell_size, world_size.y * cell_size)
 
 
 func _draw() -> void:

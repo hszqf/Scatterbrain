@@ -4,14 +4,14 @@
 
 [node name="MemoryQueueView" type="Control"]
 layout_mode = 3
-anchors_preset = 10
+anchors_preset = 15
 anchor_right = 1.0
-offset_top = 320.0
-offset_bottom = 420.0
+anchor_bottom = 1.0
 grow_horizontal = 2
+grow_vertical = 2
 script = ExtResource("1")
-queue_label_path = NodePath("Panel/QueueLabel")
-obsession_label_path = NodePath("Panel/ObsessionLabel")
+slots_container_path = NodePath("Panel/VBox/Slots")
+obsession_label_path = NodePath("Panel/VBox/MetaRow/ObsessionLabel")
 
 [node name="Panel" type="Panel" parent="."]
 layout_mode = 1
@@ -21,16 +21,31 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="QueueLabel" type="Label" parent="Panel"]
+[node name="VBox" type="VBoxContainer" parent="Panel"]
 layout_mode = 1
-offset_left = 16.0
-offset_top = 8.0
-offset_right = 360.0
-offset_bottom = 100.0
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 8.0
+offset_top = 6.0
+offset_right = -8.0
+offset_bottom = -6.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 6
 
-[node name="ObsessionLabel" type="Label" parent="Panel"]
-layout_mode = 1
-offset_left = 390.0
-offset_top = 8.0
-offset_right = 620.0
-offset_bottom = 40.0
+[node name="Title" type="Label" parent="Panel/VBox"]
+layout_mode = 2
+text = "记忆队列"
+
+[node name="Slots" type="HBoxContainer" parent="Panel/VBox"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 6
+
+[node name="MetaRow" type="HBoxContainer" parent="Panel/VBox"]
+layout_mode = 2
+
+[node name="ObsessionLabel" type="Label" parent="Panel/VBox/MetaRow"]
+layout_mode = 2
+text = "执念: 0"

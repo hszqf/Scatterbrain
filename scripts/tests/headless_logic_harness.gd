@@ -13,7 +13,7 @@ func _init() -> void:
 	var cases: Array[Dictionary] = _build_cases()
 	var failed: int = 0
 	for case_data: Dictionary in cases:
-		if not _run_case(case_data):
+		if not await _run_case(case_data):
 			failed += 1
 
 	print("==== LOGIC HARNESS SUMMARY ====")
@@ -23,7 +23,7 @@ func _init() -> void:
 
 func _run_case(case_data: Dictionary) -> bool:
 	var is_controller_case: bool = String(case_data["id"]).begins_with("controller_")
-	var context: Dictionary = _build_controller_context(case_data["blueprint"]) if is_controller_case else _build_context(case_data["blueprint"])
+	var context: Dictionary = await _build_controller_context(case_data["blueprint"]) if is_controller_case else _build_context(case_data["blueprint"])
 	print("=== CASE: %s ===" % case_data["name"])
 	print("initial state: %s" % _format_state(context["world"], context["queue"], context["runtime_data"], context["defaults"]))
 	print("action: %s" % case_data["action"])
@@ -64,6 +64,10 @@ func _run_case(case_data: Dictionary) -> bool:
 			passed = _assert_controller_push_box_to_floor(context)
 		"controller_push_box_to_void":
 			passed = _assert_controller_push_box_to_void(context)
+		"compile_pushes_out_oldest_unpinned":
+			passed = _assert_compile_pushes_out_oldest_unpinned(context)
+		"controller_replay_locks_input_then_unlocks":
+			passed = await _assert_controller_replay_locks_input_then_unlocks(context)
 		_:
 			push_error("Unknown case id: %s" % case_data["id"])
 			passed = false
@@ -108,11 +112,7 @@ func _build_controller_context(blueprint: Dictionary) -> Dictionary:
 	var controller: GameController = GAME_ROOT_SCENE.instantiate()
 	controller.level_scene = level_scene
 	get_root().add_child(controller)
-	var board_view: BoardView = controller.get_node(controller.board_view_path)
-	var queue_view: MemoryQueueView = controller.get_node(controller.queue_view_path)
-	board_view.call("_ready")
-	queue_view.call("_ready")
-	controller.call("_ready")
+	await process_frame
 	var defaults: WorldDefaults = controller.get("_defaults")
 	var world: CompiledWorld = controller.get("_world")
 	var queue: ChangeQueue = controller.get("_queue")
@@ -154,7 +154,7 @@ func _instantiate_level_root_from_blueprint(blueprint: Dictionary) -> LevelRoot:
 	var level_root: LevelRoot = LEVEL_ROOT_SCENE.instantiate()
 	level_root.auto_rebuild_in_editor = false
 	level_root.grid_size = Vector3i(blueprint["board_size"].x, blueprint["board_size"].y, 1)
-	level_root.memory_capacity = 8
+	level_root.memory_capacity = int(blueprint.get("memory_capacity", 8))
 
 	var grid: Node = level_root.get_node("Grid")
 	grid.owner = level_root
@@ -395,6 +395,33 @@ func _assert_controller_push_box_to_void(context: Dictionary) -> bool:
 		and world.ghost_entities.size() == 0 \
 		and queue_entries.size() == 1 \
 		and queue_entries[0].type == ChangeRecord.ChangeType.POSITION
+
+
+func _assert_compile_pushes_out_oldest_unpinned(context: Dictionary) -> bool:
+	var defaults: WorldDefaults = context["defaults"]
+	var queue: ChangeQueue = context["queue"]
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "c1"))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "c2"))
+	var result: CompileResult = _compiler.compile(defaults, queue, defaults.player_start)
+	return result.pushed_out_changes.size() == 1 \
+		and result.pushed_out_changes[0].debug_label == "c1" \
+		and result.queue_entries.size() == 1 \
+		and result.queue_entries[0].debug_label == "c2"
+
+
+func _assert_controller_replay_locks_input_then_unlocks(context: Dictionary) -> bool:
+	var controller: GameController = context["controller"]
+	var replay_controller: ReplayController = controller.get_node(controller.replay_controller_path)
+	replay_controller.step_duration = 0.05
+	_controller_handle_move(context, Vector2i.RIGHT)
+	_controller_handle_move(context, Vector2i.RIGHT)
+	var locked_during: bool = controller.get("_input_locked")
+	for i: int in range(20):
+		if not controller.get("_input_locked"):
+			break
+		await process_frame
+	var unlocked_after: bool = not controller.get("_input_locked")
+	return locked_during and unlocked_after
 
 
 func _format_state(world: CompiledWorld, queue: ChangeQueue, runtime_data: LevelRuntimeData, defaults: WorldDefaults) -> String:
@@ -668,6 +695,34 @@ func _build_cases() -> Array[Dictionary]:
 				"player_start": Vector2i(0, 0),
 				"exit_position": Vector2i(1, 0),
 				"floors": [Vector3i(0, 0, 0), Vector3i(1, 0, 0)],
+				"walls": [],
+				"boxes": [Vector3i(1, 0, 0)],
+			},
+		},
+		{
+			"id": "compile_pushes_out_oldest_unpinned",
+			"name": "compile_pushes_out_oldest_unpinned",
+			"action": "queue normalize pushes oldest non-pinned record",
+			"blueprint": {
+				"board_size": Vector2i(3, 1),
+				"player_start": Vector2i(0, 0),
+				"exit_position": Vector2i(2, 0),
+				"memory_capacity": 1,
+				"floors": [Vector3i(0, 0, 0), Vector3i(1, 0, 0), Vector3i(2, 0, 0)],
+				"walls": [],
+				"boxes": [],
+			},
+		},
+		{
+			"id": "controller_replay_locks_input_then_unlocks",
+			"name": "controller_replay_locks_input_then_unlocks",
+			"action": "trigger queue overflow replay and verify input lock lifecycle",
+			"blueprint": {
+				"board_size": Vector2i(5, 1),
+				"player_start": Vector2i(0, 0),
+				"exit_position": Vector2i(4, 0),
+				"memory_capacity": 1,
+				"floors": [Vector3i(0, 0, 0), Vector3i(1, 0, 0), Vector3i(2, 0, 0), Vector3i(3, 0, 0), Vector3i(4, 0, 0)],
 				"walls": [],
 				"boxes": [Vector3i(1, 0, 0)],
 			},
