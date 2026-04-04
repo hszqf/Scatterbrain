@@ -11,6 +11,7 @@ After any code change, always run these commands in order:
 1. `godot --version`
 2. `godot --headless --import --path .`
 3. `godot --headless --path . --quit`
+4. `godot --headless --path . --script scripts/tests/headless_logic_harness.gd`
 
 Rules:
 - If step 2 fails, do not run step 3.
