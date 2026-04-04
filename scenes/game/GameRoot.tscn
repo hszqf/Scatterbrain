@@ -1,27 +1,170 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://scripts/game/game_controller.gd" id="1"]
 [ext_resource type="PackedScene" path="res://scenes/game/BoardView.tscn" id="2"]
 [ext_resource type="PackedScene" path="res://scenes/game/MemoryQueueView.tscn" id="3"]
 [ext_resource type="PackedScene" path="res://scenes/levels/Level001.tscn" id="4"]
+[ext_resource type="Script" path="res://scripts/game/replay_controller.gd" id="5"]
 
 [node name="GameRoot" type="Node"]
 script = ExtResource("1")
 level_scene = ExtResource("4")
 board_view_path = NodePath("CanvasLayer/BoardView")
-queue_view_path = NodePath("CanvasLayer/MemoryQueueView")
-status_label_path = NodePath("CanvasLayer/StatusLabel")
+replay_controller_path = NodePath("CanvasLayer/ReplayController")
+queue_view_path = NodePath("CanvasLayer/UIRoot/MainVBox/TopPanel/MemoryQueueView")
+status_label_path = NodePath("CanvasLayer/UIRoot/MainVBox/TopPanel/StatusLabel")
+debug_feedback_label_path = NodePath("CanvasLayer/UIRoot/CopyLogFeedback")
+board_center_anchor_path = NodePath("CanvasLayer/UIRoot/MainVBox/BoardAnchor")
 
 [node name="CanvasLayer" type="CanvasLayer" parent="."]
 
 [node name="BoardView" parent="CanvasLayer" instance=ExtResource("2")]
-position = Vector2(40, 24)
 
-[node name="MemoryQueueView" parent="CanvasLayer" instance=ExtResource("3")]
+[node name="ReplayController" type="Node" parent="CanvasLayer"]
+script = ExtResource("5")
+board_view_path = NodePath("../BoardView")
+replay_layer_path = NodePath("../ReplayLayer")
+step_duration = 0.2
 
-[node name="StatusLabel" type="Label" parent="CanvasLayer"]
-layout_mode = 0
-offset_left = 40.0
+[node name="ReplayLayer" type="Node2D" parent="CanvasLayer"]
+
+[node name="UIRoot" type="Control" parent="CanvasLayer"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="MainVBox" type="VBoxContainer" parent="CanvasLayer/UIRoot"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 10.0
 offset_top = 8.0
-offset_right = 760.0
-offset_bottom = 28.0
+offset_right = -10.0
+offset_bottom = -10.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 8
+
+[node name="TopPanel" type="Panel" parent="CanvasLayer/UIRoot/MainVBox"]
+custom_minimum_size = Vector2(0, 164)
+layout_mode = 2
+
+[node name="StatusLabel" type="Label" parent="CanvasLayer/UIRoot/MainVBox/TopPanel"]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_left = 10.0
+offset_top = 8.0
+offset_right = -10.0
+offset_bottom = 32.0
+horizontal_alignment = 1
+
+[node name="MemoryQueueView" parent="CanvasLayer/UIRoot/MainVBox/TopPanel" instance=ExtResource("3")]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 8.0
+offset_top = 36.0
+offset_right = -8.0
+offset_bottom = -8.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="BoardAnchor" type="Control" parent="CanvasLayer/UIRoot/MainVBox"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="BottomPanel" type="Panel" parent="CanvasLayer/UIRoot/MainVBox"]
+custom_minimum_size = Vector2(0, 220)
+layout_mode = 2
+
+[node name="ButtonsVBox" type="VBoxContainer" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 12.0
+offset_top = 12.0
+offset_right = -12.0
+offset_bottom = -12.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 10
+
+[node name="UpButton" type="Button" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/ButtonsVBox"]
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+text = "↑"
+
+[node name="MidRow" type="HBoxContainer" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/ButtonsVBox"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="LeftButton" type="Button" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/ButtonsVBox/MidRow"]
+custom_minimum_size = Vector2(0, 56)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "←"
+
+[node name="MeditateButton" type="Button" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/ButtonsVBox/MidRow"]
+custom_minimum_size = Vector2(0, 56)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "沉思"
+
+[node name="RightButton" type="Button" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/ButtonsVBox/MidRow"]
+custom_minimum_size = Vector2(0, 56)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "→"
+
+[node name="DownRow" type="HBoxContainer" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/ButtonsVBox"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="DownButton" type="Button" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/ButtonsVBox/DownRow"]
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "↓"
+
+[node name="RestartButton" type="Button" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/ButtonsVBox/DownRow"]
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "重开"
+
+[node name="CopyLogButton" type="Button" parent="CanvasLayer/UIRoot"]
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -106.0
+offset_top = 8.0
+offset_right = -8.0
+offset_bottom = 34.0
+text = "复制日志"
+
+[node name="CopyLogFeedback" type="Label" parent="CanvasLayer/UIRoot"]
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -220.0
+offset_top = 38.0
+offset_right = -8.0
+offset_bottom = 58.0
+horizontal_alignment = 2
+
+[connection signal="pressed" from="CanvasLayer/UIRoot/MainVBox/BottomPanel/ButtonsVBox/UpButton" to="." method="on_move_up_pressed"]
+[connection signal="pressed" from="CanvasLayer/UIRoot/MainVBox/BottomPanel/ButtonsVBox/MidRow/LeftButton" to="." method="on_move_left_pressed"]
+[connection signal="pressed" from="CanvasLayer/UIRoot/MainVBox/BottomPanel/ButtonsVBox/MidRow/MeditateButton" to="." method="on_meditate_pressed"]
+[connection signal="pressed" from="CanvasLayer/UIRoot/MainVBox/BottomPanel/ButtonsVBox/MidRow/RightButton" to="." method="on_move_right_pressed"]
+[connection signal="pressed" from="CanvasLayer/UIRoot/MainVBox/BottomPanel/ButtonsVBox/DownRow/DownButton" to="." method="on_move_down_pressed"]
+[connection signal="pressed" from="CanvasLayer/UIRoot/MainVBox/BottomPanel/ButtonsVBox/DownRow/RestartButton" to="." method="on_restart_pressed"]
+[connection signal="pressed" from="CanvasLayer/UIRoot/CopyLogButton" to="." method="on_copy_log_pressed"]

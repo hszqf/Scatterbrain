@@ -85,6 +85,7 @@
 5. 本轮产生的幽灵变化先收集，编译结束后统一追加。
 6. 若追加后再次超容，开启下一轮完整重编译。
 7. 单次输入最多触发 4 轮编译，超限报错并保留最后稳定结果。
+8. 若本轮发生挤出（`CompileResult.pushed_out_changes` 非空），`game` 层可在输入锁定期间执行 replay 表现，播放结束后再同步最终 `CompiledWorld`。
 
 ## 10) 变化队列规则
 - 队列保存变化事实，不保存推箱动画过程。
@@ -99,6 +100,7 @@
 - `game/entities` 层只做输入、渲染、同步，不实现核心规则。
 - `level_editor` 只维护关卡可视化编辑与关卡数据抽取，不掺入推箱/重编译规则。
 - 规则修改必须在 `core` 层完成，再由 `game` 层消费结果。
+- replay 只允许存在于 `scripts/game/` 与 `scenes/game/`，不得写入 `core` 真相；`core` 只输出编译结果与挤出记录。
 
 ## 12) 命名规范
 - 采用 Godot 4 typed GDScript。
@@ -133,3 +135,20 @@
 2. `godot --headless --import --path .`
 3. `godot --headless --path . --quit`
 4. `godot --headless --path . --script scripts/tests/headless_logic_harness.gd`
+
+## 16) 竖屏 UI 结构（Web/手机优先）
+- 运行时 UI 采用竖屏优先布局：顶部状态与变化队列、中部棋盘、底部操作区。
+- 顶部变化队列必须绑定真实 `ChangeQueue` 数据，使用可区分的小方块表达 `Position/Empty/Ghost`。
+- 底部操作区提供方向按钮与沉思按钮，必须接入正式输入路径，禁止纯装饰按钮。
+- 角落保留“复制日志”按钮，不能遮挡主要玩法区域。
+
+## 17) Debug 复制日志边界
+- 复制功能用于排查运行态，不得影响核心流程成功与否。
+- 文本构建与复制执行分离：formatter 负责生成文本，UI/控制器负责写剪贴板。
+- 日志内容至少包含：玩家/箱子、queue、关卡尺寸、floor/wall 概要、最近重编译原因、最近 replay 摘要。
+- 若平台剪贴板失败，允许降级输出到控制台并提示，但不得中断游戏。
+
+## 18) Web / GitHub Pages 发布流程
+- Web 导出使用仓库内 `export_presets.cfg` 的 `Web` preset，输出目录 `build/web/`。
+- CI workflow 位于 `.github/workflows/deploy-web.yml`：在 `main` 分支 push 后执行导入、Web 导出并发布到 GitHub Pages。
+- 发布产物必须是静态目录，不允许人工上传构建文件。

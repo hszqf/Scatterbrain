@@ -4,12 +4,18 @@ extends Node
 ## Orchestrates level runtime, input handling, change queue updates, and recompiles.
 @export var level_scene: PackedScene
 @export var board_view_path: NodePath
+@export var replay_controller_path: NodePath
 @export var queue_view_path: NodePath
 @export var status_label_path: NodePath
+@export var debug_feedback_label_path: NodePath
+@export var board_center_anchor_path: NodePath
 
 var _board_view: BoardView
+var _replay_controller: ReplayController
 var _queue_view: MemoryQueueView
 var _status_label: Label
+var _debug_feedback_label: Label
+var _board_center_anchor: Control
 
 var _defaults: WorldDefaults
 var _compiler: WorldCompiler = WorldCompiler.new()
@@ -17,34 +23,94 @@ var _queue: ChangeQueue = ChangeQueue.new()
 var _world: CompiledWorld
 var _input_router: InputRouter = InputRouter.new()
 var _move_resolver: PlayerMoveResolver = PlayerMoveResolver.new()
+var _replay_payload_builder: ReplayPayloadBuilder = ReplayPayloadBuilder.new()
+var _debug_log_formatter: DebugLogFormatter = DebugLogFormatter.new()
 var _input_locked: bool = false
 var _is_complete: bool = false
+var _last_recompile_reason: String = "init"
+var _last_replay_steps: Array[Dictionary] = []
 
 
 func _ready() -> void:
 	_board_view = get_node(board_view_path)
+	_replay_controller = get_node(replay_controller_path)
 	_queue_view = get_node(queue_view_path)
 	_status_label = get_node(status_label_path)
+	_debug_feedback_label = get_node(debug_feedback_label_path)
+	_board_center_anchor = get_node(board_center_anchor_path)
 	_reset_level()
 
 
 func _process(_delta: float) -> void:
+	_layout_board()
 	if _input_locked:
 		return
 	var intent: InputRouter.Intent = _input_router.poll_intent()
 	if intent == InputRouter.Intent.NONE:
 		return
-	if intent == InputRouter.Intent.RESTART:
-		_reset_level()
+	match intent:
+		InputRouter.Intent.RESTART:
+			request_restart()
+		InputRouter.Intent.EMPTY_CHANGE:
+			request_empty_change()
+		_:
+			request_move(_input_router.intent_to_direction(intent))
+
+
+func request_move(direction: Vector2i) -> void:
+	if _input_locked or _is_complete or direction == Vector2i.ZERO:
 		return
-	if _is_complete:
+	_handle_move(direction)
+
+
+func request_empty_change() -> void:
+	if _input_locked or _is_complete:
 		return
-	if intent == InputRouter.Intent.EMPTY_CHANGE:
-		append_change(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "meditate"))
+	append_change(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "meditate"))
+
+
+func request_restart() -> void:
+	if _input_locked:
 		return
-	var direction: Vector2i = _input_router.intent_to_direction(intent)
-	if direction != Vector2i.ZERO:
-		_handle_move(direction)
+	_reset_level()
+
+
+func on_move_left_pressed() -> void:
+	request_move(Vector2i.LEFT)
+
+
+func on_move_right_pressed() -> void:
+	request_move(Vector2i.RIGHT)
+
+
+func on_move_up_pressed() -> void:
+	request_move(Vector2i.UP)
+
+
+func on_move_down_pressed() -> void:
+	request_move(Vector2i.DOWN)
+
+
+func on_meditate_pressed() -> void:
+	request_empty_change()
+
+
+func on_restart_pressed() -> void:
+	request_restart()
+
+
+func on_copy_log_pressed() -> void:
+	copy_debug_log()
+
+
+func copy_debug_log() -> void:
+	var text: String = _debug_log_formatter.build_snapshot(_world, _queue.entries(), _last_recompile_reason, _last_replay_steps)
+	DisplayServer.clipboard_set(text)
+	if DisplayServer.clipboard_get() == text:
+		_debug_feedback_label.text = "日志已复制"
+	else:
+		print(text)
+		_debug_feedback_label.text = "复制失败，已输出到控制台"
 
 
 func _handle_move(direction: Vector2i) -> void:
@@ -73,16 +139,25 @@ func _post_player_move() -> void:
 func _check_win() -> void:
 	if _world.player_position == _world.exit_position:
 		_is_complete = true
-		_status_label.text = "过关！按 R 重开"
+		_status_label.text = "过关！按 R 或底部重开"
 
 
 func _recompile_world(reason: String) -> void:
+	if _input_locked:
+		return
 	_input_locked = true
+	_last_recompile_reason = reason
 	print("[Recompile] begin reason=%s" % reason)
 	var current_player_position: Vector2i = _world.player_position
+	var queue_before_compile: Array[ChangeRecord] = _queue.entries()
 	var result: CompileResult = _compiler.compile(_defaults, _queue, current_player_position)
-	_world = result.world
+	var replay_steps: Array[Dictionary] = _replay_payload_builder.build_steps(_defaults, queue_before_compile, result.pushed_out_changes)
+	_last_replay_steps = replay_steps
 
+	if _replay_controller.has_steps(replay_steps):
+		await _replay_controller.play_steps(replay_steps)
+
+	_world = result.world
 	_queue.clear()
 	for entry: ChangeRecord in result.queue_entries:
 		_queue.append(entry)
@@ -101,13 +176,23 @@ func _recompile_world(reason: String) -> void:
 func _update_status() -> void:
 	if _is_complete:
 		return
-	_status_label.text = "方向键/WASD:移动  Space:沉思  R:重开"
+	_status_label.text = "方向键/WASD 或底部按钮:移动  Space/沉思:沉思"
 
+
+func _layout_board() -> void:
+	if _board_center_anchor == null:
+		return
+	var area_pos: Vector2 = _board_center_anchor.global_position
+	var area_size: Vector2 = _board_center_anchor.size
+	var board_size: Vector2 = _board_view.board_pixel_size()
+	_board_view.position = area_pos + ((area_size - board_size) * 0.5)
 
 
 func _reset_level() -> void:
 	_is_complete = false
 	_queue.clear()
+	_last_replay_steps = []
+	_last_recompile_reason = "reset"
 	_defaults = _build_defaults()
 	_world = CompiledWorld.new()
 	_world.board_size = _defaults.board_size
@@ -121,7 +206,9 @@ func _reset_level() -> void:
 	_board_view.set_board_size(_defaults.board_size)
 	_board_view.sync_world(_world)
 	_queue_view.render_queue(_queue.entries(), _defaults.memory_capacity, _defaults.obsession_capacity)
+	_debug_feedback_label.text = ""
 	_update_status()
+	_layout_board()
 
 
 func _build_defaults() -> WorldDefaults:
