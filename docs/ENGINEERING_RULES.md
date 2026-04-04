@@ -152,3 +152,12 @@
 - Web 导出使用仓库内 `export_presets.cfg` 的 `Web` preset，输出目录 `build/web/`。
 - CI workflow 位于 `.github/workflows/deploy-web.yml`：在 `main` 分支 push 后执行导入、Web 导出并发布到 GitHub Pages。
 - 发布产物必须是静态目录，不允许人工上传构建文件。
+
+## 19) 版本信息来源（UI Build Info）
+- 运行时版本信息统一来自 `config/build_info.cfg` 的 `[build]` 段，禁止在场景文本中硬编码版本字符串。
+- UI 显示格式：`v{version} · {commit}`，若 `build_date` 非空则追加 ` · {build_date}`。
+- 本地运行/headless 默认使用仓库内文件：`version="0.1.0"`、`commit="dev"`（用于无 Git 注入环境）。
+- GitHub Pages 构建在 `.github/workflows/deploy-web.yml` 的 `Write build metadata` 步骤中覆盖该文件：
+  - `commit` 使用 `${GITHUB_SHA::7}`；
+  - `build_date` 使用 UTC 日期（`YYYY-MM-DD`）。
+- 因此 Pages 上线产物会反映对应 workflow 构建提交的 short sha，本地则稳定显示 `dev` fallback。

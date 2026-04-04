@@ -21,6 +21,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Write build metadata
+        run: |
+          mkdir -p config
+          SHORT_SHA="${GITHUB_SHA::7}"
+          BUILD_DATE="$(date -u +%Y-%m-%d)"
+          cat > config/build_info.cfg <<EOF
+          [build]
+          version="0.1.0"
+          commit="${SHORT_SHA}"
+          build_date="${BUILD_DATE}"
+          EOF
+
       - name: Setup Godot
         uses: chickensoft-games/setup-godot@v2
         with:
