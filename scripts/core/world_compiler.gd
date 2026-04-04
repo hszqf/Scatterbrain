@@ -56,7 +56,7 @@ func _build_base_world(defaults: WorldDefaults, player_position: Vector2i) -> Co
 	return world
 
 
-func _apply_changes(defaults: WorldDefaults, entries: Array[ChangeRecord], world: CompiledWorld) -> Array[ChangeRecord]:
+func _apply_changes(_defaults: WorldDefaults, entries: Array[ChangeRecord], world: CompiledWorld) -> Array[ChangeRecord]:
 	var generated_ghost_changes: Array[ChangeRecord] = []
 	for change: ChangeRecord in entries:
 		match change.type:
