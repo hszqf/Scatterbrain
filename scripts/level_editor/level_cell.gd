@@ -47,13 +47,29 @@ enum CellContentType {
 		show_coord_label = value
 		_refresh_visuals()
 
-@onready var _floor_layer: Node2D = $FloorLayer
-@onready var _cell_layer: Node2D = $CellLayer
-@onready var _coord_label: Label = $CoordLabel
+@onready var _floor_layer: Node2D = get_node_or_null("FloorLayer")
+@onready var _cell_layer: Node2D = get_node_or_null("CellLayer")
+@onready var _coord_label: Label = get_node_or_null("CoordLabel")
 
 
 func _ready() -> void:
+	_ensure_runtime_nodes()
 	_refresh_visuals()
+
+
+func _ensure_runtime_nodes() -> void:
+	if _floor_layer == null:
+		_floor_layer = Node2D.new()
+		_floor_layer.name = "FloorLayer"
+		add_child(_floor_layer)
+	if _cell_layer == null:
+		_cell_layer = Node2D.new()
+		_cell_layer.name = "CellLayer"
+		add_child(_cell_layer)
+	if _coord_label == null:
+		_coord_label = Label.new()
+		_coord_label.name = "CoordLabel"
+		add_child(_coord_label)
 
 
 func _sanitize_flags_for_floor() -> void:
