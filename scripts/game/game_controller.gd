@@ -117,6 +117,8 @@ func copy_debug_log() -> void:
 		_queue.entries(),
 		_last_recompile_reason,
 		_last_replay_steps,
+		_replay_controller.get_replay_hidden_subjects(),
+		_replay_controller.get_replay_actor_subjects(),
 		BuildInfo.display_text(),
 		_format_node2d_transform(_board_view),
 		_format_node2d_transform(_replay_controller.get_node(_replay_controller.replay_layer_path) as Node2D)

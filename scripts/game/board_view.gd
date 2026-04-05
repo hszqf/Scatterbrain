@@ -12,6 +12,7 @@ var _exit_view: ExitView
 var _box_layer: Node2D
 var _boxes: Dictionary[StringName, BoxView] = {}
 var _world: CompiledWorld
+var _temporarily_hidden_subjects: Dictionary[StringName, bool] = {}
 
 
 func _ready() -> void:
@@ -27,13 +28,13 @@ func sync_world(world: CompiledWorld) -> void:
 
 	for entity_id: StringName in world.entity_positions.keys():
 		var box_view: BoxView = _ensure_box(entity_id)
-		box_view.visible = true
+		box_view.visible = not _temporarily_hidden_subjects.has(entity_id)
 		box_view.set_board_position(world.entity_positions[entity_id], cell_size)
 		box_view.set_is_ghost(false)
 
 	for entity_id: StringName in world.ghost_entities.keys():
 		var ghost_view: BoxView = _ensure_box(entity_id)
-		ghost_view.visible = true
+		ghost_view.visible = not _temporarily_hidden_subjects.has(entity_id)
 		ghost_view.set_board_position(world.ghost_entities[entity_id], cell_size)
 		ghost_view.set_is_ghost(true)
 
@@ -42,6 +43,30 @@ func sync_world(world: CompiledWorld) -> void:
 			_boxes[entity_id].visible = false
 
 	queue_redraw()
+
+
+func set_temporarily_hidden_subjects(subject_ids: Array[StringName]) -> void:
+	_temporarily_hidden_subjects.clear()
+	for subject_id: StringName in subject_ids:
+		_temporarily_hidden_subjects[subject_id] = true
+	if _world != null:
+		sync_world(_world)
+
+
+func clear_temporarily_hidden_subjects() -> void:
+	_temporarily_hidden_subjects.clear()
+	if _world != null:
+		sync_world(_world)
+
+
+func get_temporarily_hidden_subjects() -> Array[StringName]:
+	var hidden_subjects: Array[StringName] = []
+	for subject_id: StringName in _temporarily_hidden_subjects.keys():
+		hidden_subjects.append(subject_id)
+	hidden_subjects.sort_custom(func(a: StringName, b: StringName) -> bool:
+		return String(a) < String(b)
+	)
+	return hidden_subjects
 
 
 func board_to_pixel_center(pos: Vector2i) -> Vector2:
