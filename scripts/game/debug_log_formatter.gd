@@ -20,6 +20,7 @@ func build_snapshot(
 	lines.append("walls=%d sample=%s" % [world.wall_positions.size(), str(_sample_positions(world.wall_positions.keys()))])
 	lines.append("recompile_reason=%s" % recompile_reason)
 	lines.append("replay=%s" % str(_replay_summary(replay_steps)))
+	lines.append("replay_display_steps=%s" % str(_replay_display_summary(replay_steps)))
 	return "\n".join(lines)
 
 
@@ -53,4 +54,18 @@ func _replay_summary(steps: Array[Dictionary]) -> String:
 	var labels: Array[String] = []
 	for step: Dictionary in steps:
 		labels.append("%s:%s->%s" % [step.get("subject", &""), step.get("from", Vector2i.ZERO), step.get("to", Vector2i.ZERO)])
+	return str(labels)
+
+
+func _replay_display_summary(steps: Array[Dictionary]) -> String:
+	if steps.is_empty():
+		return "none"
+	var labels: Array[String] = []
+	for step: Dictionary in steps:
+		labels.append("%s:%s->%s conflict=%s" % [
+			step.get("subject", &""),
+			step.get("from", Vector2i.ZERO),
+			step.get("to", Vector2i.ZERO),
+			str(step.get("is_conflict", false)),
+		])
 	return str(labels)

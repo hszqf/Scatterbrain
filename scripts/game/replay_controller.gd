@@ -34,6 +34,7 @@ func _play_step(step: Dictionary) -> void:
 
 	var node := preload("res://scenes/entities/BoxView.tscn").instantiate() as BoxView
 	node.set_is_ghost(true)
+	node.set_is_conflict(bool(step.get("is_conflict", false)))
 	_replay_layer.add_child(node)
 
 	var from_pos: Vector2i = step.get("from", Vector2i.ZERO)

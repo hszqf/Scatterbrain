@@ -97,6 +97,12 @@ func _run_case(case_data: Dictionary) -> bool:
 			passed = _assert_overflow_with_only_empty_memory_has_no_replay(context)
 		"overflow_with_remaining_position_memory_replays_retained_steps":
 			passed = _assert_overflow_with_remaining_position_memory_replays_retained_steps(context)
+		"retained_position_replay_expands_to_micro_steps":
+			passed = _assert_retained_position_replay_expands_to_micro_steps(context)
+		"replay_marks_player_conflict_on_intermediate_step":
+			passed = _assert_replay_marks_player_conflict_on_intermediate_step(context)
+		"snapshot_includes_replay_display_steps":
+			passed = _assert_snapshot_includes_replay_display_steps(context)
 		"controller_empty_overflow_snapshot_matches_memory_semantics":
 			passed = await _assert_controller_empty_overflow_snapshot_matches_memory_semantics(context)
 		"build_info_display_uses_generated_build_file_or_dev":
@@ -610,21 +616,86 @@ func _assert_overflow_with_remaining_position_memory_replays_retained_steps(cont
 		and final_entries[0].type == ChangeRecord.ChangeType.POSITION \
 		and final_entries[0].subject_id == &"box_0" \
 		and final_entries[0].target_position == Vector2i(1, 1)
-	var has_default_to_memory_step: bool = false
+	var has_micro_step_a: bool = false
+	var has_micro_step_b: bool = false
 	var has_world_diff_direction: bool = false
 	for step: Dictionary in replay_steps:
 		if step.get("subject", &"") == &"box_0" \
 			and step.get("from", Vector2i.ZERO) == Vector2i(3, 1) \
+			and step.get("to", Vector2i.ZERO) == Vector2i(2, 1):
+			has_micro_step_a = true
+		if step.get("subject", &"") == &"box_0" \
+			and step.get("from", Vector2i.ZERO) == Vector2i(2, 1) \
 			and step.get("to", Vector2i.ZERO) == Vector2i(1, 1):
-			has_default_to_memory_step = true
+			has_micro_step_b = true
 		if step.get("subject", &"") == &"box_0" \
 			and step.get("from", Vector2i.ZERO) == Vector2i(1, 1) \
 			and step.get("to", Vector2i.ZERO) == Vector2i(3, 1):
 			has_world_diff_direction = true
 	return has_position_memory \
-		and not replay_steps.is_empty() \
-		and has_default_to_memory_step \
+		and replay_steps.size() == 2 \
+		and has_micro_step_a \
+		and has_micro_step_b \
 		and not has_world_diff_direction
+
+
+func _assert_retained_position_replay_expands_to_micro_steps(context: Dictionary) -> bool:
+	var defaults: WorldDefaults = context["defaults"]
+	var queue: ChangeQueue = context["queue"]
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.POSITION, &"box_0", Vector2i(2, 1), false, "older"))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.POSITION, &"box_0", Vector2i(1, 1), false, "remembered"))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "empty_a"))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "empty_b"))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "empty_trigger"))
+	var result: CompileResult = _compiler.compile(defaults, queue, defaults.player_start)
+	var builder := ReplayPayloadBuilder.new()
+	var replay_steps: Array[Dictionary] = builder.build_steps(defaults, result.queue_entries)
+	return replay_steps.size() == 2 \
+		and replay_steps[0].get("subject", &"") == &"box_0" \
+		and replay_steps[0].get("from", Vector2i.ZERO) == Vector2i(3, 1) \
+		and replay_steps[0].get("to", Vector2i.ZERO) == Vector2i(2, 1) \
+		and replay_steps[1].get("subject", &"") == &"box_0" \
+		and replay_steps[1].get("from", Vector2i.ZERO) == Vector2i(2, 1) \
+		and replay_steps[1].get("to", Vector2i.ZERO) == Vector2i(1, 1)
+
+
+func _assert_replay_marks_player_conflict_on_intermediate_step(context: Dictionary) -> bool:
+	var defaults: WorldDefaults = context["defaults"]
+	var queue: ChangeQueue = context["queue"]
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.POSITION, &"box_0", Vector2i(2, 1), false, "older"))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.POSITION, &"box_0", Vector2i(1, 1), false, "remembered"))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "empty_a"))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "empty_b"))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "empty_trigger"))
+	var result: CompileResult = _compiler.compile(defaults, queue, defaults.player_start)
+	var builder := ReplayPayloadBuilder.new()
+	var replay_steps: Array[Dictionary] = builder.build_steps(defaults, result.queue_entries, Vector2i(2, 1))
+	return replay_steps.size() == 2 \
+		and bool(replay_steps[0].get("is_conflict", false)) \
+		and not bool(replay_steps[1].get("is_conflict", true))
+
+
+func _assert_snapshot_includes_replay_display_steps(context: Dictionary) -> bool:
+	var defaults: WorldDefaults = context["defaults"]
+	var queue: ChangeQueue = context["queue"]
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.POSITION, &"box_0", Vector2i(2, 1), false, "older"))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.POSITION, &"box_0", Vector2i(1, 1), false, "remembered"))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "empty_a"))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "empty_b"))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "empty_trigger"))
+	var result: CompileResult = _compiler.compile(defaults, queue, defaults.player_start)
+	var builder := ReplayPayloadBuilder.new()
+	var replay_steps: Array[Dictionary] = builder.build_steps(defaults, result.queue_entries, Vector2i(2, 1))
+	var snapshot: String = _formatter.build_snapshot(
+		result.world,
+		result.queue_entries,
+		"snapshot_replay_display",
+		replay_steps,
+		BuildInfo.display_text()
+	)
+	return snapshot.contains("replay_display_steps=") \
+		and snapshot.contains("box_0:(3, 1)->(2, 1) conflict=true") \
+		and snapshot.contains("box_0:(2, 1)->(1, 1) conflict=false")
 
 
 func _assert_controller_empty_overflow_snapshot_matches_memory_semantics(context: Dictionary) -> bool:
@@ -1121,6 +1192,66 @@ func _build_cases() -> Array[Dictionary]:
 			"id": "overflow_with_remaining_position_memory_replays_retained_steps",
 			"name": "overflow_with_remaining_position_memory_replays_retained_steps",
 			"action": "overflow retains Position memory so replay must build from default state",
+			"blueprint": {
+				"board_size": Vector2i(6, 3),
+				"player_start": Vector2i(5, 1),
+				"exit_position": Vector2i(1, 1),
+				"memory_capacity": 4,
+				"floors": [
+					Vector3i(1, 1, 0),
+					Vector3i(2, 1, 0),
+					Vector3i(3, 1, 0),
+					Vector3i(4, 1, 0),
+					Vector3i(5, 1, 0),
+				],
+				"walls": [],
+				"boxes": [Vector3i(3, 1, 0)],
+			},
+		},
+		{
+			"id": "retained_position_replay_expands_to_micro_steps",
+			"name": "retained_position_replay_expands_to_micro_steps",
+			"action": "retained Position replay expands from default to Manhattan micro-steps",
+			"blueprint": {
+				"board_size": Vector2i(6, 3),
+				"player_start": Vector2i(5, 1),
+				"exit_position": Vector2i(1, 1),
+				"memory_capacity": 4,
+				"floors": [
+					Vector3i(1, 1, 0),
+					Vector3i(2, 1, 0),
+					Vector3i(3, 1, 0),
+					Vector3i(4, 1, 0),
+					Vector3i(5, 1, 0),
+				],
+				"walls": [],
+				"boxes": [Vector3i(3, 1, 0)],
+			},
+		},
+		{
+			"id": "replay_marks_player_conflict_on_intermediate_step",
+			"name": "replay_marks_player_conflict_on_intermediate_step",
+			"action": "replay step marks conflict when micro-step enters live player tile",
+			"blueprint": {
+				"board_size": Vector2i(6, 3),
+				"player_start": Vector2i(5, 1),
+				"exit_position": Vector2i(1, 1),
+				"memory_capacity": 4,
+				"floors": [
+					Vector3i(1, 1, 0),
+					Vector3i(2, 1, 0),
+					Vector3i(3, 1, 0),
+					Vector3i(4, 1, 0),
+					Vector3i(5, 1, 0),
+				],
+				"walls": [],
+				"boxes": [Vector3i(3, 1, 0)],
+			},
+		},
+		{
+			"id": "snapshot_includes_replay_display_steps",
+			"name": "snapshot_includes_replay_display_steps",
+			"action": "DebugSnapshot contains replay_display_steps with from/to/conflict details",
 			"blueprint": {
 				"board_size": Vector2i(6, 3),
 				"player_start": Vector2i(5, 1),
