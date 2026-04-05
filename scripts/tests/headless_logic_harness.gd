@@ -105,6 +105,12 @@ func _run_case(case_data: Dictionary) -> bool:
 			passed = _assert_debug_snapshot_has_real_values_not_placeholders(context)
 		"snapshot_includes_build_info":
 			passed = _assert_snapshot_includes_build_info(context)
+		"snapshot_includes_input_chain_fields":
+			passed = _assert_snapshot_includes_input_chain_fields(context)
+		"move_input_populates_input_chain_debug_fields":
+			passed = _assert_move_input_populates_input_chain_debug_fields(context)
+		"empty_input_populates_input_chain_debug_fields":
+			passed = await _assert_empty_input_populates_input_chain_debug_fields(context)
 		"pushed_out_only_empty_skips_replay":
 			passed = await _assert_pushed_out_only_empty_skips_replay(context)
 		"overflow_with_remaining_position_memory_replays_retained_steps":
@@ -742,6 +748,66 @@ func _assert_snapshot_includes_build_info(context: Dictionary) -> bool:
 			restore_file.store_string(original_text)
 	return snapshot.contains("build=") \
 		and snapshot.contains("build=dev")
+
+
+func _assert_snapshot_includes_input_chain_fields(context: Dictionary) -> bool:
+	var snapshot: String = _formatter.build_snapshot(
+		context["world"],
+		context["queue"].entries(),
+		"input_chain_probe",
+		[],
+		[],
+		[],
+		false,
+		false,
+		BuildInfo.display_text()
+	)
+	return snapshot.contains("input_source=") \
+		and snapshot.contains("input_intent=") \
+		and snapshot.contains("input_direction=") \
+		and snapshot.contains("move_player_moved=") \
+		and snapshot.contains("move_generated_change=") \
+		and snapshot.contains("appended_change=") \
+		and snapshot.contains("pushed_out_changes=") \
+		and snapshot.contains("generated_ghost_changes=") \
+		and snapshot.contains("queue_after_compile=") \
+		and snapshot.contains("replay_gate_allowed=") \
+		and snapshot.contains("replay_gate_reason=")
+
+
+func _assert_move_input_populates_input_chain_debug_fields(context: Dictionary) -> bool:
+	var controller: GameController = context["controller"]
+	controller.on_move_left_pressed()
+	controller.on_move_left_pressed()
+	context["world"] = controller.get("_world")
+	var input_source: String = String(controller.get("_last_input_source"))
+	var input_intent: String = String(controller.get("_last_input_intent"))
+	var input_direction: Vector2i = controller.get("_last_input_direction")
+	var move_player_moved: bool = bool(controller.get("_last_move_player_moved"))
+	var move_generated_change: String = String(controller.get("_last_move_generated_change"))
+	return input_source == "button_left" \
+		and input_intent == "move_left" \
+		and input_direction == Vector2i.LEFT \
+		and move_player_moved \
+		and move_generated_change.begins_with("Position(")
+
+
+func _assert_empty_input_populates_input_chain_debug_fields(context: Dictionary) -> bool:
+	var controller: GameController = context["controller"]
+	controller.on_meditate_pressed()
+	for i: int in range(60):
+		if not controller.get("_input_locked"):
+			break
+		await process_frame
+	context["world"] = controller.get("_world")
+	var input_intent: String = String(controller.get("_last_input_intent"))
+	var appended_change: String = String(controller.get("_last_appended_change_summary"))
+	var queue_after_compile: Array[String] = controller.get("_last_queue_after_compile_summaries")
+	var has_empty_queue_entry: bool = queue_after_compile.size() > 0 and queue_after_compile[queue_after_compile.size() - 1] == "Empty"
+	return input_intent == "empty" \
+		and appended_change == "Empty" \
+		and has_empty_queue_entry \
+		and bool(controller.get("_last_replay_gate_allowed")) == false
 
 
 func _assert_pushed_out_only_empty_skips_replay(context: Dictionary) -> bool:
@@ -1493,6 +1559,31 @@ func _build_cases() -> Array[Dictionary]:
 				"walls": [],
 				"boxes": [],
 			},
+		},
+		{
+			"id": "snapshot_includes_input_chain_fields",
+			"name": "snapshot_includes_input_chain_fields",
+			"action": "DebugSnapshot includes input->append->compile chain fields with stable keys",
+			"blueprint": {
+				"board_size": Vector2i(2, 1),
+				"player_start": Vector2i(0, 0),
+				"exit_position": Vector2i(1, 0),
+				"floors": [Vector3i(0, 0, 0), Vector3i(1, 0, 0)],
+				"walls": [],
+				"boxes": [],
+			},
+		},
+		{
+			"id": "move_input_populates_input_chain_debug_fields",
+			"name": "move_input_populates_input_chain_debug_fields",
+			"action": "button move input populates source/intent/direction + move resolver debug fields",
+			"context_mode": "controller_level001",
+		},
+		{
+			"id": "empty_input_populates_input_chain_debug_fields",
+			"name": "empty_input_populates_input_chain_debug_fields",
+			"action": "button meditate input records empty intent and appended Empty change",
+			"context_mode": "controller_level001",
 		},
 		{
 			"id": "pushed_out_only_empty_skips_replay",
