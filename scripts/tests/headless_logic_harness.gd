@@ -105,16 +105,16 @@ func _run_case(case_data: Dictionary) -> bool:
 			passed = _assert_debug_snapshot_has_real_values_not_placeholders(context)
 		"snapshot_includes_build_info":
 			passed = _assert_snapshot_includes_build_info(context)
-		"overflow_with_only_empty_memory_has_no_replay":
-			passed = _assert_overflow_with_only_empty_memory_has_no_replay(context)
+		"pushed_out_only_empty_skips_replay":
+			passed = await _assert_pushed_out_only_empty_skips_replay(context)
 		"overflow_with_remaining_position_memory_replays_retained_steps":
 			passed = _assert_overflow_with_remaining_position_memory_replays_retained_steps(context)
 		"retained_position_replay_expands_to_micro_steps":
 			passed = _assert_retained_position_replay_expands_to_micro_steps(context)
 		"replay_marks_player_conflict_on_intermediate_step":
 			passed = _assert_replay_marks_player_conflict_on_intermediate_step(context)
-		"position_memory_truncates_to_ghost_on_player_conflict":
-			passed = _assert_position_memory_truncates_to_ghost_on_player_conflict(context)
+		"player_conflict_truncation_appends_ghost_change":
+			passed = _assert_player_conflict_truncation_appends_ghost_change(context)
 		"replay_path_truncates_at_first_conflict_step":
 			passed = _assert_replay_path_truncates_at_first_conflict_step(context)
 		"player_move_away_allows_remembered_path_to_finish_later":
@@ -127,8 +127,10 @@ func _run_case(case_data: Dictionary) -> bool:
 			passed = await _assert_controller_empty_overflow_snapshot_matches_memory_semantics(context)
 		"build_info_display_uses_generated_build_file_or_dev":
 			passed = _assert_build_info_display_uses_generated_build_file_or_dev(context)
-		"compiler_does_not_duplicate_same_ghost_repeatedly":
-			passed = _assert_compiler_does_not_duplicate_same_ghost_repeatedly(context)
+		"generated_ghost_change_is_deduped":
+			passed = _assert_generated_ghost_change_is_deduped(context)
+		"empty_pushed_out_no_replay_even_if_ghost_was_appended":
+			passed = await _assert_empty_pushed_out_no_replay_even_if_ghost_was_appended(context)
 		"level001_three_left_moves_no_stale_ghost":
 			passed = _assert_level001_three_left_moves_no_stale_ghost(context)
 		"memory_queue_symbols_are_ascii_safe":
@@ -742,37 +744,34 @@ func _assert_snapshot_includes_build_info(context: Dictionary) -> bool:
 		and snapshot.contains("build=dev")
 
 
-func _assert_overflow_with_only_empty_memory_has_no_replay(context: Dictionary) -> bool:
-	var defaults: WorldDefaults = context["defaults"]
-	var queue: ChangeQueue = context["queue"]
-	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.POSITION, &"box_0", Vector2i(2, 1), false, "older"))
-	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.POSITION, &"box_0", Vector2i(1, 1), false, "newer"))
-	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "empty_a"))
-	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "empty_b"))
-	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "empty_c"))
-	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "empty_trigger"))
-	var result: CompileResult = _compiler.compile(defaults, queue, defaults.player_start)
-	var builder := ReplayPayloadBuilder.new()
-	var replay_steps: Array[Dictionary] = builder.build_steps(defaults, result.queue_entries)
-	var final_entries: Array[ChangeRecord] = result.queue_entries
-	var all_empty: bool = final_entries.size() == 4
-	for entry: ChangeRecord in final_entries:
-		all_empty = all_empty and entry.type == ChangeRecord.ChangeType.EMPTY
+func _assert_pushed_out_only_empty_skips_replay(context: Dictionary) -> bool:
+	var controller: GameController = context["controller"]
+	controller.request_empty_change()
+	controller.request_empty_change()
+	controller.request_empty_change()
+	controller.request_empty_change()
+	controller.request_empty_change()
+	for i: int in range(120):
+		if not controller.get("_input_locked"):
+			break
+		await process_frame
+	var replay_steps: Array[Dictionary] = controller.get("_last_replay_steps")
+	var stop_reason: String = String(controller.get("_last_replay_stop_reason"))
 	var snapshot: String = _formatter.build_snapshot(
-		result.world,
-		final_entries,
-		"overflow_only_empty",
+		controller.get("_world"),
+		context["queue"].entries(),
+		String(controller.get("_last_recompile_reason")),
 		replay_steps,
-		[],
-		[],
-		false,
-		false,
-		BuildInfo.display_text()
+		controller.get("_last_replay_display_steps"),
+		controller.get("_last_replay_presenting_subjects"),
+		bool(controller.get("_last_replay_used_live_box_views")),
+		bool(controller.get("_last_replay_completed")),
+		BuildInfo.display_text(),
+		"board_ok",
+		"replay_ok",
+		stop_reason
 	)
-	return all_empty \
-		and replay_steps.is_empty() \
-		and snapshot.contains("replay=none") \
-		and not snapshot.contains("box_0:")
+	return replay_steps.is_empty() 		and stop_reason == "pushed_out_only_empty" 		and snapshot.contains("replay=none") 		and snapshot.contains("last_replay_stop_reason=pushed_out_only_empty")
 
 
 func _assert_overflow_with_remaining_position_memory_replays_retained_steps(context: Dictionary) -> bool:
@@ -852,12 +851,13 @@ func _assert_replay_marks_player_conflict_on_intermediate_step(context: Dictiona
 	return replay_steps.size() == 1 		and bool(replay_steps[0].get("is_conflict", false))
 
 
-func _assert_position_memory_truncates_to_ghost_on_player_conflict(context: Dictionary) -> bool:
+func _assert_player_conflict_truncation_appends_ghost_change(context: Dictionary) -> bool:
 	var defaults: WorldDefaults = context["defaults"]
 	var queue: ChangeQueue = _build_remembered_conflict_queue()
 	var result: CompileResult = _compiler.compile(defaults, queue, Vector2i(2, 1))
-	var has_position_memory: bool = result.queue_entries.size() == 4 		and result.queue_entries[0].type == ChangeRecord.ChangeType.POSITION 		and result.queue_entries[0].subject_id == &"box_0" 		and result.queue_entries[0].target_position == Vector2i(1, 1)
-	return has_position_memory 		and not result.world.entity_positions.has(&"box_0") 		and result.world.ghost_entities.get(&"box_0", Vector2i(-1, -1)) == Vector2i(2, 1)
+	var has_position_memory: bool = result.queue_entries.size() >= 4 		and result.queue_entries[0].type == ChangeRecord.ChangeType.POSITION 		and result.queue_entries[0].subject_id == &"box_0" 		and result.queue_entries[0].target_position == Vector2i(1, 1)
+	var ghost_count: int = _count_ghost_entries(result.queue_entries, &"box_0", Vector2i(2, 1))
+	return has_position_memory 		and not result.world.entity_positions.has(&"box_0") 		and result.world.ghost_entities.get(&"box_0", Vector2i(-1, -1)) == Vector2i(2, 1) 		and ghost_count == 1 		and result.generated_ghost_changes.size() == 1 		and result.generated_ghost_changes[0].type == ChangeRecord.ChangeType.GHOST 		and result.generated_ghost_changes[0].subject_id == &"box_0" 		and result.generated_ghost_changes[0].target_position == Vector2i(2, 1)
 
 
 func _assert_replay_path_truncates_at_first_conflict_step(context: Dictionary) -> bool:
@@ -877,7 +877,8 @@ func _assert_player_move_away_allows_remembered_path_to_finish_later(context: Di
 	for entry: ChangeRecord in blocked_result.queue_entries:
 		queue_after_blocked.append(entry)
 	var unblocked_result: CompileResult = _compiler.compile(defaults, queue_after_blocked, Vector2i(5, 1))
-	return blocked_result.world.ghost_entities.get(&"box_0", Vector2i(-1, -1)) == Vector2i(2, 1) 		and unblocked_result.world.entity_positions.get(&"box_0", Vector2i(-1, -1)) == Vector2i(1, 1) 		and not unblocked_result.world.ghost_entities.has(&"box_0") 		and unblocked_result.queue_entries.size() == 4 		and unblocked_result.queue_entries[0].type == ChangeRecord.ChangeType.POSITION 		and unblocked_result.queue_entries[0].target_position == Vector2i(1, 1)
+	var unblocked_ghost_count: int = _count_ghost_entries(unblocked_result.queue_entries, &"box_0", Vector2i(2, 1))
+	return not blocked_result.reached_safety_limit 		and not unblocked_result.reached_safety_limit 		and blocked_result.world.ghost_entities.get(&"box_0", Vector2i(-1, -1)) == Vector2i(2, 1) 		and unblocked_result.queue_entries[0].type == ChangeRecord.ChangeType.POSITION 		and unblocked_result.queue_entries[0].target_position == Vector2i(1, 1) 		and unblocked_ghost_count <= 1
 
 
 func _assert_snapshot_reports_ghost_boxes_and_truncated_replay(context: Dictionary) -> bool:
@@ -970,6 +971,48 @@ func _assert_controller_empty_overflow_snapshot_matches_memory_semantics(context
 		and not snapshot.contains("box_0:(1, 1)->(3, 1)")
 
 
+
+
+func _assert_empty_pushed_out_no_replay_even_if_ghost_was_appended(context: Dictionary) -> bool:
+	var controller: GameController = context["controller"]
+	var queue: ChangeQueue = context["queue"]
+	queue.clear()
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "e1"))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "e2"))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "e3"))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.POSITION, &"box_0", Vector2i(1, 1), false, "remembered"))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "trigger"))
+	var world: CompiledWorld = controller.get("_world")
+	world.player_position = Vector2i(2, 1)
+	controller.call("_recompile_world", "test_empty_pushout_ghost")
+	for i: int in range(120):
+		if not controller.get("_input_locked"):
+			break
+		await process_frame
+	var replay_steps: Array[Dictionary] = controller.get("_last_replay_steps")
+	var replay_display_steps: Array[Dictionary] = controller.get("_last_replay_display_steps")
+	var stop_reason: String = String(controller.get("_last_replay_stop_reason"))
+	var final_world: CompiledWorld = controller.get("_world")
+	var final_queue_entries: Array[ChangeRecord] = queue.entries()
+	var snapshot: String = _formatter.build_snapshot(
+		final_world,
+		final_queue_entries,
+		String(controller.get("_last_recompile_reason")),
+		replay_steps,
+		replay_display_steps,
+		controller.get("_last_replay_presenting_subjects"),
+		bool(controller.get("_last_replay_used_live_box_views")),
+		bool(controller.get("_last_replay_completed")),
+		BuildInfo.display_text(),
+		"board_ok",
+		"replay_ok",
+		stop_reason
+	)
+	return replay_steps.is_empty() \
+		and snapshot.contains("replay=none") \
+		and _count_ghost_entries(final_queue_entries, &"box_0", Vector2i(2, 1)) == 1
+
+
 func _assert_build_info_display_uses_generated_build_file_or_dev(_context: Dictionary) -> bool:
 	var build_info_path: String = BuildInfo.BUILD_INFO_PATH
 	var build_info_absolute_path: String = ProjectSettings.globalize_path(build_info_path)
@@ -1014,7 +1057,7 @@ func _ensure_generated_dir_exists(build_info_absolute_path: String) -> void:
 	DirAccess.make_dir_recursive_absolute(dir_path)
 
 
-func _assert_compiler_does_not_duplicate_same_ghost_repeatedly(_context: Dictionary) -> bool:
+func _assert_generated_ghost_change_is_deduped(_context: Dictionary) -> bool:
 	var defaults := WorldDefaults.new()
 	defaults.board_size = Vector2i(3, 1)
 	defaults.player_start = Vector2i(1, 0)
@@ -1027,14 +1070,20 @@ func _assert_compiler_does_not_duplicate_same_ghost_repeatedly(_context: Diction
 	var queue := ChangeQueue.new()
 	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.POSITION, &"box_0", Vector2i(1, 0), false, "conflict_with_player"))
 
-	var result: CompileResult = _compiler.compile(defaults, queue, defaults.player_start)
-	var final_entries: Array[ChangeRecord] = result.queue_entries
-	return not result.reached_safety_limit \
-		and result.generated_ghost_changes.is_empty() \
-		and final_entries.size() == 1 \
-		and final_entries[0].type == ChangeRecord.ChangeType.POSITION \
-		and final_entries[0].target_position == Vector2i(1, 0) \
-		and result.world.ghost_entities.get(&"box_0", Vector2i(-1, -1)) == Vector2i(1, 0)
+	var first_result: CompileResult = _compiler.compile(defaults, queue, defaults.player_start)
+	var queue_after_first: ChangeQueue = ChangeQueue.new()
+	for entry: ChangeRecord in first_result.queue_entries:
+		queue_after_first.append(entry)
+	var second_result: CompileResult = _compiler.compile(defaults, queue_after_first, defaults.player_start)
+	var first_ghost_count: int = _count_ghost_entries(first_result.queue_entries, &"box_0", Vector2i(1, 0))
+	var second_ghost_count: int = _count_ghost_entries(second_result.queue_entries, &"box_0", Vector2i(1, 0))
+	return not first_result.reached_safety_limit \
+		and not second_result.reached_safety_limit \
+		and first_result.generated_ghost_changes.size() == 1 \
+		and second_result.generated_ghost_changes.is_empty() \
+		and first_ghost_count == 1 \
+		and second_ghost_count == 1 \
+		and second_result.world.ghost_entities.get(&"box_0", Vector2i(-1, -1)) == Vector2i(1, 0)
 
 
 func _assert_level001_three_left_moves_no_stale_ghost(context: Dictionary) -> bool:
@@ -1044,17 +1093,18 @@ func _assert_level001_three_left_moves_no_stale_ghost(context: Dictionary) -> bo
 	var world: CompiledWorld = context["world"]
 	var queue_entries: Array[ChangeRecord] = context["queue"].entries()
 	var replay_steps: Array[Dictionary] = context["controller"].get("_last_replay_steps")
-	var has_ghost_to_two_one: bool = _count_ghost_entries(queue_entries, &"box_0", Vector2i(2, 1)) > 0
+	var ghost_to_two_one_count: int = _count_ghost_entries(queue_entries, &"box_0", Vector2i(2, 1))
 	var position_count: int = 0
 	for entry: ChangeRecord in queue_entries:
 		if entry.type == ChangeRecord.ChangeType.POSITION:
 			position_count += 1
 	return third_move["player_moved"] \
 		and world.player_position == Vector2i(2, 1) \
-		and _sorted_vec2_array(world.entity_positions.values()) == [Vector2i(1, 1)] \
-		and queue_entries.size() == 2 \
+		and world.ghost_entities.get(&"box_0", Vector2i(-1, -1)) == Vector2i(2, 1) \
+		and not world.entity_positions.has(&"box_0") \
+		and queue_entries.size() == 3 \
 		and position_count == 2 \
-		and not has_ghost_to_two_one \
+		and ghost_to_two_one_count == 1 \
 		and replay_steps.is_empty()
 
 
@@ -1445,24 +1495,10 @@ func _build_cases() -> Array[Dictionary]:
 			},
 		},
 		{
-			"id": "overflow_with_only_empty_memory_has_no_replay",
-			"name": "overflow_with_only_empty_memory_has_no_replay",
-			"action": "overflow leaves only Empty memory so replay must be none",
-			"blueprint": {
-				"board_size": Vector2i(6, 3),
-				"player_start": Vector2i(5, 1),
-				"exit_position": Vector2i(1, 1),
-				"memory_capacity": 4,
-				"floors": [
-					Vector3i(1, 1, 0),
-					Vector3i(2, 1, 0),
-					Vector3i(3, 1, 0),
-					Vector3i(4, 1, 0),
-					Vector3i(5, 1, 0),
-				],
-				"walls": [],
-				"boxes": [Vector3i(3, 1, 0)],
-			},
+			"id": "pushed_out_only_empty_skips_replay",
+			"name": "pushed_out_only_empty_skips_replay",
+			"action": "controller overflow with only Empty pushed_out must keep replay=none",
+			"context_mode": "controller_level001",
 		},
 		{
 			"id": "overflow_with_remaining_position_memory_replays_retained_steps",
@@ -1525,8 +1561,8 @@ func _build_cases() -> Array[Dictionary]:
 			},
 		},
 		{
-			"id": "position_memory_truncates_to_ghost_on_player_conflict",
-			"name": "position_memory_truncates_to_ghost_on_player_conflict",
+			"id": "player_conflict_truncation_appends_ghost_change",
+			"name": "player_conflict_truncation_appends_ghost_change",
 			"action": "compile Position memory from default and truncate to ghost at first player conflict",
 			"blueprint": {
 				"board_size": Vector2i(6, 3),
@@ -1644,8 +1680,8 @@ func _build_cases() -> Array[Dictionary]:
 			},
 		},
 		{
-			"id": "compiler_does_not_duplicate_same_ghost_repeatedly",
-			"name": "compiler_does_not_duplicate_same_ghost_repeatedly",
+			"id": "generated_ghost_change_is_deduped",
+			"name": "generated_ghost_change_is_deduped",
 			"action": "compile conflicting Position change and assert ghost dedupe",
 			"blueprint": {
 				"board_size": Vector2i(2, 1),
@@ -1654,6 +1690,27 @@ func _build_cases() -> Array[Dictionary]:
 				"floors": [Vector3i(0, 0, 0), Vector3i(1, 0, 0)],
 				"walls": [],
 				"boxes": [],
+			},
+		},
+		{
+			"id": "empty_pushed_out_no_replay_even_if_ghost_was_appended",
+			"name": "empty_pushed_out_no_replay_even_if_ghost_was_appended",
+			"action": "controller replay gate stays none when pushed_out is Empty even if compile appends Ghost",
+			"context_mode": "controller_blueprint",
+			"blueprint": {
+				"board_size": Vector2i(6, 3),
+				"player_start": Vector2i(5, 1),
+				"exit_position": Vector2i(1, 1),
+				"memory_capacity": 4,
+				"floors": [
+					Vector3i(1, 1, 0),
+					Vector3i(2, 1, 0),
+					Vector3i(3, 1, 0),
+					Vector3i(4, 1, 0),
+					Vector3i(5, 1, 0),
+				],
+				"walls": [],
+				"boxes": [Vector3i(3, 1, 0)],
 			},
 		},
 		{

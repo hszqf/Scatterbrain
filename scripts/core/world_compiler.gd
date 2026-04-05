@@ -25,6 +25,13 @@ func compile(defaults: WorldDefaults, queue: ChangeQueue, player_position: Vecto
 			break
 
 		for ghost_change: ChangeRecord in generated:
+			var removed_for_generated: ChangeRecord = _remove_oldest_unpinned_empty(working_queue)
+			if removed_for_generated != null:
+				result.pushed_out_changes.append(removed_for_generated)
+			elif working_queue.size() >= defaults.memory_capacity:
+				var removed_oldest: ChangeRecord = working_queue.remove_oldest_unpinned()
+				if removed_oldest != null:
+					result.pushed_out_changes.append(removed_oldest)
 			working_queue.append(ghost_change)
 		result.generated_ghost_changes.append_array(generated)
 
@@ -41,6 +48,26 @@ func compile(defaults: WorldDefaults, queue: ChangeQueue, player_position: Vecto
 	return result
 
 
+
+
+func _remove_oldest_unpinned_empty(queue: ChangeQueue) -> ChangeRecord:
+	var entries: Array[ChangeRecord] = queue.entries()
+	for i: int in range(entries.size()):
+		var entry: ChangeRecord = entries[i]
+		if entry == null:
+			continue
+		if entry.pinned:
+			continue
+		if entry.type != ChangeRecord.ChangeType.EMPTY:
+			continue
+		var removed: ChangeRecord = entry
+		queue.clear()
+		for j: int in range(entries.size()):
+			if j == i:
+				continue
+			queue.append(entries[j])
+		return removed
+	return null
 func _build_base_world(defaults: WorldDefaults, player_position: Vector2i) -> CompiledWorld:
 	var world := CompiledWorld.new()
 	world.board_size = defaults.board_size
@@ -66,7 +93,9 @@ func _apply_changes(
 	for change: ChangeRecord in entries:
 		match change.type:
 			ChangeRecord.ChangeType.POSITION:
-				_apply_position_change(change, world)
+				var generated_ghost: ChangeRecord = _apply_position_change(change, world)
+				if generated_ghost != null and not _contains_equivalent_ghost_change(entries, generated_ghost_changes, generated_ghost):
+					generated_ghost_changes.append(generated_ghost)
 			ChangeRecord.ChangeType.GHOST:
 				_apply_ghost_change(change, world)
 			ChangeRecord.ChangeType.EMPTY:
@@ -76,9 +105,9 @@ func _apply_changes(
 	return generated_ghost_changes
 
 
-func _apply_position_change(change: ChangeRecord, world: CompiledWorld) -> void:
+func _apply_position_change(change: ChangeRecord, world: CompiledWorld) -> ChangeRecord:
 	if change.subject_id == &"":
-		return
+		return null
 
 	var from_exists: bool = world.entity_positions.has(change.subject_id)
 	var from_pos: Vector2i = world.entity_positions.get(change.subject_id, change.target_position)
@@ -93,20 +122,45 @@ func _apply_position_change(change: ChangeRecord, world: CompiledWorld) -> void:
 	if bool(path_result.get("truncated_by_player_conflict", false)):
 		world.entity_positions.erase(change.subject_id)
 		world.ghost_entities[change.subject_id] = final_position
-		return
+		if world.ghost_entities.get(change.subject_id, Vector2i(-1, -1)) == final_position:
+			return ChangeRecord.new(ChangeRecord.ChangeType.GHOST, change.subject_id, final_position, change.pinned, "generated_from_player_conflict")
+		return null
 
 	if not world.is_inside(final_position) or not world.has_floor_at(final_position) or world.has_wall_at(final_position):
 		world.entity_positions.erase(change.subject_id)
 		world.ghost_entities.erase(change.subject_id)
-		return
+		return null
 
 	if _can_place_box(world, final_position, change.subject_id):
 		world.ghost_entities.erase(change.subject_id)
 		world.entity_positions[change.subject_id] = final_position
-		return
+		return null
 
 	world.entity_positions.erase(change.subject_id)
 	world.ghost_entities[change.subject_id] = final_position
+	return null
+
+
+func _contains_equivalent_ghost_change(
+	entries: Array[ChangeRecord],
+	generated_ghost_changes: Array[ChangeRecord],
+	candidate: ChangeRecord
+) -> bool:
+	for entry: ChangeRecord in entries:
+		if _is_equivalent_ghost_change(entry, candidate):
+			return true
+	for generated: ChangeRecord in generated_ghost_changes:
+		if _is_equivalent_ghost_change(generated, candidate):
+			return true
+	return false
+
+
+func _is_equivalent_ghost_change(entry: ChangeRecord, candidate: ChangeRecord) -> bool:
+	if entry == null or candidate == null:
+		return false
+	return entry.type == ChangeRecord.ChangeType.GHOST \
+		and entry.subject_id == candidate.subject_id \
+		and entry.target_position == candidate.target_position
 
 
 func _apply_ghost_change(change: ChangeRecord, world: CompiledWorld) -> void:

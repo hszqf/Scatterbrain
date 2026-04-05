@@ -191,25 +191,32 @@ func _recompile_world(reason: String) -> void:
 	_last_replay_used_live_box_views = false
 	_last_replay_presenting_subjects = []
 	_last_replay_display_steps = []
-	if not result.pushed_out_changes.is_empty():
+	var has_replayable_pushed_out: bool = _has_replayable_pushed_out_changes(result.pushed_out_changes)
+	if has_replayable_pushed_out:
 		replay_steps = _replay_payload_builder.build_steps(_defaults, result.queue_entries, current_player_position)
-	_last_replay_steps = replay_steps
-	_last_replay_display_steps = _duplicate_replay_steps(replay_steps)
-	_last_replay_presenting_subjects = _collect_replay_subjects(replay_steps)
-	var has_player_conflict_step: bool = false
-	for replay_step: Dictionary in replay_steps:
-		if bool(replay_step.get("is_conflict", false)):
-			has_player_conflict_step = true
-			break
-	_last_replay_stop_reason = "player_conflict" if has_player_conflict_step else "completed"
+		_last_replay_steps = replay_steps
+		_last_replay_display_steps = _duplicate_replay_steps(replay_steps)
+		_last_replay_presenting_subjects = _collect_replay_subjects(replay_steps)
+		var has_player_conflict_step: bool = false
+		for replay_step: Dictionary in replay_steps:
+			if bool(replay_step.get("is_conflict", false)):
+				has_player_conflict_step = true
+				break
+		_last_replay_stop_reason = "player_conflict" if has_player_conflict_step else "completed"
 
-	if _replay_controller.has_steps(replay_steps):
-		await _replay_controller.play_steps(replay_steps)
-		_last_replay_used_live_box_views = _replay_controller.used_live_box_views()
-		_last_replay_completed = true
+		if _replay_controller.has_steps(replay_steps):
+			await _replay_controller.play_steps(replay_steps)
+			_last_replay_used_live_box_views = _replay_controller.used_live_box_views()
+			_last_replay_completed = true
+		else:
+			_last_replay_completed = replay_steps.is_empty()
+			_last_replay_stop_reason = "none"
 	else:
-		_last_replay_completed = replay_steps.is_empty()
-		_last_replay_stop_reason = "none"
+		_last_replay_steps = []
+		_last_replay_display_steps = []
+		_last_replay_presenting_subjects = []
+		_last_replay_completed = true
+		_last_replay_stop_reason = "pushed_out_only_empty"
 
 	_world = world_after_compile
 	_queue.clear()
@@ -304,6 +311,20 @@ func _build_defaults() -> WorldDefaults:
 	remove_child(root)
 	root.queue_free()
 	return WorldDefaults.from_runtime_data(runtime_data)
+
+
+
+
+func _has_replayable_pushed_out_changes(pushed_out_changes: Array[ChangeRecord]) -> bool:
+	for change: ChangeRecord in pushed_out_changes:
+		if change == null:
+			continue
+		if change.type == ChangeRecord.ChangeType.EMPTY:
+			continue
+		if change.subject_id == &"":
+			continue
+		return true
+	return false
 
 
 func _duplicate_replay_steps(steps: Array[Dictionary]) -> Array[Dictionary]:
