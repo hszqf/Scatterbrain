@@ -138,6 +138,7 @@ func on_copy_log_pressed() -> void:
 
 
 func copy_debug_log() -> void:
+	var replay_layer_transform: String = _snapshot_replay_layer_transform()
 	var text: String = _debug_log_formatter.build_snapshot(
 		_world,
 		_queue.entries(),
@@ -149,7 +150,7 @@ func copy_debug_log() -> void:
 		_last_replay_completed,
 		BuildInfo.display_text(),
 		_format_node2d_transform(_board_view),
-		_format_node2d_transform(_replay_controller.get_node(_replay_controller.replay_layer_path) as Node2D),
+		replay_layer_transform,
 		_last_replay_stop_reason,
 		_last_input_source,
 		_last_input_intent,
@@ -176,6 +177,13 @@ func _format_node2d_transform(node: Node2D) -> String:
 	if node == null:
 		return "n/a"
 	return "pos(%s), scale(%s)" % [str(node.position), str(node.scale)]
+
+
+func _snapshot_replay_layer_transform() -> String:
+	if not _last_replay_completed:
+		return "inactive"
+	var replay_layer: Node2D = _replay_controller.get_node(_replay_controller.replay_layer_path) as Node2D
+	return _format_node2d_transform(replay_layer)
 
 
 func _handle_move(direction: Vector2i) -> void:
@@ -216,16 +224,16 @@ func _recompile_world(reason: String) -> void:
 	_input_locked = true
 	_last_recompile_reason = reason
 	_last_replay_steps = []
+	_last_replay_display_steps = []
+	_last_replay_presenting_subjects = []
+	_last_replay_used_live_box_views = false
+	_last_replay_completed = false
+	_last_replay_stop_reason = "none"
 	print("[Recompile] begin reason=%s" % reason)
 	var current_player_position: Vector2i = _world.player_position
 	var result: CompileResult = _compiler.compile(_defaults, _queue, current_player_position)
 	var world_after_compile: CompiledWorld = result.world
 	var replay_steps: Array[Dictionary] = []
-	_last_replay_completed = false
-	_last_replay_stop_reason = "none"
-	_last_replay_used_live_box_views = false
-	_last_replay_presenting_subjects = []
-	_last_replay_display_steps = []
 	_last_pushed_out_summaries = _change_summaries(result.pushed_out_changes)
 	_last_generated_ghost_summaries = _change_summaries(result.generated_ghost_changes)
 	_last_queue_after_compile_summaries = _change_summaries(result.queue_entries)
@@ -249,14 +257,13 @@ func _recompile_world(reason: String) -> void:
 			_last_replay_used_live_box_views = _replay_controller.used_live_box_views()
 			_last_replay_completed = true
 		else:
-			_last_replay_completed = replay_steps.is_empty()
 			_last_replay_stop_reason = "none"
 	else:
 		_last_replay_steps = []
 		_last_replay_display_steps = []
 		_last_replay_presenting_subjects = []
-		_last_replay_completed = true
-		_last_replay_stop_reason = "pushed_out_only_empty"
+		_last_replay_completed = false
+		_last_replay_stop_reason = _last_replay_gate_reason
 
 	_world = world_after_compile
 	_queue.clear()

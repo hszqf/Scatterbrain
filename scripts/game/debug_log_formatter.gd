@@ -95,7 +95,7 @@ func _replay_summary(steps: Array[Dictionary]) -> String:
 
 func _replay_display_summary(steps: Array[Dictionary]) -> String:
 	if steps.is_empty():
-		return "none"
+		return "[]"
 	var labels: Array[String] = []
 	for step: Dictionary in steps:
 		labels.append("%s:%s->%s conflict=%s" % [
