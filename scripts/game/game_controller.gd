@@ -35,6 +35,7 @@ var _last_replay_display_steps: Array[Dictionary] = []
 var _last_replay_presenting_subjects: Array[StringName] = []
 var _last_replay_used_live_box_views: bool = false
 var _last_replay_completed: bool = false
+var _last_replay_stop_reason: String = "none"
 var _feedback_clear_at_msec: int = 0
 
 
@@ -127,7 +128,8 @@ func copy_debug_log() -> void:
 		_last_replay_completed,
 		BuildInfo.display_text(),
 		_format_node2d_transform(_board_view),
-		_format_node2d_transform(_replay_controller.get_node(_replay_controller.replay_layer_path) as Node2D)
+		_format_node2d_transform(_replay_controller.get_node(_replay_controller.replay_layer_path) as Node2D),
+		_last_replay_stop_reason
 	)
 	DisplayServer.clipboard_set(text)
 	if DisplayServer.clipboard_get() == text:
@@ -185,6 +187,7 @@ func _recompile_world(reason: String) -> void:
 	var world_after_compile: CompiledWorld = result.world
 	var replay_steps: Array[Dictionary] = []
 	_last_replay_completed = false
+	_last_replay_stop_reason = "none"
 	_last_replay_used_live_box_views = false
 	_last_replay_presenting_subjects = []
 	_last_replay_display_steps = []
@@ -193,6 +196,12 @@ func _recompile_world(reason: String) -> void:
 	_last_replay_steps = replay_steps
 	_last_replay_display_steps = _duplicate_replay_steps(replay_steps)
 	_last_replay_presenting_subjects = _collect_replay_subjects(replay_steps)
+	var has_player_conflict_step: bool = false
+	for replay_step: Dictionary in replay_steps:
+		if bool(replay_step.get("is_conflict", false)):
+			has_player_conflict_step = true
+			break
+	_last_replay_stop_reason = "player_conflict" if has_player_conflict_step else "completed"
 
 	if _replay_controller.has_steps(replay_steps):
 		await _replay_controller.play_steps(replay_steps)
@@ -200,6 +209,7 @@ func _recompile_world(reason: String) -> void:
 		_last_replay_completed = true
 	else:
 		_last_replay_completed = replay_steps.is_empty()
+		_last_replay_stop_reason = "none"
 
 	_world = world_after_compile
 	_queue.clear()
@@ -256,6 +266,7 @@ func _reset_level() -> void:
 	_last_replay_presenting_subjects = []
 	_last_replay_used_live_box_views = false
 	_last_replay_completed = false
+	_last_replay_stop_reason = "none"
 	_last_recompile_reason = "reset"
 	_defaults = _build_defaults()
 	_world = CompiledWorld.new()

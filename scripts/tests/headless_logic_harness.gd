@@ -113,6 +113,14 @@ func _run_case(case_data: Dictionary) -> bool:
 			passed = _assert_retained_position_replay_expands_to_micro_steps(context)
 		"replay_marks_player_conflict_on_intermediate_step":
 			passed = _assert_replay_marks_player_conflict_on_intermediate_step(context)
+		"position_memory_truncates_to_ghost_on_player_conflict":
+			passed = _assert_position_memory_truncates_to_ghost_on_player_conflict(context)
+		"replay_path_truncates_at_first_conflict_step":
+			passed = _assert_replay_path_truncates_at_first_conflict_step(context)
+		"player_move_away_allows_remembered_path_to_finish_later":
+			passed = _assert_player_move_away_allows_remembered_path_to_finish_later(context)
+		"snapshot_reports_ghost_boxes_and_truncated_replay":
+			passed = _assert_snapshot_reports_ghost_boxes_and_truncated_replay(context)
 		"snapshot_reports_last_replay_display_info":
 			passed = _assert_snapshot_reports_last_replay_display_info(context)
 		"controller_empty_overflow_snapshot_matches_memory_semantics":
@@ -551,13 +559,16 @@ func _assert_replay_uses_live_box_view_and_restores_state(context: Dictionary) -
 		await process_frame
 	var world_after: CompiledWorld = controller.get("_world")
 	var box_after: BoxView = board_view.get_box_view(&"box_0")
+	var final_box_pos: Vector2i = world_after.get_entity_position(&"box_0")
 	return saw_live_presenting \
 		and box_during_playback == box_after \
 		and replay_controller.used_live_box_views() \
-		and not box_after.is_ghost() \
+		and box_after.is_ghost() \
 		and not box_after.is_conflict() \
 		and box_after.visible \
-		and box_after.position.is_equal_approx(board_view.board_to_pixel_center(world_after.entity_positions[&"box_0"]))
+		and final_box_pos == Vector2i(2, 1) \
+		and world_after.ghost_entities.has(&"box_0") \
+		and box_after.position.is_equal_approx(board_view.board_to_pixel_center(final_box_pos))
 
 
 func _assert_board_view_sync_does_not_override_replay_presenting_subjects(context: Dictionary) -> bool:
@@ -587,10 +598,13 @@ func _assert_board_view_sync_does_not_override_replay_presenting_subjects(contex
 		await process_frame
 	var world_after: CompiledWorld = controller.get("_world")
 	var box_after: BoxView = board_view.get_box_view(&"box_0")
+	var final_box_pos: Vector2i = world_after.get_entity_position(&"box_0")
 	return captured \
 		and position_before_forced_sync.is_equal_approx(position_after_forced_sync) \
 		and not board_view.is_replay_presenting_subject(&"box_0") \
-		and box_after.position.is_equal_approx(board_view.board_to_pixel_center(world_after.entity_positions[&"box_0"]))
+		and final_box_pos == Vector2i(2, 1) \
+		and world_after.ghost_entities.has(&"box_0") \
+		and box_after.position.is_equal_approx(board_view.board_to_pixel_center(final_box_pos))
 
 
 func _assert_replay_end_does_not_sync_old_world_before_final_world(context: Dictionary) -> bool:
@@ -608,12 +622,14 @@ func _assert_replay_end_does_not_sync_old_world_before_final_world(context: Dict
 		await process_frame
 	var world_after: CompiledWorld = controller.get("_world")
 	var box_after: BoxView = board_view.get_box_view(&"box_0")
+	var final_box_pos: Vector2i = world_after.get_entity_position(&"box_0")
 	var script_text: String = FileAccess.get_file_as_string("res://scripts/game/board_view.gd")
 	var has_old_world_sync_in_end: bool = script_text.contains("func end_replay_presentation() -> void:\n\t_replay_presenting_subjects.clear()\n\tif _world != null:\n\t\tsync_world(_world)")
 	return not has_old_world_sync_in_end \
 		and not board_view.is_replay_presenting_subject(&"box_0") \
-		and world_after.entity_positions.has(&"box_0") \
-		and box_after.position.is_equal_approx(board_view.board_to_pixel_center(world_after.entity_positions[&"box_0"]))
+		and world_after.ghost_entities.has(&"box_0") \
+		and final_box_pos == Vector2i(2, 1) \
+		and box_after.position.is_equal_approx(board_view.board_to_pixel_center(final_box_pos))
 
 
 func _assert_restore_live_subjects_does_not_override_final_position(context: Dictionary) -> bool:
@@ -818,31 +834,83 @@ func _assert_retained_position_replay_expands_to_micro_steps(context: Dictionary
 		and replay_steps[1].get("to", Vector2i.ZERO) == Vector2i(1, 1)
 
 
-func _assert_replay_marks_player_conflict_on_intermediate_step(context: Dictionary) -> bool:
-	var defaults: WorldDefaults = context["defaults"]
-	var queue: ChangeQueue = context["queue"]
-	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.POSITION, &"box_0", Vector2i(2, 1), false, "older"))
+func _build_remembered_conflict_queue() -> ChangeQueue:
+	var queue: ChangeQueue = ChangeQueue.new()
 	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.POSITION, &"box_0", Vector2i(1, 1), false, "remembered"))
 	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "empty_a"))
 	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "empty_b"))
-	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "empty_trigger"))
-	var result: CompileResult = _compiler.compile(defaults, queue, defaults.player_start)
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "empty_c"))
+	return queue
+
+
+func _assert_replay_marks_player_conflict_on_intermediate_step(context: Dictionary) -> bool:
+	var defaults: WorldDefaults = context["defaults"]
+	var queue: ChangeQueue = _build_remembered_conflict_queue()
+	var result: CompileResult = _compiler.compile(defaults, queue, Vector2i(2, 1))
 	var builder := ReplayPayloadBuilder.new()
 	var replay_steps: Array[Dictionary] = builder.build_steps(defaults, result.queue_entries, Vector2i(2, 1))
-	return replay_steps.size() == 2 \
-		and bool(replay_steps[0].get("is_conflict", false)) \
-		and not bool(replay_steps[1].get("is_conflict", true))
+	return replay_steps.size() == 1 		and bool(replay_steps[0].get("is_conflict", false))
+
+
+func _assert_position_memory_truncates_to_ghost_on_player_conflict(context: Dictionary) -> bool:
+	var defaults: WorldDefaults = context["defaults"]
+	var queue: ChangeQueue = _build_remembered_conflict_queue()
+	var result: CompileResult = _compiler.compile(defaults, queue, Vector2i(2, 1))
+	var has_position_memory: bool = result.queue_entries.size() == 4 		and result.queue_entries[0].type == ChangeRecord.ChangeType.POSITION 		and result.queue_entries[0].subject_id == &"box_0" 		and result.queue_entries[0].target_position == Vector2i(1, 1)
+	return has_position_memory 		and not result.world.entity_positions.has(&"box_0") 		and result.world.ghost_entities.get(&"box_0", Vector2i(-1, -1)) == Vector2i(2, 1)
+
+
+func _assert_replay_path_truncates_at_first_conflict_step(context: Dictionary) -> bool:
+	var defaults: WorldDefaults = context["defaults"]
+	var queue: ChangeQueue = _build_remembered_conflict_queue()
+	var result: CompileResult = _compiler.compile(defaults, queue, Vector2i(2, 1))
+	var builder := ReplayPayloadBuilder.new()
+	var replay_steps: Array[Dictionary] = builder.build_steps(defaults, result.queue_entries, Vector2i(2, 1))
+	return replay_steps.size() == 1 		and replay_steps[0].get("subject", &"") == &"box_0" 		and replay_steps[0].get("from", Vector2i.ZERO) == Vector2i(3, 1) 		and replay_steps[0].get("to", Vector2i.ZERO) == Vector2i(2, 1) 		and bool(replay_steps[0].get("is_conflict", false))
+
+
+func _assert_player_move_away_allows_remembered_path_to_finish_later(context: Dictionary) -> bool:
+	var defaults: WorldDefaults = context["defaults"]
+	var queue: ChangeQueue = _build_remembered_conflict_queue()
+	var blocked_result: CompileResult = _compiler.compile(defaults, queue, Vector2i(2, 1))
+	var queue_after_blocked: ChangeQueue = ChangeQueue.new()
+	for entry: ChangeRecord in blocked_result.queue_entries:
+		queue_after_blocked.append(entry)
+	var unblocked_result: CompileResult = _compiler.compile(defaults, queue_after_blocked, Vector2i(5, 1))
+	return blocked_result.world.ghost_entities.get(&"box_0", Vector2i(-1, -1)) == Vector2i(2, 1) 		and unblocked_result.world.entity_positions.get(&"box_0", Vector2i(-1, -1)) == Vector2i(1, 1) 		and not unblocked_result.world.ghost_entities.has(&"box_0") 		and unblocked_result.queue_entries.size() == 4 		and unblocked_result.queue_entries[0].type == ChangeRecord.ChangeType.POSITION 		and unblocked_result.queue_entries[0].target_position == Vector2i(1, 1)
+
+
+func _assert_snapshot_reports_ghost_boxes_and_truncated_replay(context: Dictionary) -> bool:
+	var defaults: WorldDefaults = context["defaults"]
+	var queue: ChangeQueue = _build_remembered_conflict_queue()
+	var result: CompileResult = _compiler.compile(defaults, queue, Vector2i(2, 1))
+	var builder := ReplayPayloadBuilder.new()
+	var replay_steps: Array[Dictionary] = builder.build_steps(defaults, result.queue_entries, Vector2i(2, 1))
+	var snapshot: String = _formatter.build_snapshot(
+		result.world,
+		result.queue_entries,
+		"snapshot_ghost_boxes",
+		replay_steps,
+		replay_steps,
+		[&"box_0"],
+		true,
+		true,
+		BuildInfo.display_text(),
+		"board_ok",
+		"replay_ok",
+		"player_conflict"
+	)
+	return snapshot.contains("boxes=[]") \
+		and snapshot.contains("ghost_boxes=[(2, 1)]") \
+		and snapshot.contains("replay=[\"box_0:(3, 1)->(2, 1)\"]") \
+		and snapshot.contains("last_replay_display_steps=[\"box_0:(3, 1)->(2, 1) conflict=true\"]") \
+		and snapshot.contains("last_replay_stop_reason=player_conflict")
 
 
 func _assert_snapshot_reports_last_replay_display_info(context: Dictionary) -> bool:
 	var defaults: WorldDefaults = context["defaults"]
-	var queue: ChangeQueue = context["queue"]
-	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.POSITION, &"box_0", Vector2i(2, 1), false, "older"))
-	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.POSITION, &"box_0", Vector2i(1, 1), false, "remembered"))
-	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "empty_a"))
-	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "empty_b"))
-	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "empty_trigger"))
-	var result: CompileResult = _compiler.compile(defaults, queue, defaults.player_start)
+	var queue: ChangeQueue = _build_remembered_conflict_queue()
+	var result: CompileResult = _compiler.compile(defaults, queue, Vector2i(2, 1))
 	var builder := ReplayPayloadBuilder.new()
 	var replay_steps: Array[Dictionary] = builder.build_steps(defaults, result.queue_entries, Vector2i(2, 1))
 	var snapshot: String = _formatter.build_snapshot(
@@ -854,11 +922,13 @@ func _assert_snapshot_reports_last_replay_display_info(context: Dictionary) -> b
 		[&"box_0"],
 		true,
 		true,
-		BuildInfo.display_text()
+		BuildInfo.display_text(),
+		"board_ok",
+		"replay_ok",
+		"player_conflict"
 	)
 	return snapshot.contains("last_replay_display_steps=") \
 		and snapshot.contains("box_0:(3, 1)->(2, 1) conflict=true") \
-		and snapshot.contains("box_0:(2, 1)->(1, 1) conflict=false") \
 		and snapshot.contains("last_replay_presenting_subjects=[&\"box_0\"]") \
 		and snapshot.contains("last_replay_used_live_box_views=true") \
 		and snapshot.contains("last_replay_completed=true") \
@@ -959,14 +1029,12 @@ func _assert_compiler_does_not_duplicate_same_ghost_repeatedly(_context: Diction
 
 	var result: CompileResult = _compiler.compile(defaults, queue, defaults.player_start)
 	var final_entries: Array[ChangeRecord] = result.queue_entries
-	var duplicate_ghost_count: int = _count_ghost_entries(final_entries, &"box_0", Vector2i(1, 0))
-
 	return not result.reached_safety_limit \
-		and result.generated_ghost_changes.size() == 1 \
-		and duplicate_ghost_count == 1 \
-		and final_entries.size() == 2 \
+		and result.generated_ghost_changes.is_empty() \
+		and final_entries.size() == 1 \
 		and final_entries[0].type == ChangeRecord.ChangeType.POSITION \
-		and final_entries[1].type == ChangeRecord.ChangeType.GHOST
+		and final_entries[0].target_position == Vector2i(1, 0) \
+		and result.world.ghost_entities.get(&"box_0", Vector2i(-1, -1)) == Vector2i(1, 0)
 
 
 func _assert_level001_three_left_moves_no_stale_ghost(context: Dictionary) -> bool:
@@ -1440,6 +1508,86 @@ func _build_cases() -> Array[Dictionary]:
 			"id": "replay_marks_player_conflict_on_intermediate_step",
 			"name": "replay_marks_player_conflict_on_intermediate_step",
 			"action": "replay step marks conflict when micro-step enters live player tile",
+			"blueprint": {
+				"board_size": Vector2i(6, 3),
+				"player_start": Vector2i(5, 1),
+				"exit_position": Vector2i(1, 1),
+				"memory_capacity": 4,
+				"floors": [
+					Vector3i(1, 1, 0),
+					Vector3i(2, 1, 0),
+					Vector3i(3, 1, 0),
+					Vector3i(4, 1, 0),
+					Vector3i(5, 1, 0),
+				],
+				"walls": [],
+				"boxes": [Vector3i(3, 1, 0)],
+			},
+		},
+		{
+			"id": "position_memory_truncates_to_ghost_on_player_conflict",
+			"name": "position_memory_truncates_to_ghost_on_player_conflict",
+			"action": "compile Position memory from default and truncate to ghost at first player conflict",
+			"blueprint": {
+				"board_size": Vector2i(6, 3),
+				"player_start": Vector2i(5, 1),
+				"exit_position": Vector2i(1, 1),
+				"memory_capacity": 4,
+				"floors": [
+					Vector3i(1, 1, 0),
+					Vector3i(2, 1, 0),
+					Vector3i(3, 1, 0),
+					Vector3i(4, 1, 0),
+					Vector3i(5, 1, 0),
+				],
+				"walls": [],
+				"boxes": [Vector3i(3, 1, 0)],
+			},
+		},
+		{
+			"id": "replay_path_truncates_at_first_conflict_step",
+			"name": "replay_path_truncates_at_first_conflict_step",
+			"action": "replay path stops at first step that conflicts with live player",
+			"blueprint": {
+				"board_size": Vector2i(6, 3),
+				"player_start": Vector2i(5, 1),
+				"exit_position": Vector2i(1, 1),
+				"memory_capacity": 4,
+				"floors": [
+					Vector3i(1, 1, 0),
+					Vector3i(2, 1, 0),
+					Vector3i(3, 1, 0),
+					Vector3i(4, 1, 0),
+					Vector3i(5, 1, 0),
+				],
+				"walls": [],
+				"boxes": [Vector3i(3, 1, 0)],
+			},
+		},
+		{
+			"id": "player_move_away_allows_remembered_path_to_finish_later",
+			"name": "player_move_away_allows_remembered_path_to_finish_later",
+			"action": "same Position memory recompile finishes later after player leaves conflict tile",
+			"blueprint": {
+				"board_size": Vector2i(6, 3),
+				"player_start": Vector2i(5, 1),
+				"exit_position": Vector2i(1, 1),
+				"memory_capacity": 4,
+				"floors": [
+					Vector3i(1, 1, 0),
+					Vector3i(2, 1, 0),
+					Vector3i(3, 1, 0),
+					Vector3i(4, 1, 0),
+					Vector3i(5, 1, 0),
+				],
+				"walls": [],
+				"boxes": [Vector3i(3, 1, 0)],
+			},
+		},
+		{
+			"id": "snapshot_reports_ghost_boxes_and_truncated_replay",
+			"name": "snapshot_reports_ghost_boxes_and_truncated_replay",
+			"action": "DebugSnapshot includes ghost_boxes and one-step truncated replay details",
 			"blueprint": {
 				"board_size": Vector2i(6, 3),
 				"player_start": Vector2i(5, 1),
