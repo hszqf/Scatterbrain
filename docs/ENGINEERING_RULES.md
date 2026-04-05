@@ -81,11 +81,12 @@
 3. 锁定输入并执行完整重编译：
    - 从默认世界重建（含 floor/wall/box/player/exit）。
    - 按队列时间顺序应用变化。
+   - `PositionChange` 必须从 remembered/default 位置按 Manhattan 微步（先 X 后 Y）重建，不得直接瞬移到 target。
 4. 冲突时对象幽灵化；无地板/越界/墙目标不会落地为实体。
-5. 本轮产生的幽灵变化先收集，编译结束后统一追加。
-6. 若追加后再次超容，开启下一轮完整重编译。
-7. 单次输入最多触发 4 轮编译，超限报错并保留最后稳定结果。
-8. `game` 层 replay 必须基于 `WorldDefaults + CompileResult.queue_entries`（即 surviving queue）生成，表示“剩余记忆如何从默认世界重建 remembered world”；禁止使用 `world_before_compile` / `world_after_compile` 可见差分生成 replay。
+5. 若 `PositionChange` 微步路径在中途进入当前 live player 格，必须在该格截断并以 ghost 落地（当前世界结果），但不得把 queue 真相改写成 `GhostChange`。
+6. `game` 层 replay 必须基于 `WorldDefaults + CompileResult.queue_entries`（即 surviving queue）生成，表示“剩余记忆如何从默认世界重建 remembered world”；禁止使用 `world_before_compile` / `world_after_compile` 可见差分生成 replay。
+7. replay 微步与 core 编译微步必须共用同一语义：先 X 后 Y，遇到 player conflict 立即截断并终止后续步骤。
+8. 单次输入最多触发 4 轮编译，超限报错并保留最后稳定结果。
 
 ## 10) 变化队列规则
 - 队列保存变化事实，不保存推箱动画过程。

@@ -13,13 +13,15 @@ func build_snapshot(
 	last_replay_completed: bool,
 	build_text: String,
 	board_view_transform: String = "n/a",
-	replay_layer_transform: String = "n/a"
+	replay_layer_transform: String = "n/a",
+	last_replay_stop_reason: String = "none"
 ) -> String:
 	var lines: Array[String] = []
 	lines.append("[DebugSnapshot]")
 	lines.append("build=%s" % build_text)
 	lines.append("player=%s" % world.player_position)
 	lines.append("boxes=%s" % str(_sorted_vec2(world.entity_positions.values())))
+	lines.append("ghost_boxes=%s" % str(_sorted_vec2(world.ghost_entities.values())))
 	lines.append("queue=%s" % str(_queue_summary(queue_entries)))
 	lines.append("board_size=%s" % world.board_size)
 	lines.append("floors=%d sample=%s" % [world.floor_cells.size(), str(_sample_positions(world.floor_cells.keys()))])
@@ -30,6 +32,7 @@ func build_snapshot(
 	lines.append("last_replay_presenting_subjects=%s" % str(last_replay_presenting_subjects))
 	lines.append("last_replay_used_live_box_views=%s" % str(last_replay_used_live_box_views))
 	lines.append("last_replay_completed=%s" % str(last_replay_completed))
+	lines.append("last_replay_stop_reason=%s" % last_replay_stop_reason)
 	lines.append("board_view_transform=%s" % board_view_transform)
 	lines.append("replay_layer_transform=%s" % replay_layer_transform)
 	return "\n".join(lines)

@@ -37,6 +37,8 @@ func play_steps(steps: Array[Dictionary]) -> void:
 		_sync_replay_layer_transform()
 		await _play_step(step)
 		_sync_replay_layer_transform()
+		if bool(step.get("is_conflict", false)):
+			break
 	_restore_live_subjects(replay_subjects)
 	_replay_presenting_subjects.clear()
 	_board_view.end_replay_presentation()

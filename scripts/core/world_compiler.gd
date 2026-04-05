@@ -18,8 +18,7 @@ func compile(defaults: WorldDefaults, queue: ChangeQueue, player_position: Vecto
 
 		current_world = _build_base_world(defaults, player_position)
 		var queue_entries: Array[ChangeRecord] = working_queue.entries()
-		var existing_ghost_keys: Dictionary[String, bool] = _collect_existing_ghost_keys(queue_entries)
-		var generated: Array[ChangeRecord] = _apply_changes(defaults, queue_entries, current_world, existing_ghost_keys)
+		var generated: Array[ChangeRecord] = _apply_changes(defaults, queue_entries, current_world)
 
 		if generated.is_empty():
 			stabilized = true
@@ -61,45 +60,15 @@ func _build_base_world(defaults: WorldDefaults, player_position: Vector2i) -> Co
 func _apply_changes(
 	_defaults: WorldDefaults,
 	entries: Array[ChangeRecord],
-	world: CompiledWorld,
-	existing_ghost_keys: Dictionary[String, bool]
+	world: CompiledWorld
 ) -> Array[ChangeRecord]:
 	var generated_ghost_changes: Array[ChangeRecord] = []
-	var generated_ghost_keys: Dictionary[String, bool] = {}
-	var last_position_like_index_by_subject: Dictionary[StringName, int] = {}
-	for i: int in range(entries.size()):
-		var position_like_entry: ChangeRecord = entries[i]
-		if position_like_entry.type != ChangeRecord.ChangeType.POSITION and position_like_entry.type != ChangeRecord.ChangeType.GHOST:
-			continue
-		if position_like_entry.subject_id == &"":
-			continue
-		last_position_like_index_by_subject[position_like_entry.subject_id] = i
-
-	for i: int in range(entries.size()):
-		var change: ChangeRecord = entries[i]
+	for change: ChangeRecord in entries:
 		match change.type:
 			ChangeRecord.ChangeType.POSITION:
-				_apply_position_like_change(
-					change,
-					i,
-					last_position_like_index_by_subject,
-					world,
-					generated_ghost_changes,
-					true,
-					existing_ghost_keys,
-					generated_ghost_keys
-				)
+				_apply_position_change(change, world)
 			ChangeRecord.ChangeType.GHOST:
-				_apply_position_like_change(
-					change,
-					i,
-					last_position_like_index_by_subject,
-					world,
-					generated_ghost_changes,
-					false,
-					existing_ghost_keys,
-					generated_ghost_keys
-				)
+				_apply_ghost_change(change, world)
 			ChangeRecord.ChangeType.EMPTY:
 				continue
 			_:
@@ -107,62 +76,49 @@ func _apply_changes(
 	return generated_ghost_changes
 
 
-func _apply_position_like_change(
-	change: ChangeRecord,
-	index: int,
-	last_position_like_index_by_subject: Dictionary[StringName, int],
-	world: CompiledWorld,
-	generated_ghost_changes: Array[ChangeRecord],
-	allow_generate_ghost: bool,
-	existing_ghost_keys: Dictionary[String, bool],
-	generated_ghost_keys: Dictionary[String, bool]
-) -> void:
+func _apply_position_change(change: ChangeRecord, world: CompiledWorld) -> void:
 	if change.subject_id == &"":
 		return
 
+	var from_exists: bool = world.entity_positions.has(change.subject_id)
+	var from_pos: Vector2i = world.entity_positions.get(change.subject_id, change.target_position)
+	var path_result: Dictionary = PositionPathHelper.expand_with_player_conflict(
+		change.subject_id,
+		from_pos,
+		change.target_position,
+		from_exists,
+		world.player_position
+	)
+	var final_position: Vector2i = path_result.get("final_position", change.target_position)
+	if bool(path_result.get("truncated_by_player_conflict", false)):
+		world.entity_positions.erase(change.subject_id)
+		world.ghost_entities[change.subject_id] = final_position
+		return
+
+	if not world.is_inside(final_position) or not world.has_floor_at(final_position) or world.has_wall_at(final_position):
+		world.entity_positions.erase(change.subject_id)
+		world.ghost_entities.erase(change.subject_id)
+		return
+
+	if _can_place_box(world, final_position, change.subject_id):
+		world.ghost_entities.erase(change.subject_id)
+		world.entity_positions[change.subject_id] = final_position
+		return
+
+	world.entity_positions.erase(change.subject_id)
+	world.ghost_entities[change.subject_id] = final_position
+
+
+func _apply_ghost_change(change: ChangeRecord, world: CompiledWorld) -> void:
+	if change.subject_id == &"":
+		return
 	var target: Vector2i = change.target_position
 	if not world.is_inside(target) or not world.has_floor_at(target) or world.has_wall_at(target):
 		world.entity_positions.erase(change.subject_id)
 		world.ghost_entities.erase(change.subject_id)
 		return
-
-	if _can_place_box(world, target, change.subject_id):
-		world.ghost_entities.erase(change.subject_id)
-		world.entity_positions[change.subject_id] = target
-		return
-
 	world.entity_positions.erase(change.subject_id)
 	world.ghost_entities[change.subject_id] = target
-	if allow_generate_ghost:
-		var last_position_like_index: int = last_position_like_index_by_subject.get(change.subject_id, index)
-		if index != last_position_like_index:
-			return
-		var key: String = _ghost_key(change.subject_id, target)
-		if existing_ghost_keys.has(key) or generated_ghost_keys.has(key):
-			return
-		generated_ghost_keys[key] = true
-		generated_ghost_changes.append(
-			ChangeRecord.new(
-				ChangeRecord.ChangeType.GHOST,
-				change.subject_id,
-				target,
-				false,
-				"auto-generated ghost"
-			)
-		)
-
-
-func _collect_existing_ghost_keys(entries: Array[ChangeRecord]) -> Dictionary[String, bool]:
-	var keys: Dictionary[String, bool] = {}
-	for entry: ChangeRecord in entries:
-		if entry.type != ChangeRecord.ChangeType.GHOST:
-			continue
-		keys[_ghost_key(entry.subject_id, entry.target_position)] = true
-	return keys
-
-
-func _ghost_key(subject_id: StringName, target: Vector2i) -> String:
-	return "%s|%d|%d" % [subject_id, target.x, target.y]
 
 
 func _can_place_box(world: CompiledWorld, target: Vector2i, ignore_entity_id: StringName = &"") -> bool:
