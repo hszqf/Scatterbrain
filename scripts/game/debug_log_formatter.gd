@@ -7,7 +7,9 @@ func build_snapshot(
 	queue_entries: Array[ChangeRecord],
 	recompile_reason: String,
 	replay_steps: Array[Dictionary],
-	build_text: String
+	build_text: String,
+	board_view_transform: String = "n/a",
+	replay_layer_transform: String = "n/a"
 ) -> String:
 	var lines: Array[String] = []
 	lines.append("[DebugSnapshot]")
@@ -21,6 +23,8 @@ func build_snapshot(
 	lines.append("recompile_reason=%s" % recompile_reason)
 	lines.append("replay=%s" % str(_replay_summary(replay_steps)))
 	lines.append("replay_display_steps=%s" % str(_replay_display_summary(replay_steps)))
+	lines.append("board_view_transform=%s" % board_view_transform)
+	lines.append("replay_layer_transform=%s" % replay_layer_transform)
 	return "\n".join(lines)
 
 

@@ -112,7 +112,15 @@ func on_copy_log_pressed() -> void:
 
 
 func copy_debug_log() -> void:
-	var text: String = _debug_log_formatter.build_snapshot(_world, _queue.entries(), _last_recompile_reason, _last_replay_steps, BuildInfo.display_text())
+	var text: String = _debug_log_formatter.build_snapshot(
+		_world,
+		_queue.entries(),
+		_last_recompile_reason,
+		_last_replay_steps,
+		BuildInfo.display_text(),
+		_format_node2d_transform(_board_view),
+		_format_node2d_transform(_replay_controller.get_node(_replay_controller.replay_layer_path) as Node2D)
+	)
 	DisplayServer.clipboard_set(text)
 	if DisplayServer.clipboard_get() == text:
 		_debug_feedback_label.text = "LOG copied"
@@ -120,6 +128,12 @@ func copy_debug_log() -> void:
 		print(text)
 		_debug_feedback_label.text = "Copy failed; printed log"
 	_feedback_clear_at_msec = Time.get_ticks_msec() + 1400
+
+
+func _format_node2d_transform(node: Node2D) -> String:
+	if node == null:
+		return "n/a"
+	return "pos(%s), scale(%s)" % [str(node.position), str(node.scale)]
 
 
 func _handle_move(direction: Vector2i) -> void:
