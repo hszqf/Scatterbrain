@@ -36,6 +36,17 @@ var _last_replay_presenting_subjects: Array[StringName] = []
 var _last_replay_used_live_box_views: bool = false
 var _last_replay_completed: bool = false
 var _last_replay_stop_reason: String = "none"
+var _last_input_source: String = "none"
+var _last_input_intent: String = "none"
+var _last_input_direction: Vector2i = Vector2i.ZERO
+var _last_move_player_moved: bool = false
+var _last_move_generated_change: String = "none"
+var _last_appended_change_summary: String = "none"
+var _last_pushed_out_summaries: Array[String] = []
+var _last_generated_ghost_summaries: Array[String] = []
+var _last_queue_after_compile_summaries: Array[String] = []
+var _last_replay_gate_allowed: bool = false
+var _last_replay_gate_reason: String = "none"
 var _feedback_clear_at_msec: int = 0
 
 
@@ -63,11 +74,15 @@ func _process(_delta: float) -> void:
 		return
 	match intent:
 		InputRouter.Intent.RESTART:
+			_set_last_input_debug("keyboard", "restart", Vector2i.ZERO)
 			request_restart()
 		InputRouter.Intent.EMPTY_CHANGE:
+			_set_last_input_debug("keyboard", "empty", Vector2i.ZERO)
 			request_empty_change()
 		_:
-			request_move(_input_router.intent_to_direction(intent))
+			var direction: Vector2i = _input_router.intent_to_direction(intent)
+			_set_last_input_debug("keyboard", _intent_to_debug_name(intent), direction)
+			request_move(direction)
 
 
 func request_move(direction: Vector2i) -> void:
@@ -89,26 +104,32 @@ func request_restart() -> void:
 
 
 func on_move_left_pressed() -> void:
+	_set_last_input_debug("button_left", "move_left", Vector2i.LEFT)
 	request_move(Vector2i.LEFT)
 
 
 func on_move_right_pressed() -> void:
+	_set_last_input_debug("button_right", "move_right", Vector2i.RIGHT)
 	request_move(Vector2i.RIGHT)
 
 
 func on_move_up_pressed() -> void:
+	_set_last_input_debug("button_up", "move_up", Vector2i.UP)
 	request_move(Vector2i.UP)
 
 
 func on_move_down_pressed() -> void:
+	_set_last_input_debug("button_down", "move_down", Vector2i.DOWN)
 	request_move(Vector2i.DOWN)
 
 
 func on_meditate_pressed() -> void:
+	_set_last_input_debug("button_rest", "empty", Vector2i.ZERO)
 	request_empty_change()
 
 
 func on_restart_pressed() -> void:
+	_set_last_input_debug("button_restart", "restart", Vector2i.ZERO)
 	request_restart()
 
 
@@ -129,7 +150,18 @@ func copy_debug_log() -> void:
 		BuildInfo.display_text(),
 		_format_node2d_transform(_board_view),
 		_format_node2d_transform(_replay_controller.get_node(_replay_controller.replay_layer_path) as Node2D),
-		_last_replay_stop_reason
+		_last_replay_stop_reason,
+		_last_input_source,
+		_last_input_intent,
+		_last_input_direction,
+		_last_move_player_moved,
+		_last_move_generated_change,
+		_last_appended_change_summary,
+		_last_pushed_out_summaries,
+		_last_generated_ghost_summaries,
+		_last_queue_after_compile_summaries,
+		_last_replay_gate_allowed,
+		_last_replay_gate_reason
 	)
 	DisplayServer.clipboard_set(text)
 	if DisplayServer.clipboard_get() == text:
@@ -148,10 +180,12 @@ func _format_node2d_transform(node: Node2D) -> String:
 
 func _handle_move(direction: Vector2i) -> void:
 	var resolution: Dictionary = _move_resolver.resolve_move(_world, direction)
-	if not resolution["player_moved"]:
+	_last_move_player_moved = bool(resolution.get("player_moved", false))
+	var change: ChangeRecord = resolution.get("change")
+	_last_move_generated_change = _change_summary_or_none(change)
+	if not _last_move_player_moved:
 		return
 
-	var change: ChangeRecord = resolution["change"]
 	if change == null:
 		_post_player_move()
 		return
@@ -159,6 +193,7 @@ func _handle_move(direction: Vector2i) -> void:
 
 
 func append_change(change: ChangeRecord) -> void:
+	_last_appended_change_summary = _change_summary_or_none(change)
 	_queue.append(change)
 	_recompile_world("append: %s" % change.summary())
 
@@ -191,7 +226,12 @@ func _recompile_world(reason: String) -> void:
 	_last_replay_used_live_box_views = false
 	_last_replay_presenting_subjects = []
 	_last_replay_display_steps = []
+	_last_pushed_out_summaries = _change_summaries(result.pushed_out_changes)
+	_last_generated_ghost_summaries = _change_summaries(result.generated_ghost_changes)
+	_last_queue_after_compile_summaries = _change_summaries(result.queue_entries)
 	var has_replayable_pushed_out: bool = _has_replayable_pushed_out_changes(result.pushed_out_changes)
+	_last_replay_gate_allowed = has_replayable_pushed_out
+	_last_replay_gate_reason = _resolve_replay_gate_reason(result.pushed_out_changes, has_replayable_pushed_out)
 	if has_replayable_pushed_out:
 		replay_steps = _replay_payload_builder.build_steps(_defaults, result.queue_entries, current_player_position)
 		_last_replay_steps = replay_steps
@@ -275,6 +315,17 @@ func _reset_level() -> void:
 	_last_replay_completed = false
 	_last_replay_stop_reason = "none"
 	_last_recompile_reason = "reset"
+	_last_input_source = "none"
+	_last_input_intent = "none"
+	_last_input_direction = Vector2i.ZERO
+	_last_move_player_moved = false
+	_last_move_generated_change = "none"
+	_last_appended_change_summary = "none"
+	_last_pushed_out_summaries = []
+	_last_generated_ghost_summaries = []
+	_last_queue_after_compile_summaries = []
+	_last_replay_gate_allowed = false
+	_last_replay_gate_reason = "none"
 	_defaults = _build_defaults()
 	_world = CompiledWorld.new()
 	_world.board_size = _defaults.board_size
@@ -350,3 +401,53 @@ func _collect_replay_subjects(steps: Array[Dictionary]) -> Array[StringName]:
 		return String(a) < String(b)
 	)
 	return subjects
+
+
+func _set_last_input_debug(source: String, intent: String, direction: Vector2i) -> void:
+	_last_input_source = source if not source.is_empty() else "unknown"
+	_last_input_intent = intent if not intent.is_empty() else "unknown"
+	_last_input_direction = direction
+
+
+func _intent_to_debug_name(intent: InputRouter.Intent) -> String:
+	match intent:
+		InputRouter.Intent.MOVE_LEFT:
+			return "move_left"
+		InputRouter.Intent.MOVE_RIGHT:
+			return "move_right"
+		InputRouter.Intent.MOVE_UP:
+			return "move_up"
+		InputRouter.Intent.MOVE_DOWN:
+			return "move_down"
+		InputRouter.Intent.EMPTY_CHANGE:
+			return "empty"
+		InputRouter.Intent.RESTART:
+			return "restart"
+		_:
+			return "unknown"
+
+
+func _change_summary_or_none(change: ChangeRecord) -> String:
+	if change == null:
+		return "none"
+	return change.summary()
+
+
+func _change_summaries(changes: Array[ChangeRecord]) -> Array[String]:
+	var summaries: Array[String] = []
+	for change: ChangeRecord in changes:
+		summaries.append(_change_summary_or_none(change))
+	return summaries
+
+
+func _resolve_replay_gate_reason(pushed_out_changes: Array[ChangeRecord], allowed: bool) -> String:
+	if allowed:
+		return "allowed_non_empty_pushed_out"
+	if pushed_out_changes.is_empty():
+		return "no_pushed_out"
+	for change: ChangeRecord in pushed_out_changes:
+		if change == null:
+			continue
+		if change.type != ChangeRecord.ChangeType.EMPTY and change.subject_id != &"":
+			return "unknown"
+	return "pushed_out_only_empty"
