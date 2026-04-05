@@ -61,8 +61,6 @@ func begin_replay_presentation(subject_ids: Array[StringName]) -> void:
 
 func end_replay_presentation() -> void:
 	_replay_presenting_subjects.clear()
-	if _world != null:
-		sync_world(_world)
 
 
 func get_replay_presenting_subjects() -> Array[StringName]:

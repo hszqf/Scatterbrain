@@ -93,6 +93,10 @@ func _run_case(case_data: Dictionary) -> bool:
 			passed = await _assert_replay_uses_live_box_view_and_restores_state(context)
 		"board_view_sync_does_not_override_replay_presenting_subjects":
 			passed = await _assert_board_view_sync_does_not_override_replay_presenting_subjects(context)
+		"replay_end_does_not_sync_old_world_before_final_world":
+			passed = await _assert_replay_end_does_not_sync_old_world_before_final_world(context)
+		"restore_live_subjects_does_not_override_final_position":
+			passed = await _assert_restore_live_subjects_does_not_override_final_position(context)
 		"level001_layout_matches_expected":
 			passed = _assert_level001_layout_matches_expected(context)
 		"level001_two_left_moves_state_is_stable":
@@ -587,6 +591,47 @@ func _assert_board_view_sync_does_not_override_replay_presenting_subjects(contex
 		and position_before_forced_sync.is_equal_approx(position_after_forced_sync) \
 		and not board_view.is_replay_presenting_subject(&"box_0") \
 		and box_after.position.is_equal_approx(board_view.board_to_pixel_center(world_after.entity_positions[&"box_0"]))
+
+
+func _assert_replay_end_does_not_sync_old_world_before_final_world(context: Dictionary) -> bool:
+	var controller: GameController = context["controller"]
+	var board_view: BoardView = controller.get_node(controller.board_view_path)
+	controller.request_move(Vector2i.LEFT)
+	controller.request_move(Vector2i.LEFT)
+	controller.request_move(Vector2i.LEFT)
+	controller.request_empty_change()
+	controller.request_empty_change()
+	controller.request_empty_change()
+	for i: int in range(600):
+		if not controller.get("_input_locked"):
+			break
+		await process_frame
+	var world_after: CompiledWorld = controller.get("_world")
+	var box_after: BoxView = board_view.get_box_view(&"box_0")
+	var script_text: String = FileAccess.get_file_as_string("res://scripts/game/board_view.gd")
+	var has_old_world_sync_in_end: bool = script_text.contains("func end_replay_presentation() -> void:\n\t_replay_presenting_subjects.clear()\n\tif _world != null:\n\t\tsync_world(_world)")
+	return not has_old_world_sync_in_end \
+		and not board_view.is_replay_presenting_subject(&"box_0") \
+		and world_after.entity_positions.has(&"box_0") \
+		and box_after.position.is_equal_approx(board_view.board_to_pixel_center(world_after.entity_positions[&"box_0"]))
+
+
+func _assert_restore_live_subjects_does_not_override_final_position(context: Dictionary) -> bool:
+	var controller: GameController = context["controller"]
+	var replay_controller: ReplayController = controller.get_node(controller.replay_controller_path)
+	var board_view: BoardView = controller.get_node(controller.board_view_path)
+	var box_view: BoxView = board_view.get_box_view(&"box_0")
+	var expected_position: Vector2 = board_view.board_to_pixel_center(Vector2i(1, 1))
+	box_view.set_board_position(Vector2i(1, 1), board_view.cell_size)
+	box_view.set_is_ghost(true)
+	box_view.set_is_conflict(true)
+	box_view.visible = false
+	var subject_ids: Array[StringName] = [&"box_0"]
+	replay_controller.call("_restore_live_subjects", subject_ids)
+	return box_view.position.is_equal_approx(expected_position) \
+		and not box_view.is_ghost() \
+		and not box_view.is_conflict() \
+		and box_view.visible
 
 
 func _assert_level001_layout_matches_expected(context: Dictionary) -> bool:
@@ -1286,6 +1331,18 @@ func _build_cases() -> Array[Dictionary]:
 			"id": "board_view_sync_does_not_override_replay_presenting_subjects",
 			"name": "board_view_sync_does_not_override_replay_presenting_subjects",
 			"action": "while replay presenting, sync_world does not overwrite replaying subject transforms",
+			"context_mode": "controller_level001",
+		},
+		{
+			"id": "replay_end_does_not_sync_old_world_before_final_world",
+			"name": "replay_end_does_not_sync_old_world_before_final_world",
+			"action": "replay end clears presenting state without syncing stale BoardView world, then final world remains authoritative",
+			"context_mode": "controller_level001",
+		},
+		{
+			"id": "restore_live_subjects_does_not_override_final_position",
+			"name": "restore_live_subjects_does_not_override_final_position",
+			"action": "restore_live_subjects only resets style and visibility without overriding BoxView position",
 			"context_mode": "controller_level001",
 		},
 		{
