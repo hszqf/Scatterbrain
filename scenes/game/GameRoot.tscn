@@ -25,8 +25,8 @@ build_info_label_path = NodePath("CanvasLayer/UIRoot/BuildInfoLabel")
 script = ExtResource("5")
 board_view_path = NodePath("../BoardView")
 replay_layer_path = NodePath("../ReplayLayer")
-step_duration = 0.35
-step_pause = 0.08
+step_duration = 0.45
+step_pause = 0.12
 
 [node name="ReplayLayer" type="Node2D" parent="CanvasLayer"]
 

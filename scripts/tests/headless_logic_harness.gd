@@ -87,8 +87,12 @@ func _run_case(case_data: Dictionary) -> bool:
 			passed = await _assert_controller_replay_locks_input_then_unlocks(context)
 		"replay_layer_transform_matches_board_view":
 			passed = await _assert_replay_layer_transform_matches_board_view(context)
-		"replay_micro_steps_have_slow_stepwise_cadence_config":
-			passed = _assert_replay_micro_steps_have_slow_stepwise_cadence_config(context)
+		"replay_micro_steps_have_slower_cadence_config":
+			passed = _assert_replay_micro_steps_have_slower_cadence_config(context)
+		"replay_hides_live_subjects_during_playback":
+			passed = await _assert_replay_hides_live_subjects_during_playback(context)
+		"replay_reuses_single_actor_per_subject":
+			passed = await _assert_replay_reuses_single_actor_per_subject(context)
 		"level001_layout_matches_expected":
 			passed = _assert_level001_layout_matches_expected(context)
 		"level001_two_left_moves_state_is_stable":
@@ -512,12 +516,60 @@ func _assert_replay_layer_transform_matches_board_view(context: Dictionary) -> b
 	return false
 
 
-func _assert_replay_micro_steps_have_slow_stepwise_cadence_config(context: Dictionary) -> bool:
+func _assert_replay_micro_steps_have_slower_cadence_config(context: Dictionary) -> bool:
 	var controller: GameController = context["controller"]
 	var replay_controller: ReplayController = controller.get_node(controller.replay_controller_path)
-	return replay_controller.step_duration >= 0.32 \
-		and is_equal_approx(replay_controller.step_pause, 0.08) \
-		and not is_equal_approx(replay_controller.step_duration, 0.2)
+	return replay_controller.step_duration >= 0.45 \
+		and replay_controller.step_pause >= 0.12
+
+
+func _assert_replay_hides_live_subjects_during_playback(context: Dictionary) -> bool:
+	var controller: GameController = context["controller"]
+	var replay_controller: ReplayController = controller.get_node(controller.replay_controller_path)
+	controller.request_move(Vector2i.LEFT)
+	controller.request_move(Vector2i.LEFT)
+	controller.request_move(Vector2i.LEFT)
+	controller.request_empty_change()
+	controller.request_empty_change()
+	controller.request_empty_change()
+	var hidden_during_playback: bool = false
+	for i: int in range(200):
+		if replay_controller.get_replay_hidden_subjects().has(&"box_0"):
+			hidden_during_playback = true
+			break
+		await process_frame
+	for i: int in range(200):
+		if not controller.get("_input_locked"):
+			break
+		await process_frame
+	var hidden_after_playback: Array[StringName] = replay_controller.get_replay_hidden_subjects()
+	return hidden_during_playback \
+		and hidden_after_playback.is_empty()
+
+
+func _assert_replay_reuses_single_actor_per_subject(context: Dictionary) -> bool:
+	var controller: GameController = context["controller"]
+	var replay_controller: ReplayController = controller.get_node(controller.replay_controller_path)
+	controller.request_move(Vector2i.LEFT)
+	controller.request_move(Vector2i.LEFT)
+	controller.request_move(Vector2i.LEFT)
+	controller.request_empty_change()
+	controller.request_empty_change()
+	controller.request_empty_change()
+	var observed_actor_count_is_one: bool = false
+	for i: int in range(200):
+		var actor_subjects: Array[StringName] = replay_controller.get_replay_actor_subjects()
+		if not actor_subjects.is_empty():
+			observed_actor_count_is_one = actor_subjects.size() == 1 and actor_subjects[0] == &"box_0"
+			break
+		await process_frame
+	for i: int in range(200):
+		if not controller.get("_input_locked"):
+			break
+		await process_frame
+	var actors_after_playback: Array[StringName] = replay_controller.get_replay_actor_subjects()
+	return observed_actor_count_is_one \
+		and actors_after_playback.is_empty()
 
 
 func _assert_level001_layout_matches_expected(context: Dictionary) -> bool:
@@ -567,6 +619,8 @@ func _assert_debug_snapshot_has_real_values_not_placeholders(context: Dictionary
 		context["queue"].entries(),
 		String(controller.get("_last_recompile_reason")),
 		controller.get("_last_replay_steps"),
+		[],
+		[],
 		BuildInfo.display_text()
 	)
 	return not snapshot.contains("boxes=%s") \
@@ -592,6 +646,8 @@ func _assert_snapshot_includes_build_info(context: Dictionary) -> bool:
 		context["world"],
 		context["queue"].entries(),
 		"harness",
+		[],
+		[],
 		[],
 		BuildInfo.display_text()
 	)
@@ -625,6 +681,8 @@ func _assert_overflow_with_only_empty_memory_has_no_replay(context: Dictionary) 
 		final_entries,
 		"overflow_only_empty",
 		replay_steps,
+		[],
+		[],
 		BuildInfo.display_text()
 	)
 	return all_empty \
@@ -724,11 +782,15 @@ func _assert_snapshot_includes_replay_display_steps(context: Dictionary) -> bool
 		result.queue_entries,
 		"snapshot_replay_display",
 		replay_steps,
+		[],
+		[],
 		BuildInfo.display_text()
 	)
 	return snapshot.contains("replay_display_steps=") \
 		and snapshot.contains("box_0:(3, 1)->(2, 1) conflict=true") \
 		and snapshot.contains("box_0:(2, 1)->(1, 1) conflict=false") \
+		and snapshot.contains("replay_hidden_subjects=") \
+		and snapshot.contains("replay_actor_subjects=") \
 		and snapshot.contains("board_view_transform=") \
 		and snapshot.contains("replay_layer_transform=")
 
@@ -755,6 +817,8 @@ func _assert_controller_empty_overflow_snapshot_matches_memory_semantics(context
 		queue_entries,
 		String(controller.get("_last_recompile_reason")),
 		replay_steps,
+		[],
+		[],
 		BuildInfo.display_text()
 	)
 	return all_empty \
@@ -1179,9 +1243,21 @@ func _build_cases() -> Array[Dictionary]:
 			"context_mode": "controller_level001",
 		},
 		{
-			"id": "replay_micro_steps_have_slow_stepwise_cadence_config",
-			"name": "replay_micro_steps_have_slow_stepwise_cadence_config",
+			"id": "replay_micro_steps_have_slower_cadence_config",
+			"name": "replay_micro_steps_have_slower_cadence_config",
 			"action": "assert replay cadence config uses slower per-step tween and pause",
+			"context_mode": "controller_level001",
+		},
+		{
+			"id": "replay_hides_live_subjects_during_playback",
+			"name": "replay_hides_live_subjects_during_playback",
+			"action": "during replay hide live subject visuals then clear hidden set after playback",
+			"context_mode": "controller_level001",
+		},
+		{
+			"id": "replay_reuses_single_actor_per_subject",
+			"name": "replay_reuses_single_actor_per_subject",
+			"action": "replay actor map should have one actor per subject and clear after playback",
 			"context_mode": "controller_level001",
 		},
 		{
