@@ -113,6 +113,8 @@ func _run_case(case_data: Dictionary) -> bool:
 			passed = await _assert_empty_input_populates_input_chain_debug_fields(context)
 		"pushed_out_only_empty_skips_replay":
 			passed = await _assert_pushed_out_only_empty_skips_replay(context)
+		"no_pushed_out_replay_debug_state_resets":
+			passed = await _assert_no_pushed_out_replay_debug_state_resets(context)
 		"overflow_with_remaining_position_memory_replays_retained_steps":
 			passed = _assert_overflow_with_remaining_position_memory_replays_retained_steps(context)
 		"retained_position_replay_expands_to_micro_steps":
@@ -837,7 +839,72 @@ func _assert_pushed_out_only_empty_skips_replay(context: Dictionary) -> bool:
 		"replay_ok",
 		stop_reason
 	)
-	return replay_steps.is_empty() 		and stop_reason == "pushed_out_only_empty" 		and snapshot.contains("replay=none") 		and snapshot.contains("last_replay_stop_reason=pushed_out_only_empty")
+	return replay_steps.is_empty() \
+		and bool(controller.get("_last_replay_completed")) == false \
+		and stop_reason == "pushed_out_only_empty" \
+		and snapshot.contains("replay=none") \
+		and snapshot.contains("last_replay_stop_reason=pushed_out_only_empty")
+
+
+func _assert_no_pushed_out_replay_debug_state_resets(context: Dictionary) -> bool:
+	var controller: GameController = context["controller"]
+	controller.on_move_left_pressed()
+	controller.on_move_left_pressed()
+	for i: int in range(120):
+		if not controller.get("_input_locked"):
+			break
+		await process_frame
+	context["world"] = controller.get("_world")
+
+	var pushed_out: Array[String] = controller.get("_last_pushed_out_summaries")
+	var replay_gate_allowed: bool = bool(controller.get("_last_replay_gate_allowed"))
+	var replay_gate_reason: String = String(controller.get("_last_replay_gate_reason"))
+	var replay_steps: Array[Dictionary] = controller.get("_last_replay_steps")
+	var replay_display_steps: Array[Dictionary] = controller.get("_last_replay_display_steps")
+	var replay_subjects: Array[StringName] = controller.get("_last_replay_presenting_subjects")
+	var replay_used_live: bool = bool(controller.get("_last_replay_used_live_box_views"))
+	var replay_completed: bool = bool(controller.get("_last_replay_completed"))
+	var stop_reason: String = String(controller.get("_last_replay_stop_reason"))
+	var replay_layer_transform: String = String(controller.call("_snapshot_replay_layer_transform"))
+	var snapshot: String = _formatter.build_snapshot(
+		context["world"],
+		context["queue"].entries(),
+		String(controller.get("_last_recompile_reason")),
+		replay_steps,
+		replay_display_steps,
+		replay_subjects,
+		replay_used_live,
+		replay_completed,
+		BuildInfo.display_text(),
+		"board_ok",
+		replay_layer_transform,
+		stop_reason,
+		String(controller.get("_last_input_source")),
+		String(controller.get("_last_input_intent")),
+		controller.get("_last_input_direction"),
+		bool(controller.get("_last_move_player_moved")),
+		String(controller.get("_last_move_generated_change")),
+		String(controller.get("_last_appended_change_summary")),
+		pushed_out,
+		controller.get("_last_generated_ghost_summaries"),
+		controller.get("_last_queue_after_compile_summaries"),
+		replay_gate_allowed,
+		replay_gate_reason
+	)
+	return pushed_out.is_empty() \
+		and not replay_gate_allowed \
+		and replay_gate_reason == "no_pushed_out" \
+		and replay_steps.is_empty() \
+		and replay_display_steps.is_empty() \
+		and replay_subjects.is_empty() \
+		and replay_used_live == false \
+		and replay_completed == false \
+		and stop_reason == "no_pushed_out" \
+		and snapshot.contains("replay=none") \
+		and snapshot.contains("last_replay_display_steps=[]") \
+		and snapshot.contains("last_replay_completed=false") \
+		and snapshot.contains("last_replay_stop_reason=no_pushed_out") \
+		and snapshot.contains("replay_layer_transform=inactive")
 
 
 func _assert_overflow_with_remaining_position_memory_replays_retained_steps(context: Dictionary) -> bool:
@@ -1589,6 +1656,12 @@ func _build_cases() -> Array[Dictionary]:
 			"id": "pushed_out_only_empty_skips_replay",
 			"name": "pushed_out_only_empty_skips_replay",
 			"action": "controller overflow with only Empty pushed_out must keep replay=none",
+			"context_mode": "controller_level001",
+		},
+		{
+			"id": "no_pushed_out_replay_debug_state_resets",
+			"name": "no_pushed_out_replay_debug_state_resets",
+			"action": "no pushed_out compile resets replay debug latches and snapshots replay layer as inactive",
 			"context_mode": "controller_level001",
 		},
 		{
