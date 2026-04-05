@@ -163,7 +163,7 @@ func _recompile_world(reason: String) -> void:
 	var world_after_compile: CompiledWorld = result.world
 	var replay_steps: Array[Dictionary] = []
 	if not result.pushed_out_changes.is_empty():
-		replay_steps = _replay_payload_builder.build_steps(_defaults, result.queue_entries)
+		replay_steps = _replay_payload_builder.build_steps(_defaults, result.queue_entries, current_player_position)
 	_last_replay_steps = replay_steps
 
 	if _replay_controller.has_steps(replay_steps):
