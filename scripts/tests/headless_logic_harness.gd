@@ -89,10 +89,10 @@ func _run_case(case_data: Dictionary) -> bool:
 			passed = await _assert_replay_layer_transform_matches_board_view(context)
 		"replay_micro_steps_have_slower_cadence_config":
 			passed = _assert_replay_micro_steps_have_slower_cadence_config(context)
-		"replay_hides_live_subjects_during_playback":
-			passed = await _assert_replay_hides_live_subjects_during_playback(context)
-		"replay_reuses_single_actor_per_subject":
-			passed = await _assert_replay_reuses_single_actor_per_subject(context)
+		"replay_uses_live_box_view_and_restores_state":
+			passed = await _assert_replay_uses_live_box_view_and_restores_state(context)
+		"board_view_sync_does_not_override_replay_presenting_subjects":
+			passed = await _assert_board_view_sync_does_not_override_replay_presenting_subjects(context)
 		"level001_layout_matches_expected":
 			passed = _assert_level001_layout_matches_expected(context)
 		"level001_two_left_moves_state_is_stable":
@@ -109,8 +109,8 @@ func _run_case(case_data: Dictionary) -> bool:
 			passed = _assert_retained_position_replay_expands_to_micro_steps(context)
 		"replay_marks_player_conflict_on_intermediate_step":
 			passed = _assert_replay_marks_player_conflict_on_intermediate_step(context)
-		"snapshot_includes_replay_display_steps":
-			passed = _assert_snapshot_includes_replay_display_steps(context)
+		"snapshot_reports_last_replay_display_info":
+			passed = _assert_snapshot_reports_last_replay_display_info(context)
 		"controller_empty_overflow_snapshot_matches_memory_semantics":
 			passed = await _assert_controller_empty_overflow_snapshot_matches_memory_semantics(context)
 		"build_info_display_uses_generated_build_file_or_dev":
@@ -509,7 +509,7 @@ func _assert_replay_layer_transform_matches_board_view(context: Dictionary) -> b
 	for i: int in range(120):
 		var replay_layer: Node2D = replay_controller.get_node(replay_controller.replay_layer_path)
 		var board_view: BoardView = replay_controller.get_node(replay_controller.board_view_path)
-		if replay_layer.get_child_count() > 0:
+		if board_view.is_replay_presenting_subject(&"box_0"):
 			return replay_layer.position.is_equal_approx(board_view.position) \
 				and replay_layer.scale.is_equal_approx(board_view.scale)
 		await process_frame
@@ -519,57 +519,74 @@ func _assert_replay_layer_transform_matches_board_view(context: Dictionary) -> b
 func _assert_replay_micro_steps_have_slower_cadence_config(context: Dictionary) -> bool:
 	var controller: GameController = context["controller"]
 	var replay_controller: ReplayController = controller.get_node(controller.replay_controller_path)
-	return replay_controller.step_duration >= 0.45 \
-		and replay_controller.step_pause >= 0.12
+	return replay_controller.step_duration >= 0.6 \
+		and replay_controller.step_pause >= 0.18
 
 
-func _assert_replay_hides_live_subjects_during_playback(context: Dictionary) -> bool:
+func _assert_replay_uses_live_box_view_and_restores_state(context: Dictionary) -> bool:
 	var controller: GameController = context["controller"]
 	var replay_controller: ReplayController = controller.get_node(controller.replay_controller_path)
+	var board_view: BoardView = controller.get_node(controller.board_view_path)
 	controller.request_move(Vector2i.LEFT)
 	controller.request_move(Vector2i.LEFT)
 	controller.request_move(Vector2i.LEFT)
 	controller.request_empty_change()
 	controller.request_empty_change()
 	controller.request_empty_change()
-	var hidden_during_playback: bool = false
-	for i: int in range(200):
-		if replay_controller.get_replay_hidden_subjects().has(&"box_0"):
-			hidden_during_playback = true
+	var saw_live_presenting: bool = false
+	var box_during_playback: BoxView = null
+	for i: int in range(600):
+		if board_view.is_replay_presenting_subject(&"box_0"):
+			saw_live_presenting = true
+			box_during_playback = board_view.get_box_view(&"box_0")
 			break
 		await process_frame
-	for i: int in range(200):
+	for i: int in range(600):
 		if not controller.get("_input_locked"):
 			break
 		await process_frame
-	var hidden_after_playback: Array[StringName] = replay_controller.get_replay_hidden_subjects()
-	return hidden_during_playback \
-		and hidden_after_playback.is_empty()
+	var world_after: CompiledWorld = controller.get("_world")
+	var box_after: BoxView = board_view.get_box_view(&"box_0")
+	return saw_live_presenting \
+		and box_during_playback == box_after \
+		and replay_controller.used_live_box_views() \
+		and not box_after.is_ghost() \
+		and not box_after.is_conflict() \
+		and box_after.visible \
+		and box_after.position.is_equal_approx(board_view.board_to_pixel_center(world_after.entity_positions[&"box_0"]))
 
 
-func _assert_replay_reuses_single_actor_per_subject(context: Dictionary) -> bool:
+func _assert_board_view_sync_does_not_override_replay_presenting_subjects(context: Dictionary) -> bool:
 	var controller: GameController = context["controller"]
-	var replay_controller: ReplayController = controller.get_node(controller.replay_controller_path)
+	var board_view: BoardView = controller.get_node(controller.board_view_path)
 	controller.request_move(Vector2i.LEFT)
 	controller.request_move(Vector2i.LEFT)
 	controller.request_move(Vector2i.LEFT)
 	controller.request_empty_change()
 	controller.request_empty_change()
 	controller.request_empty_change()
-	var observed_actor_count_is_one: bool = false
-	for i: int in range(200):
-		var actor_subjects: Array[StringName] = replay_controller.get_replay_actor_subjects()
-		if not actor_subjects.is_empty():
-			observed_actor_count_is_one = actor_subjects.size() == 1 and actor_subjects[0] == &"box_0"
+	var position_before_forced_sync: Vector2 = Vector2.ZERO
+	var position_after_forced_sync: Vector2 = Vector2.ZERO
+	var captured: bool = false
+	for i: int in range(600):
+		if board_view.is_replay_presenting_subject(&"box_0"):
+			var box_view: BoxView = board_view.get_box_view(&"box_0")
+			position_before_forced_sync = box_view.position
+			board_view.sync_world(controller.get("_world"))
+			position_after_forced_sync = box_view.position
+			captured = true
 			break
 		await process_frame
-	for i: int in range(200):
+	for i: int in range(600):
 		if not controller.get("_input_locked"):
 			break
 		await process_frame
-	var actors_after_playback: Array[StringName] = replay_controller.get_replay_actor_subjects()
-	return observed_actor_count_is_one \
-		and actors_after_playback.is_empty()
+	var world_after: CompiledWorld = controller.get("_world")
+	var box_after: BoxView = board_view.get_box_view(&"box_0")
+	return captured \
+		and position_before_forced_sync.is_equal_approx(position_after_forced_sync) \
+		and not board_view.is_replay_presenting_subject(&"box_0") \
+		and box_after.position.is_equal_approx(board_view.board_to_pixel_center(world_after.entity_positions[&"box_0"]))
 
 
 func _assert_level001_layout_matches_expected(context: Dictionary) -> bool:
@@ -621,6 +638,8 @@ func _assert_debug_snapshot_has_real_values_not_placeholders(context: Dictionary
 		controller.get("_last_replay_steps"),
 		[],
 		[],
+		false,
+		false,
 		BuildInfo.display_text()
 	)
 	return not snapshot.contains("boxes=%s") \
@@ -649,6 +668,8 @@ func _assert_snapshot_includes_build_info(context: Dictionary) -> bool:
 		[],
 		[],
 		[],
+		false,
+		false,
 		BuildInfo.display_text()
 	)
 	if original_exists:
@@ -683,6 +704,8 @@ func _assert_overflow_with_only_empty_memory_has_no_replay(context: Dictionary) 
 		replay_steps,
 		[],
 		[],
+		false,
+		false,
 		BuildInfo.display_text()
 	)
 	return all_empty \
@@ -766,7 +789,7 @@ func _assert_replay_marks_player_conflict_on_intermediate_step(context: Dictiona
 		and not bool(replay_steps[1].get("is_conflict", true))
 
 
-func _assert_snapshot_includes_replay_display_steps(context: Dictionary) -> bool:
+func _assert_snapshot_reports_last_replay_display_info(context: Dictionary) -> bool:
 	var defaults: WorldDefaults = context["defaults"]
 	var queue: ChangeQueue = context["queue"]
 	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.POSITION, &"box_0", Vector2i(2, 1), false, "older"))
@@ -782,15 +805,18 @@ func _assert_snapshot_includes_replay_display_steps(context: Dictionary) -> bool
 		result.queue_entries,
 		"snapshot_replay_display",
 		replay_steps,
-		[],
-		[],
+		replay_steps,
+		[&"box_0"],
+		true,
+		true,
 		BuildInfo.display_text()
 	)
-	return snapshot.contains("replay_display_steps=") \
+	return snapshot.contains("last_replay_display_steps=") \
 		and snapshot.contains("box_0:(3, 1)->(2, 1) conflict=true") \
 		and snapshot.contains("box_0:(2, 1)->(1, 1) conflict=false") \
-		and snapshot.contains("replay_hidden_subjects=") \
-		and snapshot.contains("replay_actor_subjects=") \
+		and snapshot.contains("last_replay_presenting_subjects=[&\"box_0\"]") \
+		and snapshot.contains("last_replay_used_live_box_views=true") \
+		and snapshot.contains("last_replay_completed=true") \
 		and snapshot.contains("board_view_transform=") \
 		and snapshot.contains("replay_layer_transform=")
 
@@ -819,6 +845,8 @@ func _assert_controller_empty_overflow_snapshot_matches_memory_semantics(context
 		replay_steps,
 		[],
 		[],
+		false,
+		true,
 		BuildInfo.display_text()
 	)
 	return all_empty \
@@ -1249,15 +1277,15 @@ func _build_cases() -> Array[Dictionary]:
 			"context_mode": "controller_level001",
 		},
 		{
-			"id": "replay_hides_live_subjects_during_playback",
-			"name": "replay_hides_live_subjects_during_playback",
-			"action": "during replay hide live subject visuals then clear hidden set after playback",
+			"id": "replay_uses_live_box_view_and_restores_state",
+			"name": "replay_uses_live_box_view_and_restores_state",
+			"action": "replay uses BoardView live BoxView and restores ghost/conflict/visible state afterwards",
 			"context_mode": "controller_level001",
 		},
 		{
-			"id": "replay_reuses_single_actor_per_subject",
-			"name": "replay_reuses_single_actor_per_subject",
-			"action": "replay actor map should have one actor per subject and clear after playback",
+			"id": "board_view_sync_does_not_override_replay_presenting_subjects",
+			"name": "board_view_sync_does_not_override_replay_presenting_subjects",
+			"action": "while replay presenting, sync_world does not overwrite replaying subject transforms",
 			"context_mode": "controller_level001",
 		},
 		{
@@ -1372,9 +1400,9 @@ func _build_cases() -> Array[Dictionary]:
 			},
 		},
 		{
-			"id": "snapshot_includes_replay_display_steps",
-			"name": "snapshot_includes_replay_display_steps",
-			"action": "DebugSnapshot contains replay_display_steps with from/to/conflict details",
+			"id": "snapshot_reports_last_replay_display_info",
+			"name": "snapshot_reports_last_replay_display_info",
+			"action": "DebugSnapshot contains last replay display details with presenting subjects and completion flags",
 			"blueprint": {
 				"board_size": Vector2i(6, 3),
 				"player_start": Vector2i(5, 1),

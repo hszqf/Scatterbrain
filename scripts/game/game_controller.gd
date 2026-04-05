@@ -31,6 +31,10 @@ var _input_locked: bool = false
 var _is_complete: bool = false
 var _last_recompile_reason: String = "init"
 var _last_replay_steps: Array[Dictionary] = []
+var _last_replay_display_steps: Array[Dictionary] = []
+var _last_replay_presenting_subjects: Array[StringName] = []
+var _last_replay_used_live_box_views: bool = false
+var _last_replay_completed: bool = false
 var _feedback_clear_at_msec: int = 0
 
 
@@ -117,8 +121,10 @@ func copy_debug_log() -> void:
 		_queue.entries(),
 		_last_recompile_reason,
 		_last_replay_steps,
-		_replay_controller.get_replay_hidden_subjects(),
-		_replay_controller.get_replay_actor_subjects(),
+		_last_replay_display_steps,
+		_last_replay_presenting_subjects,
+		_last_replay_used_live_box_views,
+		_last_replay_completed,
 		BuildInfo.display_text(),
 		_format_node2d_transform(_board_view),
 		_format_node2d_transform(_replay_controller.get_node(_replay_controller.replay_layer_path) as Node2D)
@@ -178,12 +184,22 @@ func _recompile_world(reason: String) -> void:
 	var result: CompileResult = _compiler.compile(_defaults, _queue, current_player_position)
 	var world_after_compile: CompiledWorld = result.world
 	var replay_steps: Array[Dictionary] = []
+	_last_replay_completed = false
+	_last_replay_used_live_box_views = false
+	_last_replay_presenting_subjects = []
+	_last_replay_display_steps = []
 	if not result.pushed_out_changes.is_empty():
 		replay_steps = _replay_payload_builder.build_steps(_defaults, result.queue_entries, current_player_position)
 	_last_replay_steps = replay_steps
+	_last_replay_display_steps = _duplicate_replay_steps(replay_steps)
+	_last_replay_presenting_subjects = _collect_replay_subjects(replay_steps)
 
 	if _replay_controller.has_steps(replay_steps):
 		await _replay_controller.play_steps(replay_steps)
+		_last_replay_used_live_box_views = _replay_controller.used_live_box_views()
+		_last_replay_completed = true
+	else:
+		_last_replay_completed = replay_steps.is_empty()
 
 	_world = world_after_compile
 	_queue.clear()
@@ -236,6 +252,10 @@ func _reset_level() -> void:
 	_is_complete = false
 	_queue.clear()
 	_last_replay_steps = []
+	_last_replay_display_steps = []
+	_last_replay_presenting_subjects = []
+	_last_replay_used_live_box_views = false
+	_last_replay_completed = false
 	_last_recompile_reason = "reset"
 	_defaults = _build_defaults()
 	_world = CompiledWorld.new()
@@ -273,3 +293,28 @@ func _build_defaults() -> WorldDefaults:
 	remove_child(root)
 	root.queue_free()
 	return WorldDefaults.from_runtime_data(runtime_data)
+
+
+func _duplicate_replay_steps(steps: Array[Dictionary]) -> Array[Dictionary]:
+	var copied: Array[Dictionary] = []
+	for step: Dictionary in steps:
+		copied.append(step.duplicate(true))
+	return copied
+
+
+func _collect_replay_subjects(steps: Array[Dictionary]) -> Array[StringName]:
+	var seen: Dictionary[StringName, bool] = {}
+	for step: Dictionary in steps:
+		if int(step.get("type", -1)) == ChangeRecord.ChangeType.EMPTY:
+			continue
+		var subject_id: StringName = step.get("subject", &"")
+		if subject_id == &"":
+			continue
+		seen[subject_id] = true
+	var subjects: Array[StringName] = []
+	for subject_id: StringName in seen.keys():
+		subjects.append(subject_id)
+	subjects.sort_custom(func(a: StringName, b: StringName) -> bool:
+		return String(a) < String(b)
+	)
+	return subjects

@@ -7,8 +7,10 @@ func build_snapshot(
 	queue_entries: Array[ChangeRecord],
 	recompile_reason: String,
 	replay_steps: Array[Dictionary],
-	replay_hidden_subjects: Array[StringName],
-	replay_actor_subjects: Array[StringName],
+	last_replay_display_steps: Array[Dictionary],
+	last_replay_presenting_subjects: Array[StringName],
+	last_replay_used_live_box_views: bool,
+	last_replay_completed: bool,
 	build_text: String,
 	board_view_transform: String = "n/a",
 	replay_layer_transform: String = "n/a"
@@ -24,9 +26,10 @@ func build_snapshot(
 	lines.append("walls=%d sample=%s" % [world.wall_positions.size(), str(_sample_positions(world.wall_positions.keys()))])
 	lines.append("recompile_reason=%s" % recompile_reason)
 	lines.append("replay=%s" % str(_replay_summary(replay_steps)))
-	lines.append("replay_display_steps=%s" % str(_replay_display_summary(replay_steps)))
-	lines.append("replay_hidden_subjects=%s" % str(replay_hidden_subjects))
-	lines.append("replay_actor_subjects=%s" % str(replay_actor_subjects))
+	lines.append("last_replay_display_steps=%s" % str(_replay_display_summary(last_replay_display_steps)))
+	lines.append("last_replay_presenting_subjects=%s" % str(last_replay_presenting_subjects))
+	lines.append("last_replay_used_live_box_views=%s" % str(last_replay_used_live_box_views))
+	lines.append("last_replay_completed=%s" % str(last_replay_completed))
 	lines.append("board_view_transform=%s" % board_view_transform)
 	lines.append("replay_layer_transform=%s" % replay_layer_transform)
 	return "\n".join(lines)
