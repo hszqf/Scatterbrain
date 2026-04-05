@@ -85,6 +85,10 @@ func _run_case(case_data: Dictionary) -> bool:
 			passed = _assert_compile_pushes_out_oldest_unpinned(context)
 		"controller_replay_locks_input_then_unlocks":
 			passed = await _assert_controller_replay_locks_input_then_unlocks(context)
+		"replay_layer_transform_matches_board_view":
+			passed = await _assert_replay_layer_transform_matches_board_view(context)
+		"replay_micro_steps_have_slow_stepwise_cadence_config":
+			passed = _assert_replay_micro_steps_have_slow_stepwise_cadence_config(context)
 		"level001_layout_matches_expected":
 			passed = _assert_level001_layout_matches_expected(context)
 		"level001_two_left_moves_state_is_stable":
@@ -487,6 +491,35 @@ func _assert_controller_replay_locks_input_then_unlocks(context: Dictionary) -> 
 		and replay_steps.is_empty()
 
 
+func _assert_replay_layer_transform_matches_board_view(context: Dictionary) -> bool:
+	var controller: GameController = context["controller"]
+	var replay_controller: ReplayController = controller.get_node(controller.replay_controller_path)
+	replay_controller.step_duration = 0.08
+	replay_controller.step_pause = 0.04
+	controller.request_move(Vector2i.LEFT)
+	controller.request_move(Vector2i.LEFT)
+	controller.request_move(Vector2i.LEFT)
+	controller.request_empty_change()
+	controller.request_empty_change()
+	controller.request_empty_change()
+	for i: int in range(120):
+		var replay_layer: Node2D = replay_controller.get_node(replay_controller.replay_layer_path)
+		var board_view: BoardView = replay_controller.get_node(replay_controller.board_view_path)
+		if replay_layer.get_child_count() > 0:
+			return replay_layer.position.is_equal_approx(board_view.position) \
+				and replay_layer.scale.is_equal_approx(board_view.scale)
+		await process_frame
+	return false
+
+
+func _assert_replay_micro_steps_have_slow_stepwise_cadence_config(context: Dictionary) -> bool:
+	var controller: GameController = context["controller"]
+	var replay_controller: ReplayController = controller.get_node(controller.replay_controller_path)
+	return replay_controller.step_duration >= 0.32 \
+		and is_equal_approx(replay_controller.step_pause, 0.08) \
+		and not is_equal_approx(replay_controller.step_duration, 0.2)
+
+
 func _assert_level001_layout_matches_expected(context: Dictionary) -> bool:
 	var runtime_data: LevelRuntimeData = context["runtime_data"]
 	var expected_walls: Array[Vector3i] = [
@@ -695,7 +728,9 @@ func _assert_snapshot_includes_replay_display_steps(context: Dictionary) -> bool
 	)
 	return snapshot.contains("replay_display_steps=") \
 		and snapshot.contains("box_0:(3, 1)->(2, 1) conflict=true") \
-		and snapshot.contains("box_0:(2, 1)->(1, 1) conflict=false")
+		and snapshot.contains("box_0:(2, 1)->(1, 1) conflict=false") \
+		and snapshot.contains("board_view_transform=") \
+		and snapshot.contains("replay_layer_transform=")
 
 
 func _assert_controller_empty_overflow_snapshot_matches_memory_semantics(context: Dictionary) -> bool:
@@ -1136,6 +1171,18 @@ func _build_cases() -> Array[Dictionary]:
 				"walls": [],
 				"boxes": [Vector3i(1, 0, 0)],
 			},
+		},
+		{
+			"id": "replay_layer_transform_matches_board_view",
+			"name": "replay_layer_transform_matches_board_view",
+			"action": "trigger replay and assert ReplayLayer transform matches BoardView during playback",
+			"context_mode": "controller_level001",
+		},
+		{
+			"id": "replay_micro_steps_have_slow_stepwise_cadence_config",
+			"name": "replay_micro_steps_have_slow_stepwise_cadence_config",
+			"action": "assert replay cadence config uses slower per-step tween and pause",
+			"context_mode": "controller_level001",
 		},
 		{
 			"id": "level001_layout_matches_expected",
