@@ -21,6 +21,14 @@ func set_is_conflict(value: bool) -> void:
 	queue_redraw()
 
 
+func is_ghost() -> bool:
+	return _is_ghost
+
+
+func is_conflict() -> bool:
+	return _is_conflict
+
+
 func _draw() -> void:
 	var color: Color = Color("e6c547")
 	if _is_ghost:
