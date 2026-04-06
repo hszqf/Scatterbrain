@@ -151,8 +151,12 @@ func _run_case(case_data: Dictionary) -> bool:
 			passed = _assert_generated_ghost_change_is_deduped(context)
 		"empty_pushed_out_no_replay_even_if_ghost_was_appended":
 			passed = await _assert_empty_pushed_out_no_replay_even_if_ghost_was_appended(context)
-		"auto_ghost_persists_after_parent_position_is_pushed_out":
-			passed = await _assert_auto_ghost_persists_after_parent_position_is_pushed_out(context)
+		"auto_ghost_persists_until_itself_is_pushed_out":
+			passed = await _assert_auto_ghost_persists_until_itself_is_pushed_out(context)
+		"pushing_out_parent_position_does_not_clear_surviving_auto_ghost":
+			passed = await _assert_pushing_out_parent_position_does_not_clear_surviving_auto_ghost(context)
+		"surviving_auto_ghost_prevents_default_box_restore":
+			passed = await _assert_surviving_auto_ghost_prevents_default_box_restore(context)
 		"persistent_auto_ghost_still_counts_as_surviving_replayable_memory":
 			passed = await _assert_persistent_auto_ghost_still_counts_as_surviving_replayable_memory(context)
 		"persistent_auto_ghost_produces_replay":
@@ -1337,7 +1341,7 @@ func _assert_empty_pushed_out_no_replay_even_if_ghost_was_appended(context: Dict
 		and _count_ghost_entries(final_queue_entries, &"box_0", Vector2i(2, 1)) == 1
 
 
-func _setup_orphaned_auto_ghost_controller_case(context: Dictionary, reason: String) -> Dictionary:
+func _setup_auto_ghost_generated_then_parent_pushed_out_case(context: Dictionary) -> Dictionary:
 	var controller: GameController = context["controller"]
 	var queue: ChangeQueue = context["queue"]
 	queue.clear()
@@ -1349,20 +1353,18 @@ func _setup_orphaned_auto_ghost_controller_case(context: Dictionary, reason: Str
 		"remembered",
 		ChangeRecord.SourceKind.REMEMBERED_REBUILD
 	))
-	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "e1", ChangeRecord.SourceKind.LIVE_INPUT))
 	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "e2", ChangeRecord.SourceKind.LIVE_INPUT))
-	queue.append(ChangeRecord.new(
-		ChangeRecord.ChangeType.GHOST,
-		&"box_0",
-		Vector2i(2, 1),
-		false,
-		"ghost",
-		ChangeRecord.SourceKind.AUTO_GHOST
-	))
-	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "trigger", ChangeRecord.SourceKind.LIVE_INPUT))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "e3", ChangeRecord.SourceKind.LIVE_INPUT))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "e4", ChangeRecord.SourceKind.LIVE_INPUT))
 	var world: CompiledWorld = controller.get("_world")
 	world.player_position = Vector2i(2, 1)
-	controller.call("_recompile_world", reason)
+	controller.call("_recompile_world", "test_generate_auto_ghost")
+	for j: int in range(120):
+		if not controller.get("_input_locked"):
+			break
+		await process_frame
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "push_parent", ChangeRecord.SourceKind.LIVE_INPUT))
+	controller.call("_recompile_world", "test_push_out_parent_remembered_position")
 	for j: int in range(120):
 		if not controller.get("_input_locked"):
 			break
@@ -1382,21 +1384,38 @@ func _setup_orphaned_auto_ghost_controller_case(context: Dictionary, reason: Str
 	}
 
 
-func _assert_auto_ghost_persists_after_parent_position_is_pushed_out(context: Dictionary) -> bool:
-	var result: Dictionary = await _setup_orphaned_auto_ghost_controller_case(context, "test_auto_ghost_persists_after_parent_position_is_pushed_out")
+func _assert_auto_ghost_persists_until_itself_is_pushed_out(context: Dictionary) -> bool:
+	var result: Dictionary = await _setup_auto_ghost_generated_then_parent_pushed_out_case(context)
 	var queue_after_compile_summaries: Array[String] = result["queue_after_compile_summaries"]
 	var queue_after_compile: Array[ChangeRecord] = result["queue_after_compile"]
 	var has_persistent_auto_ghost_summary: bool = queue_after_compile_summaries.has("Ghost[AUTO_GHOST](box_0 -> (2, 1))")
 	var auto_ghost_count: int = _count_ghost_entries(queue_after_compile, &"box_0", Vector2i(2, 1))
 	var final_world: CompiledWorld = result["world"]
+	var replay_gate_reason: String = result["replay_gate_reason"]
 	return has_persistent_auto_ghost_summary \
 		and auto_ghost_count == 1 \
 		and not final_world.entity_positions.has(&"box_0") \
+		and final_world.ghost_entities.get(&"box_0", Vector2i(-1, -1)) == Vector2i(2, 1) \
+		and replay_gate_reason != "no_surviving_replayable_memory"
+
+
+func _assert_pushing_out_parent_position_does_not_clear_surviving_auto_ghost(context: Dictionary) -> bool:
+	var result: Dictionary = await _setup_auto_ghost_generated_then_parent_pushed_out_case(context)
+	var pushed_out_changes: Array[String] = result["pushed_out_changes"]
+	var queue_after_compile_summaries: Array[String] = result["queue_after_compile_summaries"]
+	return pushed_out_changes.has("Position[REMEMBERED_REBUILD](box_0 -> (1, 1))") \
+		and queue_after_compile_summaries.has("Ghost[AUTO_GHOST](box_0 -> (2, 1))")
+
+
+func _assert_surviving_auto_ghost_prevents_default_box_restore(context: Dictionary) -> bool:
+	var result: Dictionary = await _setup_auto_ghost_generated_then_parent_pushed_out_case(context)
+	var final_world: CompiledWorld = result["world"]
+	return not final_world.entity_positions.has(&"box_0") \
 		and final_world.ghost_entities.get(&"box_0", Vector2i(-1, -1)) == Vector2i(2, 1)
 
 
 func _assert_persistent_auto_ghost_still_counts_as_surviving_replayable_memory(context: Dictionary) -> bool:
-	var result: Dictionary = await _setup_orphaned_auto_ghost_controller_case(context, "test_persistent_auto_ghost_is_replayable_memory")
+	var result: Dictionary = await _setup_auto_ghost_generated_then_parent_pushed_out_case(context)
 	var replay_gate_allowed: bool = result["replay_gate_allowed"]
 	var replay_gate_reason: String = result["replay_gate_reason"]
 	return replay_gate_allowed \
@@ -1404,7 +1423,7 @@ func _assert_persistent_auto_ghost_still_counts_as_surviving_replayable_memory(c
 
 
 func _assert_persistent_auto_ghost_produces_replay(context: Dictionary) -> bool:
-	var result: Dictionary = await _setup_orphaned_auto_ghost_controller_case(context, "test_persistent_auto_ghost_produces_replay")
+	var result: Dictionary = await _setup_auto_ghost_generated_then_parent_pushed_out_case(context)
 	var controller: GameController = result["controller"]
 	var replay_steps: Array[Dictionary] = result["replay_steps"]
 	var replay_display_steps: Array[Dictionary] = result["replay_display_steps"]
@@ -2318,9 +2337,21 @@ func _build_cases() -> Array[Dictionary]:
 			},
 		},
 		{
-			"id": "auto_ghost_persists_after_parent_position_is_pushed_out",
-			"name": "auto_ghost_persists_after_parent_position_is_pushed_out",
-			"action": "when parent remembered Position is pushed out, surviving AUTO_GHOST stays in queue and final world remains ghosted",
+			"id": "auto_ghost_persists_until_itself_is_pushed_out",
+			"name": "auto_ghost_persists_until_itself_is_pushed_out",
+			"action": "generate AUTO_GHOST from player conflict then push out parent Position; ghost remains in queue/world",
+			"context_mode": "controller_level001",
+		},
+		{
+			"id": "pushing_out_parent_position_does_not_clear_surviving_auto_ghost",
+			"name": "pushing_out_parent_position_does_not_clear_surviving_auto_ghost",
+			"action": "pushed-out parent remembered Position must not clear surviving AUTO_GHOST",
+			"context_mode": "controller_level001",
+		},
+		{
+			"id": "surviving_auto_ghost_prevents_default_box_restore",
+			"name": "surviving_auto_ghost_prevents_default_box_restore",
+			"action": "if surviving queue still has AUTO_GHOST then world must not restore default box position",
 			"context_mode": "controller_level001",
 		},
 		{
