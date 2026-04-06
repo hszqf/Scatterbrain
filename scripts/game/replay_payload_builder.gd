@@ -16,6 +16,8 @@ func build_steps(
 			continue
 		if entry.type != ChangeRecord.ChangeType.POSITION:
 			continue
+		if entry.source_kind != ChangeRecord.SourceKind.REMEMBERED_REBUILD:
+			continue
 		if entry.subject_id == &"":
 			continue
 		var from_exists: bool = remembered_positions.has(entry.subject_id)

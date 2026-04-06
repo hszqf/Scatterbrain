@@ -94,7 +94,14 @@ func request_move(direction: Vector2i) -> void:
 func request_empty_change() -> void:
 	if _input_locked or _is_complete:
 		return
-	append_change(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "meditate"))
+	append_change(ChangeRecord.new(
+		ChangeRecord.ChangeType.EMPTY,
+		&"",
+		Vector2i.ZERO,
+		false,
+		"meditate",
+		ChangeRecord.SourceKind.LIVE_INPUT
+	))
 
 
 func request_restart() -> void:

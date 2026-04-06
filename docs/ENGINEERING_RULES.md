@@ -80,10 +80,12 @@
 2. 超容时先挤出最老未钉住变化。
 3. 锁定输入并执行完整重编译：
    - 从默认世界重建（含 floor/wall/box/player/exit）。
-   - 按队列时间顺序应用变化。
-   - `PositionChange` 必须从 remembered/default 位置按 Manhattan 微步（先 X 后 Y）重建，不得直接瞬移到 target。
+   - 按队列时间顺序应用变化，并按 `ChangeRecord.SourceKind` 分流语义：
+     - `LIVE_INPUT`：表示刚发生的合法实时输入结果，按目标格直接落地，不走 remembered 路径冲突截断。
+     - `REMEMBERED_REBUILD`：表示 surviving memory 的重建语义，必须从 remembered/default 位置按 Manhattan 微步（先 X 后 Y）重建。
+     - `AUTO_GHOST`：表示编译冲突后自动生成的 ghost 记录，按 ghost 规则落地。
 4. 冲突时对象幽灵化；无地板/越界/墙目标不会落地为实体。
-5. 若 `PositionChange` 微步路径在中途进入当前 live player 格，必须在该格截断并以 ghost 落地（当前世界结果），但不得把 queue 真相改写成 `GhostChange`。
+5. 仅当 `PositionChange` 属于 `REMEMBERED_REBUILD` 且微步路径在中途进入当前 live player 格时，必须在该格截断并以 ghost 落地（当前世界结果），并允许追加 `AUTO_GHOST` 记录用于后续编译稳定。
 6. `game` 层 replay 必须基于 `WorldDefaults + CompileResult.queue_entries`（即 surviving queue）生成，表示“剩余记忆如何从默认世界重建 remembered world”；禁止使用 `world_before_compile` / `world_after_compile` 可见差分生成 replay。
 7. replay 微步与 core 编译微步必须共用同一语义：先 X 后 Y，遇到 player conflict 立即截断并终止后续步骤。
 8. 单次输入最多触发 4 轮编译，超限报错并保留最后稳定结果。

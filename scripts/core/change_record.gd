@@ -8,33 +8,59 @@ enum ChangeType {
 	GHOST,
 }
 
+enum SourceKind {
+	LIVE_INPUT,
+	REMEMBERED_REBUILD,
+	AUTO_GHOST,
+}
+
 var type: ChangeType
 var subject_id: StringName
 var target_position: Vector2i
 var pinned: bool
 var debug_label: String
+var source_kind: SourceKind
 
 func _init(
 	p_type: ChangeType,
 	p_subject_id: StringName = &"",
 	p_target_position: Vector2i = Vector2i.ZERO,
 	p_pinned: bool = false,
-	p_debug_label: String = ""
+	p_debug_label: String = "",
+	p_source_kind: SourceKind = SourceKind.REMEMBERED_REBUILD
 ) -> void:
 	type = p_type
 	subject_id = p_subject_id
 	target_position = p_target_position
 	pinned = p_pinned
 	debug_label = p_debug_label
+	source_kind = p_source_kind
 
 
 func summary() -> String:
+	var source_tag: String = _source_kind_label(source_kind)
 	match type:
 		ChangeType.POSITION:
-			return "Position(%s -> %s)" % [subject_id, target_position]
+			return "Position[%s](%s -> %s)" % [source_tag, subject_id, target_position]
 		ChangeType.EMPTY:
-			return "Empty"
+			return "Empty[%s]" % source_tag
 		ChangeType.GHOST:
-			return "Ghost(%s -> %s)" % [subject_id, target_position]
+			return "Ghost[%s](%s -> %s)" % [source_tag, subject_id, target_position]
 		_:
 			return "Unknown"
+
+
+func with_source_kind(p_source_kind: SourceKind) -> ChangeRecord:
+	return ChangeRecord.new(type, subject_id, target_position, pinned, debug_label, p_source_kind)
+
+
+func _source_kind_label(kind: SourceKind) -> String:
+	match kind:
+		SourceKind.LIVE_INPUT:
+			return "LIVE_INPUT"
+		SourceKind.REMEMBERED_REBUILD:
+			return "REMEMBERED_REBUILD"
+		SourceKind.AUTO_GHOST:
+			return "AUTO_GHOST"
+		_:
+			return "UNKNOWN"
