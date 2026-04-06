@@ -90,10 +90,17 @@ func _apply_changes(
 	world: CompiledWorld
 ) -> Array[ChangeRecord]:
 	var generated_ghost_changes: Array[ChangeRecord] = []
-	for change: ChangeRecord in entries:
+	var last_position_affecting_index_by_subject: Dictionary = _build_last_position_affecting_index_by_subject(entries)
+	for index: int in range(entries.size()):
+		var change: ChangeRecord = entries[index]
 		match change.type:
 			ChangeRecord.ChangeType.POSITION:
-				var generated_ghost: ChangeRecord = _apply_position_change(change, world)
+				var generated_ghost: ChangeRecord = _apply_position_change(
+					change,
+					world,
+					last_position_affecting_index_by_subject,
+					index
+				)
 				if generated_ghost != null and not _contains_equivalent_ghost_change(entries, generated_ghost_changes, generated_ghost):
 					generated_ghost_changes.append(generated_ghost)
 			ChangeRecord.ChangeType.GHOST:
@@ -105,13 +112,37 @@ func _apply_changes(
 	return generated_ghost_changes
 
 
-func _apply_position_change(change: ChangeRecord, world: CompiledWorld) -> ChangeRecord:
+func _build_last_position_affecting_index_by_subject(entries: Array[ChangeRecord]) -> Dictionary:
+	var result: Dictionary = {}
+	for index: int in range(entries.size()):
+		var entry: ChangeRecord = entries[index]
+		if entry == null:
+			continue
+		if entry.subject_id == &"":
+			continue
+		if entry.type != ChangeRecord.ChangeType.POSITION and entry.type != ChangeRecord.ChangeType.GHOST:
+			continue
+		result[entry.subject_id] = index
+	return result
+
+
+func _apply_position_change(
+	change: ChangeRecord,
+	world: CompiledWorld,
+	last_position_affecting_index_by_subject: Dictionary,
+	change_index: int
+) -> ChangeRecord:
 	if change.subject_id == &"":
 		return null
 
 	if change.source_kind == ChangeRecord.SourceKind.LIVE_INPUT:
 		return _apply_live_input_position_change(change, world)
-	return _apply_remembered_rebuild_position_change(change, world)
+	return _apply_remembered_rebuild_position_change(
+		change,
+		world,
+		last_position_affecting_index_by_subject,
+		change_index
+	)
 
 
 func _apply_live_input_position_change(change: ChangeRecord, world: CompiledWorld) -> ChangeRecord:
@@ -129,7 +160,12 @@ func _apply_live_input_position_change(change: ChangeRecord, world: CompiledWorl
 	return null
 
 
-func _apply_remembered_rebuild_position_change(change: ChangeRecord, world: CompiledWorld) -> ChangeRecord:
+func _apply_remembered_rebuild_position_change(
+	change: ChangeRecord,
+	world: CompiledWorld,
+	last_position_affecting_index_by_subject: Dictionary,
+	change_index: int
+) -> ChangeRecord:
 	var from_exists: bool = world.entity_positions.has(change.subject_id)
 	var from_pos: Vector2i = world.entity_positions.get(change.subject_id, change.target_position)
 	var path_result: Dictionary = PositionPathHelper.expand_with_player_conflict(
@@ -143,7 +179,8 @@ func _apply_remembered_rebuild_position_change(change: ChangeRecord, world: Comp
 	if bool(path_result.get("truncated_by_player_conflict", false)):
 		world.entity_positions.erase(change.subject_id)
 		world.ghost_entities[change.subject_id] = final_position
-		if world.ghost_entities.get(change.subject_id, Vector2i(-1, -1)) == final_position:
+		if world.ghost_entities.get(change.subject_id, Vector2i(-1, -1)) == final_position \
+			and not _has_later_position_affecting_change(last_position_affecting_index_by_subject, change.subject_id, change_index):
 			return ChangeRecord.new(
 				ChangeRecord.ChangeType.GHOST,
 				change.subject_id,
@@ -167,6 +204,16 @@ func _apply_remembered_rebuild_position_change(change: ChangeRecord, world: Comp
 	world.entity_positions.erase(change.subject_id)
 	world.ghost_entities[change.subject_id] = final_position
 	return null
+
+
+func _has_later_position_affecting_change(
+	last_position_affecting_index_by_subject: Dictionary,
+	subject_id: StringName,
+	change_index: int
+) -> bool:
+	if not last_position_affecting_index_by_subject.has(subject_id):
+		return false
+	return int(last_position_affecting_index_by_subject[subject_id]) > change_index
 
 
 func _normalize_queue_for_rebuild_context(entries: Array[ChangeRecord]) -> Array[ChangeRecord]:

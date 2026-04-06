@@ -129,6 +129,12 @@ func _run_case(case_data: Dictionary) -> bool:
 			passed = _assert_replay_marks_player_conflict_on_intermediate_step(context)
 		"player_conflict_truncation_appends_ghost_change":
 			passed = _assert_player_conflict_truncation_appends_ghost_change(context)
+		"remembered_conflict_ghost_does_not_override_later_live_input":
+			passed = _assert_remembered_conflict_ghost_does_not_override_later_live_input(context)
+		"last_remembered_rebuild_still_can_generate_ghost":
+			passed = _assert_last_remembered_rebuild_still_can_generate_ghost(context)
+		"snapshot_case_for_live_input_after_older_rebuild_is_not_ghostified":
+			passed = _assert_snapshot_case_for_live_input_after_older_rebuild_is_not_ghostified(context)
 		"replay_path_truncates_at_first_conflict_step":
 			passed = _assert_replay_path_truncates_at_first_conflict_step(context)
 		"player_move_away_allows_remembered_path_to_finish_later":
@@ -1082,6 +1088,94 @@ func _assert_player_conflict_truncation_appends_ghost_change(context: Dictionary
 	return has_position_memory 		and not result.world.entity_positions.has(&"box_0") 		and result.world.ghost_entities.get(&"box_0", Vector2i(-1, -1)) == Vector2i(2, 1) 		and ghost_count == 1 		and result.generated_ghost_changes.size() == 1 		and result.generated_ghost_changes[0].type == ChangeRecord.ChangeType.GHOST 		and result.generated_ghost_changes[0].subject_id == &"box_0" 		and result.generated_ghost_changes[0].target_position == Vector2i(2, 1)
 
 
+func _assert_remembered_conflict_ghost_does_not_override_later_live_input(context: Dictionary) -> bool:
+	var defaults: WorldDefaults = context["defaults"]
+	var queue := ChangeQueue.new()
+	queue.append(ChangeRecord.new(
+		ChangeRecord.ChangeType.POSITION,
+		&"box_0",
+		Vector2i(2, 1),
+		false,
+		"remembered_old",
+		ChangeRecord.SourceKind.REMEMBERED_REBUILD
+	))
+	queue.append(ChangeRecord.new(
+		ChangeRecord.ChangeType.POSITION,
+		&"box_0",
+		Vector2i(1, 1),
+		false,
+		"live_new",
+		ChangeRecord.SourceKind.LIVE_INPUT
+	))
+	var result: CompileResult = _compiler.compile(defaults, queue, Vector2i(2, 1))
+	var has_overriding_generated_ghost: bool = false
+	for generated: ChangeRecord in result.generated_ghost_changes:
+		if generated.type == ChangeRecord.ChangeType.GHOST \
+			and generated.subject_id == &"box_0" \
+			and generated.target_position == Vector2i(2, 1):
+			has_overriding_generated_ghost = true
+			break
+	return result.world.entity_positions.get(&"box_0", Vector2i(-1, -1)) == Vector2i(1, 1) \
+		and result.world.ghost_entities.is_empty() \
+		and not has_overriding_generated_ghost
+
+
+func _assert_last_remembered_rebuild_still_can_generate_ghost(context: Dictionary) -> bool:
+	var defaults: WorldDefaults = context["defaults"]
+	var queue := ChangeQueue.new()
+	queue.append(ChangeRecord.new(
+		ChangeRecord.ChangeType.POSITION,
+		&"box_0",
+		Vector2i(1, 1),
+		false,
+		"remembered_last",
+		ChangeRecord.SourceKind.REMEMBERED_REBUILD
+	))
+	var result: CompileResult = _compiler.compile(defaults, queue, Vector2i(2, 1))
+	return result.world.entity_positions.is_empty() \
+		and result.world.ghost_entities.get(&"box_0", Vector2i(-1, -1)) == Vector2i(2, 1) \
+		and _count_ghost_entries(result.queue_entries, &"box_0", Vector2i(2, 1)) == 1
+
+
+func _assert_snapshot_case_for_live_input_after_older_rebuild_is_not_ghostified(context: Dictionary) -> bool:
+	var defaults: WorldDefaults = context["defaults"]
+	var queue := ChangeQueue.new()
+	queue.append(ChangeRecord.new(
+		ChangeRecord.ChangeType.POSITION,
+		&"box_0",
+		Vector2i(2, 1),
+		false,
+		"remembered_old",
+		ChangeRecord.SourceKind.REMEMBERED_REBUILD
+	))
+	queue.append(ChangeRecord.new(
+		ChangeRecord.ChangeType.POSITION,
+		&"box_0",
+		Vector2i(1, 1),
+		false,
+		"live_new",
+		ChangeRecord.SourceKind.LIVE_INPUT
+	))
+	var result: CompileResult = _compiler.compile(defaults, queue, Vector2i(2, 1))
+	var snapshot: String = _formatter.build_snapshot(
+		result.world,
+		result.queue_entries,
+		"snapshot_live_after_rebuild",
+		[],
+		[],
+		[],
+		false,
+		false,
+		BuildInfo.display_text(),
+		"board_ok",
+		"replay_ok",
+		"none"
+	)
+	return snapshot.contains("player=(2, 1)") \
+		and snapshot.contains("boxes=[(1, 1)]") \
+		and snapshot.contains("ghost_boxes=[]")
+
+
 func _assert_replay_path_truncates_at_first_conflict_step(context: Dictionary) -> bool:
 	var defaults: WorldDefaults = context["defaults"]
 	var queue: ChangeQueue = _build_remembered_conflict_queue()
@@ -1322,11 +1416,11 @@ func _assert_level001_three_left_moves_no_stale_ghost(context: Dictionary) -> bo
 			position_count += 1
 	return third_move["player_moved"] \
 		and world.player_position == Vector2i(2, 1) \
-		and world.ghost_entities.get(&"box_0", Vector2i(-1, -1)) == Vector2i(2, 1) \
-		and not world.entity_positions.has(&"box_0") \
-		and queue_entries.size() == 3 \
+		and world.entity_positions.get(&"box_0", Vector2i(-1, -1)) == Vector2i(1, 1) \
+		and world.ghost_entities.is_empty() \
+		and queue_entries.size() == 2 \
 		and position_count == 2 \
-		and ghost_to_two_one_count == 1 \
+		and ghost_to_two_one_count == 0 \
 		and replay_steps.is_empty()
 
 
@@ -1868,6 +1962,66 @@ func _build_cases() -> Array[Dictionary]:
 				"player_start": Vector2i(5, 1),
 				"exit_position": Vector2i(1, 1),
 				"memory_capacity": 4,
+				"floors": [
+					Vector3i(1, 1, 0),
+					Vector3i(2, 1, 0),
+					Vector3i(3, 1, 0),
+					Vector3i(4, 1, 0),
+					Vector3i(5, 1, 0),
+				],
+				"walls": [],
+				"boxes": [Vector3i(3, 1, 0)],
+			},
+		},
+		{
+			"id": "remembered_conflict_ghost_does_not_override_later_live_input",
+			"name": "remembered_conflict_ghost_does_not_override_later_live_input",
+			"action": "older REMEMBERED_REBUILD conflict ghost must not override later LIVE_INPUT for same subject",
+			"blueprint": {
+				"board_size": Vector2i(6, 3),
+				"player_start": Vector2i(5, 1),
+				"exit_position": Vector2i(1, 1),
+				"memory_capacity": 6,
+				"floors": [
+					Vector3i(1, 1, 0),
+					Vector3i(2, 1, 0),
+					Vector3i(3, 1, 0),
+					Vector3i(4, 1, 0),
+					Vector3i(5, 1, 0),
+				],
+				"walls": [],
+				"boxes": [Vector3i(3, 1, 0)],
+			},
+		},
+		{
+			"id": "last_remembered_rebuild_still_can_generate_ghost",
+			"name": "last_remembered_rebuild_still_can_generate_ghost",
+			"action": "last remembered rebuild blocked by player still generates AUTO_GHOST",
+			"blueprint": {
+				"board_size": Vector2i(6, 3),
+				"player_start": Vector2i(5, 1),
+				"exit_position": Vector2i(1, 1),
+				"memory_capacity": 6,
+				"floors": [
+					Vector3i(1, 1, 0),
+					Vector3i(2, 1, 0),
+					Vector3i(3, 1, 0),
+					Vector3i(4, 1, 0),
+					Vector3i(5, 1, 0),
+				],
+				"walls": [],
+				"boxes": [Vector3i(3, 1, 0)],
+			},
+		},
+		{
+			"id": "snapshot_case_for_live_input_after_older_rebuild_is_not_ghostified",
+			"name": "snapshot_case_for_live_input_after_older_rebuild_is_not_ghostified",
+			"action": "snapshot with older rebuild + later live input keeps solid box and no ghost",
+			"blueprint": {
+				"board_size": Vector2i(6, 3),
+				"player_start": Vector2i(5, 1),
+				"exit_position": Vector2i(1, 1),
+				"memory_capacity": 6,
 				"floors": [
 					Vector3i(1, 1, 0),
 					Vector3i(2, 1, 0),
