@@ -238,20 +238,24 @@ func _recompile_world(reason: String) -> void:
 	_last_replay_stop_reason = "none"
 	print("[Recompile] begin reason=%s" % reason)
 	var current_player_position: Vector2i = _world.player_position
+	var pre_compile_replay_state_signature: Array[String] = _build_remembered_replay_state_signature(_queue.entries())
 	var result: CompileResult = _compiler.compile(_defaults, _queue, current_player_position)
 	var world_after_compile: CompiledWorld = result.world
 	var replay_steps: Array[Dictionary] = []
+	var post_compile_replay_state_signature: Array[String] = _build_remembered_replay_state_signature(result.queue_entries)
 	_last_pushed_out_summaries = _change_summaries(result.pushed_out_changes)
 	_last_generated_ghost_summaries = _change_summaries(result.generated_ghost_changes)
 	_last_queue_after_compile_summaries = _change_summaries(result.queue_entries)
 	var has_replayable_pushed_out: bool = _has_replayable_pushed_out_changes(result.pushed_out_changes)
-	var has_surviving_replayable_memory: bool = _has_surviving_replayable_memory(result.queue_entries)
-	var replay_gate_allowed: bool = has_replayable_pushed_out and has_surviving_replayable_memory
+	var has_surviving_replayable_memory: bool = not post_compile_replay_state_signature.is_empty()
+	var has_replayable_state_change: bool = pre_compile_replay_state_signature != post_compile_replay_state_signature
+	var replay_gate_allowed: bool = has_replayable_pushed_out and has_surviving_replayable_memory and has_replayable_state_change
 	_last_replay_gate_allowed = replay_gate_allowed
 	_last_replay_gate_reason = _resolve_replay_gate_reason(
 		result.pushed_out_changes,
 		has_replayable_pushed_out,
-		has_surviving_replayable_memory
+		has_surviving_replayable_memory,
+		has_replayable_state_change
 	)
 	if replay_gate_allowed:
 		replay_steps = _replay_payload_builder.build_steps(_defaults, result.queue_entries, current_player_position)
@@ -413,16 +417,34 @@ func _has_replayable_pushed_out_changes(pushed_out_changes: Array[ChangeRecord])
 	return false
 
 
-func _has_surviving_replayable_memory(queue_entries: Array[ChangeRecord]) -> bool:
+func _build_remembered_replay_state_signature(queue_entries: Array[ChangeRecord]) -> Array[String]:
+	var state_by_subject: Dictionary[StringName, String] = {}
 	for entry: ChangeRecord in queue_entries:
 		if entry == null:
 			continue
 		if entry.subject_id == &"":
 			continue
-		if entry.type == ChangeRecord.ChangeType.POSITION \
-			and entry.source_kind == ChangeRecord.SourceKind.REMEMBERED_REBUILD:
-			return true
-	return false
+		var is_replayable_position: bool = entry.type == ChangeRecord.ChangeType.POSITION \
+			and entry.source_kind == ChangeRecord.SourceKind.REMEMBERED_REBUILD
+		var is_replayable_ghost: bool = entry.type == ChangeRecord.ChangeType.GHOST \
+			and entry.source_kind == ChangeRecord.SourceKind.AUTO_GHOST
+		if not is_replayable_position and not is_replayable_ghost:
+			continue
+		var memory_kind: String = "REMEMBERED_POSITION" if is_replayable_position else "AUTO_GHOST"
+		state_by_subject[entry.subject_id] = "%s:%s:(%d,%d)" % [
+			String(entry.subject_id),
+			memory_kind,
+			entry.target_position.x,
+			entry.target_position.y,
+		]
+	var subjects: Array[StringName] = state_by_subject.keys()
+	subjects.sort_custom(func(a: StringName, b: StringName) -> bool:
+		return String(a) < String(b)
+	)
+	var signature: Array[String] = []
+	for subject_id: StringName in subjects:
+		signature.append(state_by_subject.get(subject_id, ""))
+	return signature
 
 
 func _duplicate_replay_steps(steps: Array[Dictionary]) -> Array[Dictionary]:
@@ -490,14 +512,17 @@ func _change_summaries(changes: Array[ChangeRecord]) -> Array[String]:
 func _resolve_replay_gate_reason(
 	pushed_out_changes: Array[ChangeRecord],
 	has_replayable_pushed_out: bool,
-	has_surviving_replayable_memory: bool
+	has_surviving_replayable_memory: bool,
+	has_replayable_state_change: bool
 ) -> String:
-	if has_replayable_pushed_out and has_surviving_replayable_memory:
+	if has_replayable_pushed_out and has_surviving_replayable_memory and has_replayable_state_change:
 		return "allowed_non_empty_pushed_out"
 	if not has_replayable_pushed_out and pushed_out_changes.is_empty():
 		return "no_pushed_out"
 	if has_replayable_pushed_out and not has_surviving_replayable_memory:
 		return "no_surviving_replayable_position"
+	if has_replayable_pushed_out and has_surviving_replayable_memory and not has_replayable_state_change:
+		return "no_replayable_state_change"
 	for change: ChangeRecord in pushed_out_changes:
 		if change == null:
 			continue
