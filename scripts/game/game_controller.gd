@@ -419,11 +419,12 @@ func _has_surviving_replayable_memory(queue_entries: Array[ChangeRecord]) -> boo
 			continue
 		if entry.subject_id == &"":
 			continue
-		if entry.type != ChangeRecord.ChangeType.POSITION:
-			continue
-		if entry.source_kind != ChangeRecord.SourceKind.REMEMBERED_REBUILD:
-			continue
-		return true
+		if entry.type == ChangeRecord.ChangeType.POSITION \
+			and entry.source_kind == ChangeRecord.SourceKind.REMEMBERED_REBUILD:
+			return true
+		if entry.type == ChangeRecord.ChangeType.GHOST \
+			and entry.source_kind == ChangeRecord.SourceKind.AUTO_GHOST:
+			return true
 	return false
 
 
