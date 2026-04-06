@@ -45,12 +45,26 @@ func resolve_move(world: CompiledWorld, direction: Vector2i) -> Dictionary:
 	world.player_position = target
 	result["player_moved"] = true
 	if world.has_floor_at(push_target):
-		result["change"] = ChangeRecord.new(ChangeRecord.ChangeType.POSITION, box_id, push_target, false, "push")
+		result["change"] = ChangeRecord.new(
+			ChangeRecord.ChangeType.POSITION,
+			box_id,
+			push_target,
+			false,
+			"push",
+			ChangeRecord.SourceKind.LIVE_INPUT
+		)
 		result["reason"] = "push_success"
 		return result
 
 	world.entity_positions.erase(box_id)
-	result["change"] = ChangeRecord.new(ChangeRecord.ChangeType.POSITION, box_id, push_target, false, "push_fall")
+	result["change"] = ChangeRecord.new(
+		ChangeRecord.ChangeType.POSITION,
+		box_id,
+		push_target,
+		false,
+		"push_fall",
+		ChangeRecord.SourceKind.LIVE_INPUT
+	)
 	result["reason"] = "push_fall"
 	return result
 

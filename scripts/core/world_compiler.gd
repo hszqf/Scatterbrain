@@ -44,7 +44,7 @@ func compile(defaults: WorldDefaults, queue: ChangeQueue, player_position: Vecto
 
 	result.iterations = iteration
 	result.world = current_world
-	result.queue_entries = working_queue.entries()
+	result.queue_entries = _normalize_queue_for_rebuild_context(working_queue.entries())
 	return result
 
 
@@ -109,6 +109,27 @@ func _apply_position_change(change: ChangeRecord, world: CompiledWorld) -> Chang
 	if change.subject_id == &"":
 		return null
 
+	if change.source_kind == ChangeRecord.SourceKind.LIVE_INPUT:
+		return _apply_live_input_position_change(change, world)
+	return _apply_remembered_rebuild_position_change(change, world)
+
+
+func _apply_live_input_position_change(change: ChangeRecord, world: CompiledWorld) -> ChangeRecord:
+	var final_position: Vector2i = change.target_position
+	if not world.is_inside(final_position) or not world.has_floor_at(final_position) or world.has_wall_at(final_position):
+		world.entity_positions.erase(change.subject_id)
+		world.ghost_entities.erase(change.subject_id)
+		return null
+	if _can_place_box(world, final_position, change.subject_id):
+		world.ghost_entities.erase(change.subject_id)
+		world.entity_positions[change.subject_id] = final_position
+		return null
+	world.entity_positions.erase(change.subject_id)
+	world.ghost_entities[change.subject_id] = final_position
+	return null
+
+
+func _apply_remembered_rebuild_position_change(change: ChangeRecord, world: CompiledWorld) -> ChangeRecord:
 	var from_exists: bool = world.entity_positions.has(change.subject_id)
 	var from_pos: Vector2i = world.entity_positions.get(change.subject_id, change.target_position)
 	var path_result: Dictionary = PositionPathHelper.expand_with_player_conflict(
@@ -123,7 +144,14 @@ func _apply_position_change(change: ChangeRecord, world: CompiledWorld) -> Chang
 		world.entity_positions.erase(change.subject_id)
 		world.ghost_entities[change.subject_id] = final_position
 		if world.ghost_entities.get(change.subject_id, Vector2i(-1, -1)) == final_position:
-			return ChangeRecord.new(ChangeRecord.ChangeType.GHOST, change.subject_id, final_position, change.pinned, "generated_from_player_conflict")
+			return ChangeRecord.new(
+				ChangeRecord.ChangeType.GHOST,
+				change.subject_id,
+				final_position,
+				change.pinned,
+				"generated_from_player_conflict",
+				ChangeRecord.SourceKind.AUTO_GHOST
+			)
 		return null
 
 	if not world.is_inside(final_position) or not world.has_floor_at(final_position) or world.has_wall_at(final_position):
@@ -139,6 +167,18 @@ func _apply_position_change(change: ChangeRecord, world: CompiledWorld) -> Chang
 	world.entity_positions.erase(change.subject_id)
 	world.ghost_entities[change.subject_id] = final_position
 	return null
+
+
+func _normalize_queue_for_rebuild_context(entries: Array[ChangeRecord]) -> Array[ChangeRecord]:
+	var normalized: Array[ChangeRecord] = []
+	for entry: ChangeRecord in entries:
+		if entry == null:
+			continue
+		if entry.type == ChangeRecord.ChangeType.POSITION and entry.source_kind == ChangeRecord.SourceKind.LIVE_INPUT:
+			normalized.append(entry.with_source_kind(ChangeRecord.SourceKind.REMEMBERED_REBUILD))
+			continue
+		normalized.append(entry)
+	return normalized
 
 
 func _contains_equivalent_ghost_change(

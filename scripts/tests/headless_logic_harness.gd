@@ -81,6 +81,12 @@ func _run_case(case_data: Dictionary) -> bool:
 			passed = _assert_controller_push_box_to_floor(context)
 		"controller_push_box_to_void":
 			passed = _assert_controller_push_box_to_void(context)
+		"live_input_push_does_not_ghostify":
+			passed = _assert_live_input_push_does_not_ghostify(context)
+		"remembered_rebuild_position_truncates_to_ghost_on_player_conflict":
+			passed = _assert_remembered_rebuild_position_truncates_to_ghost_on_player_conflict(context)
+		"input_and_rebuild_semantics_are_distinct_in_snapshot":
+			passed = _assert_input_and_rebuild_semantics_are_distinct_in_snapshot(context)
 		"compile_pushes_out_oldest_unpinned":
 			passed = _assert_compile_pushes_out_oldest_unpinned(context)
 		"controller_replay_locks_input_then_unlocks":
@@ -393,6 +399,7 @@ func _assert_gameplay_push_to_floor(context: Dictionary) -> bool:
 	var queue_entries: Array[ChangeRecord] = context["queue"].entries()
 	return resolution["player_moved"] \
 		and resolution["change"] != null \
+		and (resolution["change"] as ChangeRecord).source_kind == ChangeRecord.SourceKind.LIVE_INPUT \
 		and world.player_position == Vector2i(1, 0) \
 		and world.has_box_at(Vector2i(2, 0)) \
 		and queue_entries.size() == 1 \
@@ -406,6 +413,7 @@ func _assert_gameplay_push_to_void(context: Dictionary) -> bool:
 	var queue_entries: Array[ChangeRecord] = context["queue"].entries()
 	return resolution["player_moved"] \
 		and resolution["change"] != null \
+		and (resolution["change"] as ChangeRecord).source_kind == ChangeRecord.SourceKind.LIVE_INPUT \
 		and world.player_position == Vector2i(1, 0) \
 		and not world.has_box_at(Vector2i(2, 0)) \
 		and world.entity_positions.size() == 0 \
@@ -487,6 +495,87 @@ func _assert_controller_push_box_to_void(context: Dictionary) -> bool:
 		and world.ghost_entities.size() == 0 \
 		and queue_entries.size() == 1 \
 		and queue_entries[0].type == ChangeRecord.ChangeType.POSITION
+
+
+func _assert_live_input_push_does_not_ghostify(context: Dictionary) -> bool:
+	_controller_handle_move(context, Vector2i.LEFT)
+	var second_move: Dictionary = _controller_handle_move(context, Vector2i.LEFT)
+	var world: CompiledWorld = context["world"]
+	var queue_entries: Array[ChangeRecord] = context["queue"].entries()
+	return second_move["player_moved"] \
+		and world.player_position == Vector2i(3, 1) \
+		and _sorted_vec2_array(world.entity_positions.values()) == [Vector2i(2, 1)] \
+		and world.ghost_entities.is_empty() \
+		and queue_entries.size() == 1 \
+		and queue_entries[0].type == ChangeRecord.ChangeType.POSITION \
+		and queue_entries[0].source_kind == ChangeRecord.SourceKind.REMEMBERED_REBUILD
+
+
+func _assert_remembered_rebuild_position_truncates_to_ghost_on_player_conflict(context: Dictionary) -> bool:
+	var defaults: WorldDefaults = context["defaults"]
+	var queue: ChangeQueue = ChangeQueue.new()
+	queue.append(ChangeRecord.new(
+		ChangeRecord.ChangeType.POSITION,
+		&"box_0",
+		Vector2i(1, 1),
+		false,
+		"remembered_conflict",
+		ChangeRecord.SourceKind.REMEMBERED_REBUILD
+	))
+	var result: CompileResult = _compiler.compile(defaults, queue, Vector2i(2, 1))
+	return _sorted_vec2_array(result.world.entity_positions.values()).is_empty() \
+		and _sorted_vec2_array(result.world.ghost_entities.values()) == [Vector2i(2, 1)]
+
+
+func _assert_input_and_rebuild_semantics_are_distinct_in_snapshot(context: Dictionary) -> bool:
+	var defaults: WorldDefaults = context["defaults"]
+	var queue: ChangeQueue = ChangeQueue.new()
+	queue.append(ChangeRecord.new(
+		ChangeRecord.ChangeType.POSITION,
+		&"box_0",
+		Vector2i(2, 1),
+		false,
+		"live_source",
+		ChangeRecord.SourceKind.LIVE_INPUT
+	))
+	queue.append(ChangeRecord.new(
+		ChangeRecord.ChangeType.POSITION,
+		&"box_0",
+		Vector2i(1, 1),
+		false,
+		"remembered_source",
+		ChangeRecord.SourceKind.REMEMBERED_REBUILD
+	))
+	var result: CompileResult = _compiler.compile(defaults, queue, Vector2i(2, 1))
+	var snapshot: String = _formatter.build_snapshot(
+		result.world,
+		result.queue_entries,
+		"semantic_snapshot",
+		[],
+		[],
+		[],
+		false,
+		false,
+		BuildInfo.display_text(),
+		"board_ok",
+		"replay_ok",
+		"player_conflict",
+		"test_source",
+		"test_intent",
+		Vector2i.ZERO,
+		true,
+		"Position[LIVE_INPUT](box_0 -> (2, 1))",
+		"Position[LIVE_INPUT](box_0 -> (2, 1))",
+		["Position[LIVE_INPUT](box_0 -> (2, 1))"],
+		["Ghost[AUTO_GHOST](box_0 -> (2, 1))"],
+		["Position[REMEMBERED_REBUILD](box_0 -> (2, 1))", "Position[REMEMBERED_REBUILD](box_0 -> (1, 1))", "Ghost[AUTO_GHOST](box_0 -> (2, 1))"],
+		false,
+		"no_pushed_out"
+	)
+	return snapshot.contains("queue=[\"Position[REMEMBERED_REBUILD](box_0 -> (2, 1))\"") \
+		and snapshot.contains("pushed_out_changes=[\"Position[LIVE_INPUT](box_0 -> (2, 1))\"]") \
+		and snapshot.contains("generated_ghost_changes=[\"Ghost[AUTO_GHOST](box_0 -> (2, 1))\"]") \
+		and snapshot.contains("queue_after_compile=[\"Position[REMEMBERED_REBUILD](box_0 -> (2, 1))\"")
 
 
 func _assert_compile_pushes_out_oldest_unpinned(context: Dictionary) -> bool:
@@ -719,7 +808,7 @@ func _assert_debug_snapshot_has_real_values_not_placeholders(context: Dictionary
 		and snapshot.contains("queue=[") \
 		and not snapshot.contains("queue=%s") \
 		and snapshot.contains("(2, 1)") \
-		and snapshot.contains("Position(box_0 -> (2, 1))")
+		and snapshot.contains("Position[REMEMBERED_REBUILD](box_0 -> (2, 1))")
 
 
 func _assert_snapshot_includes_build_info(context: Dictionary) -> bool:
@@ -791,7 +880,7 @@ func _assert_move_input_populates_input_chain_debug_fields(context: Dictionary) 
 		and input_intent == "move_left" \
 		and input_direction == Vector2i.LEFT \
 		and move_player_moved \
-		and move_generated_change.begins_with("Position(")
+		and move_generated_change.begins_with("Position[LIVE_INPUT](")
 
 
 func _assert_empty_input_populates_input_chain_debug_fields(context: Dictionary) -> bool:
@@ -805,9 +894,9 @@ func _assert_empty_input_populates_input_chain_debug_fields(context: Dictionary)
 	var input_intent: String = String(controller.get("_last_input_intent"))
 	var appended_change: String = String(controller.get("_last_appended_change_summary"))
 	var queue_after_compile: Array[String] = controller.get("_last_queue_after_compile_summaries")
-	var has_empty_queue_entry: bool = queue_after_compile.size() > 0 and queue_after_compile[queue_after_compile.size() - 1] == "Empty"
+	var has_empty_queue_entry: bool = queue_after_compile.size() > 0 and queue_after_compile[queue_after_compile.size() - 1] == "Empty[LIVE_INPUT]"
 	return input_intent == "empty" \
-		and appended_change == "Empty" \
+		and appended_change == "Empty[LIVE_INPUT]" \
 		and has_empty_queue_entry \
 		and bool(controller.get("_last_replay_gate_allowed")) == false
 
@@ -1530,6 +1619,52 @@ func _build_cases() -> Array[Dictionary]:
 				"floors": [Vector3i(0, 0, 0), Vector3i(1, 0, 0)],
 				"walls": [],
 				"boxes": [Vector3i(1, 0, 0)],
+			},
+		},
+		{
+			"id": "live_input_push_does_not_ghostify",
+			"name": "live_input_push_does_not_ghostify",
+			"action": "Level001 left push from live input keeps solid box and no ghost",
+			"context_mode": "controller_level001",
+		},
+		{
+			"id": "remembered_rebuild_position_truncates_to_ghost_on_player_conflict",
+			"name": "remembered_rebuild_position_truncates_to_ghost_on_player_conflict",
+			"action": "remembered Position rebuild truncates to ghost when path hits player",
+			"blueprint": {
+				"board_size": Vector2i(6, 3),
+				"player_start": Vector2i(5, 1),
+				"exit_position": Vector2i(1, 1),
+				"memory_capacity": 4,
+				"floors": [
+					Vector3i(1, 1, 0),
+					Vector3i(2, 1, 0),
+					Vector3i(3, 1, 0),
+					Vector3i(4, 1, 0),
+					Vector3i(5, 1, 0),
+				],
+				"walls": [],
+				"boxes": [Vector3i(3, 1, 0)],
+			},
+		},
+		{
+			"id": "input_and_rebuild_semantics_are_distinct_in_snapshot",
+			"name": "input_and_rebuild_semantics_are_distinct_in_snapshot",
+			"action": "snapshot distinguishes LIVE_INPUT, REMEMBERED_REBUILD and AUTO_GHOST summaries",
+			"blueprint": {
+				"board_size": Vector2i(6, 3),
+				"player_start": Vector2i(5, 1),
+				"exit_position": Vector2i(1, 1),
+				"memory_capacity": 6,
+				"floors": [
+					Vector3i(1, 1, 0),
+					Vector3i(2, 1, 0),
+					Vector3i(3, 1, 0),
+					Vector3i(4, 1, 0),
+					Vector3i(5, 1, 0),
+				],
+				"walls": [],
+				"boxes": [Vector3i(3, 1, 0)],
 			},
 		},
 		{
