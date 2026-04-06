@@ -157,10 +157,10 @@ func _run_case(case_data: Dictionary) -> bool:
 			passed = await _assert_pushing_out_parent_position_does_not_clear_surviving_auto_ghost(context)
 		"surviving_auto_ghost_prevents_default_box_restore":
 			passed = await _assert_surviving_auto_ghost_prevents_default_box_restore(context)
-		"persistent_auto_ghost_still_counts_as_surviving_replayable_memory":
-			passed = await _assert_persistent_auto_ghost_still_counts_as_surviving_replayable_memory(context)
-		"persistent_auto_ghost_produces_replay":
-			passed = await _assert_persistent_auto_ghost_produces_replay(context)
+		"persistent_auto_ghost_does_not_count_as_surviving_replayable_memory":
+			passed = await _assert_persistent_auto_ghost_does_not_count_as_surviving_replayable_memory(context)
+		"persistent_auto_ghost_does_not_produce_replay":
+			passed = await _assert_persistent_auto_ghost_does_not_produce_replay(context)
 		"surviving_auto_ghost_with_parent_position_does_not_generate_standalone_replay":
 			passed = await _assert_surviving_auto_ghost_with_parent_position_does_not_generate_standalone_replay(context)
 		"level001_three_left_moves_no_stale_ghost":
@@ -1396,7 +1396,7 @@ func _assert_auto_ghost_persists_until_itself_is_pushed_out(context: Dictionary)
 		and auto_ghost_count == 1 \
 		and not final_world.entity_positions.has(&"box_0") \
 		and final_world.ghost_entities.get(&"box_0", Vector2i(-1, -1)) == Vector2i(2, 1) \
-		and replay_gate_reason != "no_surviving_replayable_memory"
+		and replay_gate_reason == "no_surviving_replayable_position"
 
 
 func _assert_pushing_out_parent_position_does_not_clear_surviving_auto_ghost(context: Dictionary) -> bool:
@@ -1414,19 +1414,22 @@ func _assert_surviving_auto_ghost_prevents_default_box_restore(context: Dictiona
 		and final_world.ghost_entities.get(&"box_0", Vector2i(-1, -1)) == Vector2i(2, 1)
 
 
-func _assert_persistent_auto_ghost_still_counts_as_surviving_replayable_memory(context: Dictionary) -> bool:
+func _assert_persistent_auto_ghost_does_not_count_as_surviving_replayable_memory(context: Dictionary) -> bool:
 	var result: Dictionary = await _setup_auto_ghost_generated_then_parent_pushed_out_case(context)
 	var replay_gate_allowed: bool = result["replay_gate_allowed"]
 	var replay_gate_reason: String = result["replay_gate_reason"]
-	return replay_gate_allowed \
-		and replay_gate_reason == "allowed_non_empty_pushed_out"
+	return not replay_gate_allowed \
+		and replay_gate_reason == "no_surviving_replayable_position"
 
 
-func _assert_persistent_auto_ghost_produces_replay(context: Dictionary) -> bool:
+func _assert_persistent_auto_ghost_does_not_produce_replay(context: Dictionary) -> bool:
 	var result: Dictionary = await _setup_auto_ghost_generated_then_parent_pushed_out_case(context)
 	var controller: GameController = result["controller"]
+	var queue_after_compile_summaries: Array[String] = result["queue_after_compile_summaries"]
+	var final_world: CompiledWorld = result["world"]
 	var replay_steps: Array[Dictionary] = result["replay_steps"]
 	var replay_display_steps: Array[Dictionary] = result["replay_display_steps"]
+	var replay_gate_reason: String = result["replay_gate_reason"]
 	var replay_stop_reason: String = result["replay_stop_reason"]
 	var snapshot: String = _formatter.build_snapshot(
 		controller.get("_world"),
@@ -1442,33 +1445,18 @@ func _assert_persistent_auto_ghost_produces_replay(context: Dictionary) -> bool:
 		"replay_ok",
 		replay_stop_reason
 	)
-	var has_expected_replay_step: bool = false
-	for replay_step: Dictionary in replay_steps:
-		if replay_step.get("subject", &"") != &"box_0":
-			continue
-		if replay_step.get("from", Vector2i.ZERO) != Vector2i(3, 1):
-			continue
-		if replay_step.get("to", Vector2i.ZERO) != Vector2i(2, 1):
-			continue
-		has_expected_replay_step = true
-		break
-	var has_expected_display_step: bool = false
-	for display_step: Dictionary in replay_display_steps:
-		if display_step.get("subject", &"") != &"box_0":
-			continue
-		if display_step.get("from", Vector2i.ZERO) != Vector2i(3, 1):
-			continue
-		if display_step.get("to", Vector2i.ZERO) != Vector2i(2, 1):
-			continue
-		if not bool(display_step.get("is_conflict", false)):
-			continue
-		has_expected_display_step = true
-		break
-	return not replay_steps.is_empty() \
-		and has_expected_replay_step \
-		and has_expected_display_step \
-		and snapshot.contains("replay=[") \
-		and snapshot.contains("last_replay_display_steps=[")
+	return replay_steps.is_empty() \
+		and replay_display_steps.is_empty() \
+		and replay_stop_reason == "no_surviving_replayable_position" \
+		and snapshot.contains("boxes=[]") \
+		and snapshot.contains("ghost_boxes=[(2, 1)]") \
+		and queue_after_compile_summaries.has("Ghost[AUTO_GHOST](box_0 -> (2, 1))") \
+		and not queue_after_compile_summaries.has("Position[REMEMBERED_REBUILD](box_0 -> (1, 1))") \
+		and not final_world.entity_positions.has(&"box_0") \
+		and final_world.ghost_entities.get(&"box_0", Vector2i(-1, -1)) == Vector2i(2, 1) \
+		and snapshot.contains("replay=none") \
+		and snapshot.contains("last_replay_display_steps=[]") \
+		and replay_gate_reason == "no_surviving_replayable_position"
 
 
 func _assert_surviving_auto_ghost_with_parent_position_does_not_generate_standalone_replay(context: Dictionary) -> bool:
@@ -2355,15 +2343,15 @@ func _build_cases() -> Array[Dictionary]:
 			"context_mode": "controller_level001",
 		},
 		{
-			"id": "persistent_auto_ghost_still_counts_as_surviving_replayable_memory",
-			"name": "persistent_auto_ghost_still_counts_as_surviving_replayable_memory",
-			"action": "surviving AUTO_GHOST still opens replay gate after non-empty pushed out",
+			"id": "persistent_auto_ghost_does_not_count_as_surviving_replayable_memory",
+			"name": "persistent_auto_ghost_does_not_count_as_surviving_replayable_memory",
+			"action": "surviving AUTO_GHOST no longer opens replay gate after non-empty pushed out",
 			"context_mode": "controller_level001",
 		},
 		{
-			"id": "persistent_auto_ghost_produces_replay",
-			"name": "persistent_auto_ghost_produces_replay",
-			"action": "surviving AUTO_GHOST produces replay and display conflict step",
+			"id": "persistent_auto_ghost_does_not_produce_replay",
+			"name": "persistent_auto_ghost_does_not_produce_replay",
+			"action": "surviving AUTO_GHOST keeps final ghost world but replay should be none",
 			"context_mode": "controller_level001",
 		},
 		{
