@@ -257,8 +257,8 @@ func _recompile_world(reason: String) -> void:
 		replay_steps = _replay_payload_builder.build_steps(_defaults, result.queue_entries, current_player_position)
 		if replay_steps.is_empty():
 			_last_replay_gate_allowed = false
-			_last_replay_gate_reason = "no_surviving_replayable_memory"
-			_last_replay_stop_reason = "no_surviving_replayable_memory"
+			_last_replay_gate_reason = "no_surviving_replayable_position"
+			_last_replay_stop_reason = "no_surviving_replayable_position"
 			_world = world_after_compile
 			_queue.clear()
 			for no_replay_entry: ChangeRecord in result.queue_entries:
@@ -422,9 +422,6 @@ func _has_surviving_replayable_memory(queue_entries: Array[ChangeRecord]) -> boo
 		if entry.type == ChangeRecord.ChangeType.POSITION \
 			and entry.source_kind == ChangeRecord.SourceKind.REMEMBERED_REBUILD:
 			return true
-		if entry.type == ChangeRecord.ChangeType.GHOST \
-			and entry.source_kind == ChangeRecord.SourceKind.AUTO_GHOST:
-			return true
 	return false
 
 
@@ -500,7 +497,7 @@ func _resolve_replay_gate_reason(
 	if not has_replayable_pushed_out and pushed_out_changes.is_empty():
 		return "no_pushed_out"
 	if has_replayable_pushed_out and not has_surviving_replayable_memory:
-		return "no_surviving_replayable_memory"
+		return "no_surviving_replayable_position"
 	for change: ChangeRecord in pushed_out_changes:
 		if change == null:
 			continue

@@ -10,19 +10,11 @@ func build_steps(
 	if defaults == null:
 		return []
 	var remembered_positions: Dictionary[StringName, Vector2i] = defaults.default_entity_positions.duplicate()
-	var subjects_with_remembered_position: Dictionary[StringName, bool] = {}
-	for queued_entry: ChangeRecord in surviving_queue_entries:
-		if queued_entry == null:
-			continue
-		if queued_entry.type == ChangeRecord.ChangeType.POSITION \
-			and queued_entry.source_kind == ChangeRecord.SourceKind.REMEMBERED_REBUILD \
-			and queued_entry.subject_id != &"":
-			subjects_with_remembered_position[queued_entry.subject_id] = true
 	var steps: Array[Dictionary] = []
 	for entry: ChangeRecord in surviving_queue_entries:
 		if entry == null:
 			continue
-		if entry.type != ChangeRecord.ChangeType.POSITION and entry.type != ChangeRecord.ChangeType.GHOST:
+		if entry.type != ChangeRecord.ChangeType.POSITION:
 			continue
 		if entry.subject_id == &"":
 			continue
@@ -39,15 +31,6 @@ func build_steps(
 				to_pos,
 				from_exists,
 				live_player_position
-			)
-		elif entry.type == ChangeRecord.ChangeType.GHOST and entry.source_kind == ChangeRecord.SourceKind.AUTO_GHOST:
-			if subjects_with_remembered_position.has(entry.subject_id):
-				continue
-			path_steps = _build_auto_ghost_steps(
-				entry.subject_id,
-				from_pos,
-				to_pos,
-				from_exists
 			)
 		else:
 			continue
@@ -72,27 +55,3 @@ func _build_remembered_position_steps(
 		live_player_position
 	)
 	return path_result.get("steps", [])
-
-
-func _build_auto_ghost_steps(
-	subject_id: StringName,
-	from_pos: Vector2i,
-	to_pos: Vector2i,
-	from_exists: bool
-) -> Array[Dictionary]:
-	var no_player_conflict: Vector2i = Vector2i(999999, 999999)
-	var path_result: Dictionary = PositionPathHelper.expand_with_player_conflict(
-		subject_id,
-		from_pos,
-		to_pos,
-		from_exists,
-		no_player_conflict
-	)
-	var steps: Array[Dictionary] = path_result.get("steps", [])
-	if steps.is_empty():
-		return steps
-	var last_index: int = steps.size() - 1
-	var terminal_step: Dictionary = steps[last_index].duplicate()
-	terminal_step["is_conflict"] = true
-	steps[last_index] = terminal_step
-	return steps
