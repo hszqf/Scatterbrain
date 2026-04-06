@@ -43,8 +43,9 @@ func compile(defaults: WorldDefaults, queue: ChangeQueue, player_position: Vecto
 		push_error("WorldCompiler safety limit reached (%d)." % MAX_ITERATIONS)
 
 	result.iterations = iteration
-	result.world = current_world
-	result.queue_entries = _normalize_queue_for_rebuild_context(working_queue.entries())
+	var pruned_entries: Array[ChangeRecord] = _prune_orphaned_auto_ghosts(working_queue.entries())
+	result.queue_entries = _normalize_queue_for_rebuild_context(pruned_entries)
+	result.world = _rebuild_world_from_entries(defaults, result.queue_entries, player_position)
 	return result
 
 
@@ -226,6 +227,39 @@ func _normalize_queue_for_rebuild_context(entries: Array[ChangeRecord]) -> Array
 			continue
 		normalized.append(entry)
 	return normalized
+
+
+func _prune_orphaned_auto_ghosts(entries: Array[ChangeRecord]) -> Array[ChangeRecord]:
+	var subjects_with_position: Dictionary[StringName, bool] = {}
+	for entry: ChangeRecord in entries:
+		if entry == null:
+			continue
+		if entry.type != ChangeRecord.ChangeType.POSITION:
+			continue
+		if entry.subject_id == &"":
+			continue
+		subjects_with_position[entry.subject_id] = true
+	var pruned: Array[ChangeRecord] = []
+	for entry: ChangeRecord in entries:
+		if entry == null:
+			continue
+		if entry.type == ChangeRecord.ChangeType.GHOST \
+			and entry.source_kind == ChangeRecord.SourceKind.AUTO_GHOST \
+			and entry.subject_id != &"" \
+			and not subjects_with_position.has(entry.subject_id):
+			continue
+		pruned.append(entry)
+	return pruned
+
+
+func _rebuild_world_from_entries(
+	defaults: WorldDefaults,
+	entries: Array[ChangeRecord],
+	player_position: Vector2i
+) -> CompiledWorld:
+	var rebuilt_world: CompiledWorld = _build_base_world(defaults, player_position)
+	_apply_changes(defaults, entries, rebuilt_world)
+	return rebuilt_world
 
 
 func _contains_equivalent_ghost_change(

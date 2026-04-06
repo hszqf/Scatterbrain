@@ -245,10 +245,31 @@ func _recompile_world(reason: String) -> void:
 	_last_generated_ghost_summaries = _change_summaries(result.generated_ghost_changes)
 	_last_queue_after_compile_summaries = _change_summaries(result.queue_entries)
 	var has_replayable_pushed_out: bool = _has_replayable_pushed_out_changes(result.pushed_out_changes)
-	_last_replay_gate_allowed = has_replayable_pushed_out
-	_last_replay_gate_reason = _resolve_replay_gate_reason(result.pushed_out_changes, has_replayable_pushed_out)
-	if has_replayable_pushed_out:
+	var has_surviving_replayable_memory: bool = _has_surviving_replayable_memory(result.queue_entries)
+	var replay_gate_allowed: bool = has_replayable_pushed_out and has_surviving_replayable_memory
+	_last_replay_gate_allowed = replay_gate_allowed
+	_last_replay_gate_reason = _resolve_replay_gate_reason(
+		result.pushed_out_changes,
+		has_replayable_pushed_out,
+		has_surviving_replayable_memory
+	)
+	if replay_gate_allowed:
 		replay_steps = _replay_payload_builder.build_steps(_defaults, result.queue_entries, current_player_position)
+		if replay_steps.is_empty():
+			_last_replay_gate_allowed = false
+			_last_replay_gate_reason = "no_surviving_replayable_memory"
+			_last_replay_stop_reason = "no_surviving_replayable_memory"
+			_world = world_after_compile
+			_queue.clear()
+			for no_replay_entry: ChangeRecord in result.queue_entries:
+				_queue.append(no_replay_entry)
+			_board_view.sync_world(_world)
+			_queue_view.render_queue(_queue.entries(), _defaults.memory_capacity, _defaults.obsession_capacity)
+			_update_status()
+			_check_win()
+			print("[Recompile] end iterations=%d queue=%d" % [result.iterations, _queue.size()])
+			_input_locked = false
+			return
 		_last_replay_steps = replay_steps
 		_last_replay_display_steps = _duplicate_replay_steps(replay_steps)
 		_last_replay_presenting_subjects = _collect_replay_subjects(replay_steps)
@@ -392,6 +413,20 @@ func _has_replayable_pushed_out_changes(pushed_out_changes: Array[ChangeRecord])
 	return false
 
 
+func _has_surviving_replayable_memory(queue_entries: Array[ChangeRecord]) -> bool:
+	for entry: ChangeRecord in queue_entries:
+		if entry == null:
+			continue
+		if entry.subject_id == &"":
+			continue
+		if entry.type != ChangeRecord.ChangeType.POSITION:
+			continue
+		if entry.source_kind != ChangeRecord.SourceKind.REMEMBERED_REBUILD:
+			continue
+		return true
+	return false
+
+
 func _duplicate_replay_steps(steps: Array[Dictionary]) -> Array[Dictionary]:
 	var copied: Array[Dictionary] = []
 	for step: Dictionary in steps:
@@ -454,11 +489,17 @@ func _change_summaries(changes: Array[ChangeRecord]) -> Array[String]:
 	return summaries
 
 
-func _resolve_replay_gate_reason(pushed_out_changes: Array[ChangeRecord], allowed: bool) -> String:
-	if allowed:
+func _resolve_replay_gate_reason(
+	pushed_out_changes: Array[ChangeRecord],
+	has_replayable_pushed_out: bool,
+	has_surviving_replayable_memory: bool
+) -> String:
+	if has_replayable_pushed_out and has_surviving_replayable_memory:
 		return "allowed_non_empty_pushed_out"
-	if pushed_out_changes.is_empty():
+	if not has_replayable_pushed_out and pushed_out_changes.is_empty():
 		return "no_pushed_out"
+	if has_replayable_pushed_out and not has_surviving_replayable_memory:
+		return "no_surviving_replayable_memory"
 	for change: ChangeRecord in pushed_out_changes:
 		if change == null:
 			continue
