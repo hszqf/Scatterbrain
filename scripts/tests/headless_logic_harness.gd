@@ -151,12 +151,12 @@ func _run_case(case_data: Dictionary) -> bool:
 			passed = _assert_generated_ghost_change_is_deduped(context)
 		"empty_pushed_out_no_replay_even_if_ghost_was_appended":
 			passed = await _assert_empty_pushed_out_no_replay_even_if_ghost_was_appended(context)
-		"orphaned_auto_ghost_is_pruned_when_parent_position_is_pushed_out":
-			passed = await _assert_orphaned_auto_ghost_is_pruned_when_parent_position_is_pushed_out(context)
-		"pruned_orphaned_auto_ghost_restores_default_box_world":
-			passed = await _assert_pruned_orphaned_auto_ghost_restores_default_box_world(context)
-		"orphaned_auto_ghost_does_not_trigger_replay":
-			passed = await _assert_orphaned_auto_ghost_does_not_trigger_replay(context)
+		"auto_ghost_persists_after_parent_position_is_pushed_out":
+			passed = await _assert_auto_ghost_persists_after_parent_position_is_pushed_out(context)
+		"persistent_auto_ghost_still_counts_as_surviving_replayable_memory":
+			passed = await _assert_persistent_auto_ghost_still_counts_as_surviving_replayable_memory(context)
+		"persistent_auto_ghost_produces_replay":
+			passed = await _assert_persistent_auto_ghost_produces_replay(context)
 		"surviving_auto_ghost_with_parent_position_does_not_generate_standalone_replay":
 			passed = await _assert_surviving_auto_ghost_with_parent_position_does_not_generate_standalone_replay(context)
 		"level001_three_left_moves_no_stale_ghost":
@@ -1382,29 +1382,32 @@ func _setup_orphaned_auto_ghost_controller_case(context: Dictionary, reason: Str
 	}
 
 
-func _assert_orphaned_auto_ghost_is_pruned_when_parent_position_is_pushed_out(context: Dictionary) -> bool:
-	var result: Dictionary = await _setup_orphaned_auto_ghost_controller_case(context, "test_orphaned_auto_ghost_prune")
+func _assert_auto_ghost_persists_after_parent_position_is_pushed_out(context: Dictionary) -> bool:
+	var result: Dictionary = await _setup_orphaned_auto_ghost_controller_case(context, "test_auto_ghost_persists_after_parent_position_is_pushed_out")
 	var queue_after_compile_summaries: Array[String] = result["queue_after_compile_summaries"]
 	var queue_after_compile: Array[ChangeRecord] = result["queue_after_compile"]
-	var has_orphaned_auto_ghost_summary: bool = queue_after_compile_summaries.has("Ghost[AUTO_GHOST](box_0 -> (2, 1))")
+	var has_persistent_auto_ghost_summary: bool = queue_after_compile_summaries.has("Ghost[AUTO_GHOST](box_0 -> (2, 1))")
 	var auto_ghost_count: int = _count_ghost_entries(queue_after_compile, &"box_0", Vector2i(2, 1))
-	return not has_orphaned_auto_ghost_summary and auto_ghost_count == 0
-
-
-func _assert_pruned_orphaned_auto_ghost_restores_default_box_world(context: Dictionary) -> bool:
-	var result: Dictionary = await _setup_orphaned_auto_ghost_controller_case(context, "test_orphaned_auto_ghost_world_restore")
 	var final_world: CompiledWorld = result["world"]
-	return final_world.entity_positions.get(&"box_0", Vector2i(-1, -1)) == Vector2i(3, 1) \
-		and final_world.ghost_entities.is_empty()
+	return has_persistent_auto_ghost_summary \
+		and auto_ghost_count == 1 \
+		and not final_world.entity_positions.has(&"box_0") \
+		and final_world.ghost_entities.get(&"box_0", Vector2i(-1, -1)) == Vector2i(2, 1)
 
 
-func _assert_orphaned_auto_ghost_does_not_trigger_replay(context: Dictionary) -> bool:
-	var result: Dictionary = await _setup_orphaned_auto_ghost_controller_case(context, "test_orphaned_auto_ghost_no_replay")
+func _assert_persistent_auto_ghost_still_counts_as_surviving_replayable_memory(context: Dictionary) -> bool:
+	var result: Dictionary = await _setup_orphaned_auto_ghost_controller_case(context, "test_persistent_auto_ghost_is_replayable_memory")
+	var replay_gate_allowed: bool = result["replay_gate_allowed"]
+	var replay_gate_reason: String = result["replay_gate_reason"]
+	return replay_gate_allowed \
+		and replay_gate_reason == "allowed_non_empty_pushed_out"
+
+
+func _assert_persistent_auto_ghost_produces_replay(context: Dictionary) -> bool:
+	var result: Dictionary = await _setup_orphaned_auto_ghost_controller_case(context, "test_persistent_auto_ghost_produces_replay")
 	var controller: GameController = result["controller"]
 	var replay_steps: Array[Dictionary] = result["replay_steps"]
 	var replay_display_steps: Array[Dictionary] = result["replay_display_steps"]
-	var replay_gate_allowed: bool = result["replay_gate_allowed"]
-	var replay_gate_reason: String = result["replay_gate_reason"]
 	var replay_stop_reason: String = result["replay_stop_reason"]
 	var snapshot: String = _formatter.build_snapshot(
 		controller.get("_world"),
@@ -1420,12 +1423,33 @@ func _assert_orphaned_auto_ghost_does_not_trigger_replay(context: Dictionary) ->
 		"replay_ok",
 		replay_stop_reason
 	)
-	return not replay_gate_allowed \
-		and replay_gate_reason == "no_surviving_replayable_memory" \
-		and replay_steps.is_empty() \
-		and replay_display_steps.is_empty() \
-		and snapshot.contains("replay=none") \
-		and snapshot.contains("last_replay_display_steps=[]")
+	var has_expected_replay_step: bool = false
+	for replay_step: Dictionary in replay_steps:
+		if replay_step.get("subject", &"") != &"box_0":
+			continue
+		if replay_step.get("from", Vector2i.ZERO) != Vector2i(3, 1):
+			continue
+		if replay_step.get("to", Vector2i.ZERO) != Vector2i(2, 1):
+			continue
+		has_expected_replay_step = true
+		break
+	var has_expected_display_step: bool = false
+	for display_step: Dictionary in replay_display_steps:
+		if display_step.get("subject", &"") != &"box_0":
+			continue
+		if display_step.get("from", Vector2i.ZERO) != Vector2i(3, 1):
+			continue
+		if display_step.get("to", Vector2i.ZERO) != Vector2i(2, 1):
+			continue
+		if not bool(display_step.get("is_conflict", false)):
+			continue
+		has_expected_display_step = true
+		break
+	return not replay_steps.is_empty() \
+		and has_expected_replay_step \
+		and has_expected_display_step \
+		and snapshot.contains("replay=[") \
+		and snapshot.contains("last_replay_display_steps=[")
 
 
 func _assert_surviving_auto_ghost_with_parent_position_does_not_generate_standalone_replay(context: Dictionary) -> bool:
@@ -2294,21 +2318,21 @@ func _build_cases() -> Array[Dictionary]:
 			},
 		},
 		{
-			"id": "orphaned_auto_ghost_is_pruned_when_parent_position_is_pushed_out",
-			"name": "orphaned_auto_ghost_is_pruned_when_parent_position_is_pushed_out",
-			"action": "when parent remembered Position is pushed out, orphaned AUTO_GHOST is removed from surviving queue",
+			"id": "auto_ghost_persists_after_parent_position_is_pushed_out",
+			"name": "auto_ghost_persists_after_parent_position_is_pushed_out",
+			"action": "when parent remembered Position is pushed out, surviving AUTO_GHOST stays in queue and final world remains ghosted",
 			"context_mode": "controller_level001",
 		},
 		{
-			"id": "pruned_orphaned_auto_ghost_restores_default_box_world",
-			"name": "pruned_orphaned_auto_ghost_restores_default_box_world",
-			"action": "after orphaned AUTO_GHOST prune, world restores default box and clears ghost_boxes",
+			"id": "persistent_auto_ghost_still_counts_as_surviving_replayable_memory",
+			"name": "persistent_auto_ghost_still_counts_as_surviving_replayable_memory",
+			"action": "surviving AUTO_GHOST still opens replay gate after non-empty pushed out",
 			"context_mode": "controller_level001",
 		},
 		{
-			"id": "orphaned_auto_ghost_does_not_trigger_replay",
-			"name": "orphaned_auto_ghost_does_not_trigger_replay",
-			"action": "after orphaned AUTO_GHOST prune, replay gate remains closed and replay snapshot is none",
+			"id": "persistent_auto_ghost_produces_replay",
+			"name": "persistent_auto_ghost_produces_replay",
+			"action": "surviving AUTO_GHOST produces replay and display conflict step",
 			"context_mode": "controller_level001",
 		},
 		{
