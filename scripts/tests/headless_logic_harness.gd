@@ -151,6 +151,10 @@ func _run_case(case_data: Dictionary) -> bool:
 			passed = _assert_generated_ghost_change_is_deduped(context)
 		"empty_pushed_out_no_replay_even_if_ghost_was_appended":
 			passed = await _assert_empty_pushed_out_no_replay_even_if_ghost_was_appended(context)
+		"surviving_auto_ghost_produces_replay_steps":
+			passed = await _assert_surviving_auto_ghost_produces_replay_steps(context)
+		"snapshot_reports_replay_for_surviving_auto_ghost":
+			passed = await _assert_snapshot_reports_replay_for_surviving_auto_ghost(context)
 		"level001_three_left_moves_no_stale_ghost":
 			passed = _assert_level001_three_left_moves_no_stale_ghost(context)
 		"memory_queue_symbols_are_ascii_safe":
@@ -1329,6 +1333,112 @@ func _assert_empty_pushed_out_no_replay_even_if_ghost_was_appended(context: Dict
 		and _count_ghost_entries(final_queue_entries, &"box_0", Vector2i(2, 1)) == 1
 
 
+func _assert_surviving_auto_ghost_produces_replay_steps(context: Dictionary) -> bool:
+	var controller: GameController = context["controller"]
+	var queue: ChangeQueue = context["queue"]
+	queue.clear()
+	queue.append(ChangeRecord.new(
+		ChangeRecord.ChangeType.POSITION,
+		&"box_0",
+		Vector2i(1, 1),
+		false,
+		"remembered",
+		ChangeRecord.SourceKind.REMEMBERED_REBUILD
+	))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "e1", ChangeRecord.SourceKind.LIVE_INPUT))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "e2", ChangeRecord.SourceKind.LIVE_INPUT))
+	queue.append(ChangeRecord.new(
+		ChangeRecord.ChangeType.GHOST,
+		&"box_0",
+		Vector2i(2, 1),
+		false,
+		"ghost",
+		ChangeRecord.SourceKind.AUTO_GHOST
+	))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "trigger", ChangeRecord.SourceKind.LIVE_INPUT))
+	var world: CompiledWorld = controller.get("_world")
+	world.player_position = Vector2i(2, 1)
+	controller.call("_recompile_world", "test_surviving_auto_ghost")
+	for j: int in range(120):
+		if not controller.get("_input_locked"):
+			break
+		await process_frame
+	context["world"] = controller.get("_world")
+	var replay_gate_allowed: bool = bool(controller.get("_last_replay_gate_allowed"))
+	var queue_after_compile: Array[String] = controller.get("_last_queue_after_compile_summaries")
+	var pushed_out_changes: Array[String] = controller.get("_last_pushed_out_summaries")
+	var replay_steps: Array[Dictionary] = controller.get("_last_replay_steps")
+	var has_expected_step: bool = false
+	for step: Dictionary in replay_steps:
+		if step.get("subject", &"") == &"box_0" \
+			and step.get("from", Vector2i.ZERO) == Vector2i(3, 1) \
+			and step.get("to", Vector2i.ZERO) == Vector2i(2, 1) \
+			and bool(step.get("is_conflict", false)):
+			has_expected_step = true
+			break
+	var has_surviving_auto_ghost: bool = queue_after_compile.has("Ghost[AUTO_GHOST](box_0 -> (2, 1))")
+	var surviving_has_position: bool = queue_after_compile.has("Position[REMEMBERED_REBUILD](box_0 -> (1, 1))")
+	var pushed_out_has_remembered_position: bool = pushed_out_changes.has("Position[REMEMBERED_REBUILD](box_0 -> (1, 1))")
+	return replay_gate_allowed \
+		and has_surviving_auto_ghost \
+		and not surviving_has_position \
+		and pushed_out_has_remembered_position \
+		and not replay_steps.is_empty() \
+		and has_expected_step
+
+
+func _assert_snapshot_reports_replay_for_surviving_auto_ghost(context: Dictionary) -> bool:
+	var controller: GameController = context["controller"]
+	var queue: ChangeQueue = context["queue"]
+	queue.clear()
+	queue.append(ChangeRecord.new(
+		ChangeRecord.ChangeType.POSITION,
+		&"box_0",
+		Vector2i(1, 1),
+		false,
+		"remembered",
+		ChangeRecord.SourceKind.REMEMBERED_REBUILD
+	))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "e1", ChangeRecord.SourceKind.LIVE_INPUT))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "e2", ChangeRecord.SourceKind.LIVE_INPUT))
+	queue.append(ChangeRecord.new(
+		ChangeRecord.ChangeType.GHOST,
+		&"box_0",
+		Vector2i(2, 1),
+		false,
+		"ghost",
+		ChangeRecord.SourceKind.AUTO_GHOST
+	))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "trigger", ChangeRecord.SourceKind.LIVE_INPUT))
+	var world: CompiledWorld = controller.get("_world")
+	world.player_position = Vector2i(2, 1)
+	controller.call("_recompile_world", "test_surviving_auto_ghost_snapshot")
+	for j: int in range(120):
+		if not controller.get("_input_locked"):
+			break
+		await process_frame
+	context["world"] = controller.get("_world")
+	var replay_steps: Array[Dictionary] = controller.get("_last_replay_steps")
+	var replay_display_steps: Array[Dictionary] = controller.get("_last_replay_display_steps")
+	var snapshot: String = _formatter.build_snapshot(
+		controller.get("_world"),
+		context["queue"].entries(),
+		String(controller.get("_last_recompile_reason")),
+		replay_steps,
+		replay_display_steps,
+		controller.get("_last_replay_presenting_subjects"),
+		bool(controller.get("_last_replay_used_live_box_views")),
+		bool(controller.get("_last_replay_completed")),
+		BuildInfo.display_text(),
+		"board_ok",
+		"replay_ok",
+		String(controller.get("_last_replay_stop_reason"))
+	)
+	return not snapshot.contains("replay=none") \
+		and snapshot.contains("replay=[\"box_0:(3, 1)->(2, 1)\"]") \
+		and snapshot.contains("last_replay_display_steps=[\"box_0:(3, 1)->(2, 1) conflict=true\"]")
+
+
 func _assert_build_info_display_uses_generated_build_file_or_dev(_context: Dictionary) -> bool:
 	var build_info_path: String = BuildInfo.BUILD_INFO_PATH
 	var build_info_absolute_path: String = ProjectSettings.globalize_path(build_info_path)
@@ -2165,6 +2275,18 @@ func _build_cases() -> Array[Dictionary]:
 				"walls": [],
 				"boxes": [Vector3i(3, 1, 0)],
 			},
+		},
+		{
+			"id": "surviving_auto_ghost_produces_replay_steps",
+			"name": "surviving_auto_ghost_produces_replay_steps",
+			"action": "surviving AUTO_GHOST in queue still produces replay steps when pushed_out has remembered Position",
+			"context_mode": "controller_level001",
+		},
+		{
+			"id": "snapshot_reports_replay_for_surviving_auto_ghost",
+			"name": "snapshot_reports_replay_for_surviving_auto_ghost",
+			"action": "snapshot reports replay and display steps for surviving AUTO_GHOST result",
+			"context_mode": "controller_level001",
 		},
 		{
 			"id": "level001_three_left_moves_no_stale_ghost",
