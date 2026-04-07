@@ -161,16 +161,16 @@ func _run_case(case_data: Dictionary) -> bool:
 			passed = await _assert_surviving_auto_ghost_prevents_default_box_restore(context)
 		"ghost_only_canonical_state_can_replay_when_state_changes":
 			passed = await _assert_ghost_only_canonical_state_can_replay_when_state_changes(context)
-		"ghost_only_canonical_state_does_not_replay_when_signature_unchanged":
-			passed = await _assert_ghost_only_canonical_state_does_not_replay_when_signature_unchanged(context)
+		"ghost_only_canonical_state_replays_when_pushed_out_and_surviving_memory_exist":
+			passed = await _assert_ghost_only_canonical_state_replays_when_pushed_out_and_surviving_memory_exist(context)
 		"position_plus_ghost_surviving_replays_only_last_position_affecting_state":
 			passed = await _assert_position_plus_ghost_surviving_replays_only_last_position_affecting_state(context)
-		"empty_append_with_same_surviving_ghost_state_has_no_replay":
-			passed = await _assert_empty_append_with_same_surviving_ghost_state_has_no_replay(context)
+		"second_box_change_pushout_with_surviving_auto_ghost_still_replays":
+			passed = await _assert_second_box_change_pushout_with_surviving_auto_ghost_still_replays(context)
 		"replay_still_occurs_when_surviving_remembered_state_actually_changes":
 			passed = await _assert_replay_still_occurs_when_surviving_remembered_state_actually_changes(context)
-		"replay_gate_uses_replay_state_diff_not_just_pushed_out_presence":
-			passed = await _assert_replay_gate_uses_replay_state_diff_not_just_pushed_out_presence(context)
+		"snapshot_second_box_change_pushout_with_surviving_auto_ghost_replays":
+			passed = await _assert_snapshot_second_box_change_pushout_with_surviving_auto_ghost_replays(context)
 		"level001_three_left_moves_no_stale_ghost":
 			passed = _assert_level001_three_left_moves_no_stale_ghost(context)
 		"memory_queue_symbols_are_ascii_safe":
@@ -1404,7 +1404,7 @@ func _assert_ghost_is_formal_memory_and_survives_parent_pushout(context: Diction
 		and auto_ghost_count == 1 \
 		and not final_world.entity_positions.has(&"box_0") \
 		and final_world.ghost_entities.get(&"box_0", Vector2i(-1, -1)) == Vector2i(2, 1) \
-		and replay_gate_reason == "no_replayable_state_change"
+		and replay_gate_reason == "allowed_non_empty_pushed_out"
 
 
 func _assert_ghost_is_evicted_normally_and_then_world_restores(context: Dictionary) -> bool:
@@ -1452,12 +1452,12 @@ func _assert_surviving_auto_ghost_prevents_default_box_restore(context: Dictiona
 		and final_world.ghost_entities.get(&"box_0", Vector2i(-1, -1)) == Vector2i(2, 1)
 
 
-func _assert_ghost_only_canonical_state_does_not_replay_when_signature_unchanged(context: Dictionary) -> bool:
+func _assert_ghost_only_canonical_state_replays_when_pushed_out_and_surviving_memory_exist(context: Dictionary) -> bool:
 	var result: Dictionary = await _setup_auto_ghost_generated_then_parent_pushed_out_case(context)
 	var replay_gate_allowed: bool = result["replay_gate_allowed"]
 	var replay_gate_reason: String = result["replay_gate_reason"]
-	return not replay_gate_allowed \
-		and replay_gate_reason == "no_replayable_state_change"
+	return replay_gate_allowed \
+		and replay_gate_reason == "allowed_non_empty_pushed_out"
 
 
 func _assert_ghost_only_canonical_state_can_replay_when_state_changes(context: Dictionary) -> bool:
@@ -1526,23 +1526,26 @@ func _assert_position_plus_ghost_surviving_replays_only_last_position_affecting_
 		and bool(replay_steps[0].get("ends_as_ghost", false))
 
 
-func _assert_empty_append_with_same_surviving_ghost_state_has_no_replay(context: Dictionary) -> bool:
+func _assert_second_box_change_pushout_with_surviving_auto_ghost_still_replays(context: Dictionary) -> bool:
 	var result: Dictionary = await _setup_auto_ghost_generated_then_parent_pushed_out_case(context)
 	var controller: GameController = result["controller"]
+	var pushed_out_changes: Array[String] = result["pushed_out_changes"]
 	var final_world: CompiledWorld = result["world"]
 	var queue_after_compile_summaries: Array[String] = result["queue_after_compile_summaries"]
 	var replay_steps: Array[Dictionary] = result["replay_steps"]
 	var replay_display_steps: Array[Dictionary] = result["replay_display_steps"]
 	var replay_gate_allowed: bool = result["replay_gate_allowed"]
 	var replay_gate_reason: String = result["replay_gate_reason"]
-	return not final_world.entity_positions.has(&"box_0") \
+	var replay_stop_reason: String = String(controller.get("_last_replay_stop_reason"))
+	return pushed_out_changes.has("Position[REMEMBERED_REBUILD](box_0 -> (1, 1))") \
+		and not final_world.entity_positions.has(&"box_0") \
 		and final_world.ghost_entities.get(&"box_0", Vector2i(-1, -1)) == Vector2i(2, 1) \
 		and queue_after_compile_summaries.has("Ghost[AUTO_GHOST](box_0 -> (2, 1))") \
-		and replay_steps.is_empty() \
-		and replay_display_steps.is_empty() \
-		and not replay_gate_allowed \
-		and replay_gate_reason == "no_replayable_state_change" \
-		and String(controller.get("_last_replay_stop_reason")) == "no_replayable_state_change"
+		and not replay_steps.is_empty() \
+		and not replay_display_steps.is_empty() \
+		and replay_gate_allowed \
+		and replay_gate_reason == "allowed_non_empty_pushed_out" \
+		and replay_stop_reason != "no_replayable_state_change"
 
 
 func _assert_replay_still_occurs_when_surviving_remembered_state_actually_changes(context: Dictionary) -> bool:
@@ -1583,14 +1586,49 @@ func _assert_replay_still_occurs_when_surviving_remembered_state_actually_change
 		and not replay_steps.is_empty()
 
 
-func _assert_replay_gate_uses_replay_state_diff_not_just_pushed_out_presence(context: Dictionary) -> bool:
+func _assert_snapshot_second_box_change_pushout_with_surviving_auto_ghost_replays(context: Dictionary) -> bool:
 	var result: Dictionary = await _setup_auto_ghost_generated_then_parent_pushed_out_case(context)
+	var controller: GameController = result["controller"]
+	var world: CompiledWorld = result["world"]
+	var queue_after_compile: Array[ChangeRecord] = result["queue_after_compile"]
+	var replay_steps: Array[Dictionary] = result["replay_steps"]
+	var replay_display_steps: Array[Dictionary] = result["replay_display_steps"]
 	var pushed_out_changes: Array[String] = result["pushed_out_changes"]
 	var replay_gate_allowed: bool = result["replay_gate_allowed"]
 	var replay_gate_reason: String = result["replay_gate_reason"]
+	var last_input_direction: Vector2i = controller.get("_last_input_direction")
+	var snapshot: String = _formatter.build_snapshot(
+		world,
+		queue_after_compile,
+		String(controller.get("_last_recompile_reason")),
+		replay_steps,
+		replay_display_steps,
+		controller.get("_last_replay_presenting_subjects"),
+		bool(controller.get("_last_replay_used_live_box_views")),
+		bool(controller.get("_last_replay_completed")),
+		BuildInfo.display_text(),
+		"board_ok",
+		"replay_ok",
+		String(controller.get("_last_replay_stop_reason")),
+		String(controller.get("_last_input_source")),
+		String(controller.get("_last_input_intent")),
+		last_input_direction,
+		bool(controller.get("_last_move_player_moved")),
+		String(controller.get("_last_move_generated_change")),
+		String(controller.get("_last_appended_change_summary")),
+		controller.get("_last_pushed_out_summaries"),
+		controller.get("_last_generated_ghost_summaries"),
+		controller.get("_last_queue_after_compile_summaries"),
+		bool(controller.get("_last_replay_gate_allowed")),
+		String(controller.get("_last_replay_gate_reason"))
+	)
 	return pushed_out_changes.has("Position[REMEMBERED_REBUILD](box_0 -> (1, 1))") \
-		and not replay_gate_allowed \
-		and replay_gate_reason == "no_replayable_state_change"
+		and replay_gate_allowed \
+		and replay_gate_reason == "allowed_non_empty_pushed_out" \
+		and snapshot.contains("replay=[") \
+		and not snapshot.contains("replay=none") \
+		and snapshot.contains("last_replay_display_steps=[") \
+		and String(controller.get("_last_replay_stop_reason")) != "no_replayable_state_change"
 
 
 func _assert_build_info_display_uses_generated_build_file_or_dev(_context: Dictionary) -> bool:
@@ -2461,9 +2499,9 @@ func _build_cases() -> Array[Dictionary]:
 			"context_mode": "controller_level001",
 		},
 		{
-			"id": "ghost_only_canonical_state_does_not_replay_when_signature_unchanged",
-			"name": "ghost_only_canonical_state_does_not_replay_when_signature_unchanged",
-			"action": "surviving ghost-only canonical state does not replay when pre/post canonical signature is unchanged",
+			"id": "ghost_only_canonical_state_replays_when_pushed_out_and_surviving_memory_exist",
+			"name": "ghost_only_canonical_state_replays_when_pushed_out_and_surviving_memory_exist",
+			"action": "surviving ghost-only remembered memory still replays when this compile pushed out replayable memory",
 			"context_mode": "controller_level001",
 		},
 		{
@@ -2473,9 +2511,9 @@ func _build_cases() -> Array[Dictionary]:
 			"context_mode": "controller_level001",
 		},
 		{
-			"id": "empty_append_with_same_surviving_ghost_state_has_no_replay",
-			"name": "empty_append_with_same_surviving_ghost_state_has_no_replay",
-			"action": "append Empty that pushes out remembered Position but keeps same surviving AUTO_GHOST state should not replay",
+			"id": "second_box_change_pushout_with_surviving_auto_ghost_still_replays",
+			"name": "second_box_change_pushout_with_surviving_auto_ghost_still_replays",
+			"action": "append Empty pushes out remembered Position while surviving AUTO_GHOST stays; replay must still trigger",
 			"context_mode": "controller_level001",
 		},
 		{
@@ -2485,9 +2523,9 @@ func _build_cases() -> Array[Dictionary]:
 			"context_mode": "controller_level001",
 		},
 		{
-			"id": "replay_gate_uses_replay_state_diff_not_just_pushed_out_presence",
-			"name": "replay_gate_uses_replay_state_diff_not_just_pushed_out_presence",
-			"action": "non-empty pushed_out alone is insufficient; replay gate also requires remembered replay-state diff",
+			"id": "snapshot_second_box_change_pushout_with_surviving_auto_ghost_replays",
+			"name": "snapshot_second_box_change_pushout_with_surviving_auto_ghost_replays",
+			"action": "snapshot-level regression: pushed_out remembered Position + surviving AUTO_GHOST now yields non-empty replay",
 			"context_mode": "controller_level001",
 		},
 		{
