@@ -14,16 +14,24 @@ func build_steps(
 	if defaults == null:
 		return []
 	var steps: Array[Dictionary] = []
-	var replay_entity_positions_by_subject: Dictionary[StringName, Vector2i] = defaults.default_entity_positions.duplicate()
+	var replay_entity_positions_by_subject: Dictionary[StringName, Vector2i] = {}
 	var replay_ghost_positions_by_subject: Dictionary[StringName, Vector2i] = {}
+	var replayable_subject_seen: Dictionary[StringName, bool] = {}
 	for entry: ChangeRecord in surviving_queue_entries:
 		if entry == null:
 			continue
 		if not _is_replayable_position_affecting_entry(entry):
 			continue
 		var subject_id: StringName = entry.subject_id
+		var is_first_surviving_replayable_entry: bool = not replayable_subject_seen.has(subject_id)
 		if entry.type == ChangeRecord.ChangeType.POSITION:
-			var from_data: Dictionary = _resolve_from_for_position(defaults, replay_entity_positions_by_subject, replay_ghost_positions_by_subject, subject_id)
+			var from_data: Dictionary = _resolve_from_for_position(
+				defaults,
+				replay_entity_positions_by_subject,
+				replay_ghost_positions_by_subject,
+				subject_id,
+				is_first_surviving_replayable_entry
+			)
 			var path_steps: Array[Dictionary] = _build_remembered_position_steps(
 				subject_id,
 				from_data["from_pos"],
@@ -36,7 +44,11 @@ func build_steps(
 			replay_entity_positions_by_subject[subject_id] = entry.target_position
 			replay_ghost_positions_by_subject.erase(subject_id)
 		elif entry.type == ChangeRecord.ChangeType.GHOST:
-			var ghost_from_data: Dictionary = _resolve_from_for_ghost(defaults, replay_entity_positions_by_subject, replay_ghost_positions_by_subject, subject_id)
+			var ghost_from_data: Dictionary = _resolve_from_for_ghost(
+				replay_entity_positions_by_subject,
+				replay_ghost_positions_by_subject,
+				subject_id
+			)
 			var ghost_path_steps: Array[Dictionary] = _build_auto_ghost_steps(
 				subject_id,
 				ghost_from_data["from_pos"],
@@ -47,6 +59,7 @@ func build_steps(
 				steps.append(ghost_step)
 			replay_entity_positions_by_subject.erase(subject_id)
 			replay_ghost_positions_by_subject[subject_id] = entry.target_position
+		replayable_subject_seen[subject_id] = true
 	return steps
 
 
@@ -54,7 +67,8 @@ func _resolve_from_for_position(
 	defaults: WorldDefaults,
 	replay_entity_positions_by_subject: Dictionary[StringName, Vector2i],
 	replay_ghost_positions_by_subject: Dictionary[StringName, Vector2i],
-	subject_id: StringName
+	subject_id: StringName,
+	is_first_surviving_replayable_entry: bool
 ) -> Dictionary:
 	if replay_entity_positions_by_subject.has(subject_id):
 		return {
@@ -66,7 +80,7 @@ func _resolve_from_for_position(
 			"from_pos": replay_ghost_positions_by_subject[subject_id],
 			"from_exists": true,
 		}
-	if defaults.default_entity_positions.has(subject_id):
+	if is_first_surviving_replayable_entry and defaults.default_entity_positions.has(subject_id):
 		return {
 			"from_pos": defaults.default_entity_positions[subject_id],
 			"from_exists": true,
@@ -78,7 +92,6 @@ func _resolve_from_for_position(
 
 
 func _resolve_from_for_ghost(
-	defaults: WorldDefaults,
 	replay_entity_positions_by_subject: Dictionary[StringName, Vector2i],
 	replay_ghost_positions_by_subject: Dictionary[StringName, Vector2i],
 	subject_id: StringName
@@ -91,11 +104,6 @@ func _resolve_from_for_ghost(
 	if replay_ghost_positions_by_subject.has(subject_id):
 		return {
 			"from_pos": replay_ghost_positions_by_subject[subject_id],
-			"from_exists": true,
-		}
-	if defaults.default_entity_positions.has(subject_id):
-		return {
-			"from_pos": defaults.default_entity_positions[subject_id],
 			"from_exists": true,
 		}
 	return {
@@ -127,6 +135,18 @@ func _build_auto_ghost_steps(
 	to_pos: Vector2i,
 	from_exists: bool
 ) -> Array[Dictionary]:
+	if not from_exists:
+		return [{
+			"type": ChangeRecord.ChangeType.POSITION,
+			"from": to_pos,
+			"to": to_pos,
+			"subject": subject_id,
+			"from_exists": false,
+			"to_exists": true,
+			"appears": true,
+			"is_conflict": true,
+			"ends_as_ghost": true,
+		}]
 	var path_result: Dictionary = PositionPathHelper.expand_with_player_conflict(
 		subject_id,
 		from_pos,
