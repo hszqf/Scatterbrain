@@ -404,8 +404,22 @@ func _has_replayable_pushed_out_changes(pushed_out_changes: Array[ChangeRecord])
 
 
 func _has_surviving_replayable_memory(queue_entries: Array[ChangeRecord]) -> bool:
-	var canonical_entries: Array[ChangeRecord] = ReplayPayloadBuilder.build_canonical_replay_state(queue_entries)
-	return not canonical_entries.is_empty()
+	for entry: ChangeRecord in queue_entries:
+		if _is_replayable_memory_change(entry):
+			return true
+	return false
+
+
+func _is_replayable_memory_change(entry: ChangeRecord) -> bool:
+	if entry == null:
+		return false
+	if entry.subject_id == &"":
+		return false
+	var is_replayable_position: bool = entry.type == ChangeRecord.ChangeType.POSITION \
+		and entry.source_kind == ChangeRecord.SourceKind.REMEMBERED_REBUILD
+	var is_replayable_ghost: bool = entry.type == ChangeRecord.ChangeType.GHOST \
+		and entry.source_kind == ChangeRecord.SourceKind.AUTO_GHOST
+	return is_replayable_position or is_replayable_ghost
 
 
 func _duplicate_replay_steps(steps: Array[Dictionary]) -> Array[Dictionary]:
