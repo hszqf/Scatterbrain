@@ -238,30 +238,27 @@ func _recompile_world(reason: String) -> void:
 	_last_replay_stop_reason = "none"
 	print("[Recompile] begin reason=%s" % reason)
 	var current_player_position: Vector2i = _world.player_position
-	var pre_compile_replay_state_signature: Array[String] = _build_remembered_replay_state_signature(_queue.entries())
 	var result: CompileResult = _compiler.compile(_defaults, _queue, current_player_position)
 	var world_after_compile: CompiledWorld = result.world
 	var replay_steps: Array[Dictionary] = []
-	var post_compile_replay_state_signature: Array[String] = _build_remembered_replay_state_signature(result.queue_entries)
 	_last_pushed_out_summaries = _change_summaries(result.pushed_out_changes)
 	_last_generated_ghost_summaries = _change_summaries(result.generated_ghost_changes)
 	_last_queue_after_compile_summaries = _change_summaries(result.queue_entries)
 	var has_replayable_pushed_out: bool = _has_replayable_pushed_out_changes(result.pushed_out_changes)
-	var has_surviving_replayable_memory: bool = not post_compile_replay_state_signature.is_empty()
-	var has_replayable_state_change: bool = pre_compile_replay_state_signature != post_compile_replay_state_signature
-	var replay_gate_allowed: bool = has_replayable_pushed_out and has_surviving_replayable_memory and has_replayable_state_change
+	var has_surviving_replayable_memory: bool = _has_surviving_replayable_memory(result.queue_entries)
+	var can_build_replay_steps: bool = false
+	if has_replayable_pushed_out and has_surviving_replayable_memory:
+		replay_steps = _replay_payload_builder.build_steps(_defaults, result.queue_entries, current_player_position)
+		can_build_replay_steps = not replay_steps.is_empty()
+	var replay_gate_allowed: bool = has_replayable_pushed_out and has_surviving_replayable_memory and can_build_replay_steps
 	_last_replay_gate_allowed = replay_gate_allowed
 	_last_replay_gate_reason = _resolve_replay_gate_reason(
 		result.pushed_out_changes,
 		has_replayable_pushed_out,
 		has_surviving_replayable_memory,
-		has_replayable_state_change
+		can_build_replay_steps
 	)
 	if replay_gate_allowed:
-		replay_steps = _replay_payload_builder.build_steps(_defaults, result.queue_entries, current_player_position)
-		if replay_steps.is_empty():
-			push_error("builder_returned_empty_for_nonempty_canonical_state")
-			_last_replay_stop_reason = "builder_returned_empty_for_nonempty_canonical_state"
 		_last_replay_steps = replay_steps
 		_last_replay_display_steps = _duplicate_replay_steps(replay_steps)
 		_last_replay_presenting_subjects = _collect_replay_subjects(replay_steps)
@@ -406,8 +403,9 @@ func _has_replayable_pushed_out_changes(pushed_out_changes: Array[ChangeRecord])
 	return false
 
 
-func _build_remembered_replay_state_signature(queue_entries: Array[ChangeRecord]) -> Array[String]:
-	return ReplayPayloadBuilder.build_canonical_state_signature(queue_entries)
+func _has_surviving_replayable_memory(queue_entries: Array[ChangeRecord]) -> bool:
+	var canonical_entries: Array[ChangeRecord] = ReplayPayloadBuilder.build_canonical_replay_state(queue_entries)
+	return not canonical_entries.is_empty()
 
 
 func _duplicate_replay_steps(steps: Array[Dictionary]) -> Array[Dictionary]:
@@ -476,16 +474,16 @@ func _resolve_replay_gate_reason(
 	pushed_out_changes: Array[ChangeRecord],
 	has_replayable_pushed_out: bool,
 	has_surviving_replayable_memory: bool,
-	has_replayable_state_change: bool
+	can_build_replay_steps: bool
 ) -> String:
-	if has_replayable_pushed_out and has_surviving_replayable_memory and has_replayable_state_change:
+	if has_replayable_pushed_out and has_surviving_replayable_memory and can_build_replay_steps:
 		return "allowed_non_empty_pushed_out"
 	if not has_replayable_pushed_out and pushed_out_changes.is_empty():
 		return "no_pushed_out"
 	if has_replayable_pushed_out and not has_surviving_replayable_memory:
 		return "no_surviving_replayable_memory"
-	if has_replayable_pushed_out and has_surviving_replayable_memory and not has_replayable_state_change:
-		return "no_replayable_state_change"
+	if has_replayable_pushed_out and has_surviving_replayable_memory and not can_build_replay_steps:
+		return "no_replay_steps_from_surviving_memory"
 	for change: ChangeRecord in pushed_out_changes:
 		if change == null:
 			continue
