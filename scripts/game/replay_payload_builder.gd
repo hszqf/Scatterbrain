@@ -45,7 +45,10 @@ func build_steps(
 			)
 			for path_step: Dictionary in path_steps:
 				steps.append(path_step)
-			visual_position_by_subject[subject_id] = entry.target_position
+			visual_position_by_subject[subject_id] = _resolve_visual_terminal_for_steps(
+				path_steps,
+				entry.target_position
+			)
 			semantic_position_by_subject[subject_id] = entry.target_position
 			semantic_is_ghost_by_subject[subject_id] = false
 		elif entry.type == ChangeRecord.ChangeType.GHOST:
@@ -131,6 +134,13 @@ func _build_remembered_position_steps(
 		live_player_position
 	)
 	return path_result.get("steps", [])
+
+
+func _resolve_visual_terminal_for_steps(path_steps: Array[Dictionary], fallback: Vector2i) -> Vector2i:
+	if path_steps.is_empty():
+		return fallback
+	var terminal_step: Dictionary = path_steps[path_steps.size() - 1]
+	return terminal_step.get("to", fallback)
 
 
 func _build_auto_ghost_steps(

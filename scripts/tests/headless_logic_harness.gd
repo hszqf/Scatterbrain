@@ -173,10 +173,10 @@ func _run_case(case_data: Dictionary) -> bool:
 			passed = await _assert_second_pushout_leaves_only_ghost_and_replays_spawn_ghostify(context)
 		"ghost_entry_never_creates_motion_by_itself":
 			passed = _assert_ghost_entry_never_creates_motion_by_itself(context)
-		"position_entry_still_can_move":
-			passed = _assert_position_entry_still_can_move(context)
-		"ghost_only_queue_uses_spawn_position_for_visual_ghostify":
-			passed = _assert_ghost_only_queue_uses_spawn_position_for_visual_ghostify(context)
+		"position_entry_still_replays_as_motion":
+			passed = _assert_position_entry_still_replays_as_motion(context)
+		"first_surviving_ghost_uses_spawn_position_for_visual_ghostify":
+			passed = _assert_first_surviving_ghost_uses_spawn_position_for_visual_ghostify(context)
 		"replay_still_occurs_when_surviving_remembered_state_actually_changes":
 			passed = await _assert_replay_still_occurs_when_surviving_remembered_state_actually_changes(context)
 		"snapshot_second_box_change_pushout_with_surviving_auto_ghost_replays":
@@ -1689,11 +1689,11 @@ func _assert_ghost_entry_never_creates_motion_by_itself(context: Dictionary) -> 
 		and ghost_only_steps[0].get("to", Vector2i.ZERO) == Vector2i(3, 1)
 
 
-func _assert_position_entry_still_can_move(context: Dictionary) -> bool:
+func _assert_position_entry_still_replays_as_motion(context: Dictionary) -> bool:
 	return _assert_first_surviving_position_entry_may_start_from_initial_default(context)
 
 
-func _assert_ghost_only_queue_uses_spawn_position_for_visual_ghostify(context: Dictionary) -> bool:
+func _assert_first_surviving_ghost_uses_spawn_position_for_visual_ghostify(context: Dictionary) -> bool:
 	var defaults: WorldDefaults = context["defaults"]
 	var queue := ChangeQueue.new()
 	queue.append(ChangeRecord.new(
@@ -2701,14 +2701,14 @@ func _build_cases() -> Array[Dictionary]:
 			"context_mode": "controller_level001",
 		},
 		{
-			"id": "position_entry_still_can_move",
-			"name": "position_entry_still_can_move",
+			"id": "position_entry_still_replays_as_motion",
+			"name": "position_entry_still_replays_as_motion",
 			"action": "builder: REMEMBERED_REBUILD position entries still produce move replay steps",
 			"context_mode": "controller_level001",
 		},
 		{
-			"id": "ghost_only_queue_uses_spawn_position_for_visual_ghostify",
-			"name": "ghost_only_queue_uses_spawn_position_for_visual_ghostify",
+			"id": "first_surviving_ghost_uses_spawn_position_for_visual_ghostify",
+			"name": "first_surviving_ghost_uses_spawn_position_for_visual_ghostify",
 			"action": "builder: ghost-only surviving queue ghostifies at spawn position rather than target",
 			"context_mode": "controller_level001",
 		},
