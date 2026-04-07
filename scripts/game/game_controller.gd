@@ -260,35 +260,24 @@ func _recompile_world(reason: String) -> void:
 	if replay_gate_allowed:
 		replay_steps = _replay_payload_builder.build_steps(_defaults, result.queue_entries, current_player_position)
 		if replay_steps.is_empty():
-			_last_replay_gate_allowed = false
-			_last_replay_gate_reason = "no_surviving_replayable_position"
-			_last_replay_stop_reason = "no_surviving_replayable_position"
-			_world = world_after_compile
-			_queue.clear()
-			for no_replay_entry: ChangeRecord in result.queue_entries:
-				_queue.append(no_replay_entry)
-			_board_view.sync_world(_world)
-			_queue_view.render_queue(_queue.entries(), _defaults.memory_capacity, _defaults.obsession_capacity)
-			_update_status()
-			_check_win()
-			print("[Recompile] end iterations=%d queue=%d" % [result.iterations, _queue.size()])
-			_input_locked = false
-			return
+			push_error("builder_returned_empty_for_nonempty_canonical_state")
+			_last_replay_stop_reason = "builder_returned_empty_for_nonempty_canonical_state"
 		_last_replay_steps = replay_steps
 		_last_replay_display_steps = _duplicate_replay_steps(replay_steps)
 		_last_replay_presenting_subjects = _collect_replay_subjects(replay_steps)
-		var has_player_conflict_step: bool = false
-		for replay_step: Dictionary in replay_steps:
-			if bool(replay_step.get("is_conflict", false)):
-				has_player_conflict_step = true
-				break
-		_last_replay_stop_reason = "player_conflict" if has_player_conflict_step else "completed"
+		if not replay_steps.is_empty():
+			var has_player_conflict_step: bool = false
+			for replay_step: Dictionary in replay_steps:
+				if bool(replay_step.get("is_conflict", false)):
+					has_player_conflict_step = true
+					break
+			_last_replay_stop_reason = "player_conflict" if has_player_conflict_step else "completed"
 
 		if _replay_controller.has_steps(replay_steps):
 			await _replay_controller.play_steps(replay_steps)
 			_last_replay_used_live_box_views = _replay_controller.used_live_box_views()
 			_last_replay_completed = true
-		else:
+		elif not replay_steps.is_empty():
 			_last_replay_stop_reason = "none"
 	else:
 		_last_replay_steps = []
@@ -418,33 +407,7 @@ func _has_replayable_pushed_out_changes(pushed_out_changes: Array[ChangeRecord])
 
 
 func _build_remembered_replay_state_signature(queue_entries: Array[ChangeRecord]) -> Array[String]:
-	var state_by_subject: Dictionary[StringName, String] = {}
-	for entry: ChangeRecord in queue_entries:
-		if entry == null:
-			continue
-		if entry.subject_id == &"":
-			continue
-		var is_replayable_position: bool = entry.type == ChangeRecord.ChangeType.POSITION \
-			and entry.source_kind == ChangeRecord.SourceKind.REMEMBERED_REBUILD
-		var is_replayable_ghost: bool = entry.type == ChangeRecord.ChangeType.GHOST \
-			and entry.source_kind == ChangeRecord.SourceKind.AUTO_GHOST
-		if not is_replayable_position and not is_replayable_ghost:
-			continue
-		var memory_kind: String = "REMEMBERED_POSITION" if is_replayable_position else "AUTO_GHOST"
-		state_by_subject[entry.subject_id] = "%s:%s:(%d,%d)" % [
-			String(entry.subject_id),
-			memory_kind,
-			entry.target_position.x,
-			entry.target_position.y,
-		]
-	var subjects: Array[StringName] = state_by_subject.keys()
-	subjects.sort_custom(func(a: StringName, b: StringName) -> bool:
-		return String(a) < String(b)
-	)
-	var signature: Array[String] = []
-	for subject_id: StringName in subjects:
-		signature.append(state_by_subject.get(subject_id, ""))
-	return signature
+	return ReplayPayloadBuilder.build_canonical_state_signature(queue_entries)
 
 
 func _duplicate_replay_steps(steps: Array[Dictionary]) -> Array[Dictionary]:
@@ -520,7 +483,7 @@ func _resolve_replay_gate_reason(
 	if not has_replayable_pushed_out and pushed_out_changes.is_empty():
 		return "no_pushed_out"
 	if has_replayable_pushed_out and not has_surviving_replayable_memory:
-		return "no_surviving_replayable_position"
+		return "no_surviving_replayable_memory"
 	if has_replayable_pushed_out and has_surviving_replayable_memory and not has_replayable_state_change:
 		return "no_replayable_state_change"
 	for change: ChangeRecord in pushed_out_changes:

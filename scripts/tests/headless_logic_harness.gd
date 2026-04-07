@@ -151,18 +151,20 @@ func _run_case(case_data: Dictionary) -> bool:
 			passed = _assert_generated_ghost_change_is_deduped(context)
 		"empty_pushed_out_no_replay_even_if_ghost_was_appended":
 			passed = await _assert_empty_pushed_out_no_replay_even_if_ghost_was_appended(context)
-		"auto_ghost_persists_until_itself_is_pushed_out":
-			passed = await _assert_auto_ghost_persists_until_itself_is_pushed_out(context)
+		"ghost_is_formal_memory_and_survives_parent_pushout":
+			passed = await _assert_ghost_is_formal_memory_and_survives_parent_pushout(context)
+		"ghost_is_evicted_normally_and_then_world_restores":
+			passed = await _assert_ghost_is_evicted_normally_and_then_world_restores(context)
 		"pushing_out_parent_position_does_not_clear_surviving_auto_ghost":
 			passed = await _assert_pushing_out_parent_position_does_not_clear_surviving_auto_ghost(context)
 		"surviving_auto_ghost_prevents_default_box_restore":
 			passed = await _assert_surviving_auto_ghost_prevents_default_box_restore(context)
-		"persistent_auto_ghost_does_not_count_as_surviving_replayable_memory":
-			passed = await _assert_persistent_auto_ghost_does_not_count_as_surviving_replayable_memory(context)
-		"persistent_auto_ghost_does_not_produce_replay":
-			passed = await _assert_persistent_auto_ghost_does_not_produce_replay(context)
-		"surviving_auto_ghost_with_parent_position_does_not_generate_standalone_replay":
-			passed = await _assert_surviving_auto_ghost_with_parent_position_does_not_generate_standalone_replay(context)
+		"ghost_only_canonical_state_can_replay_when_state_changes":
+			passed = await _assert_ghost_only_canonical_state_can_replay_when_state_changes(context)
+		"ghost_only_canonical_state_does_not_replay_when_signature_unchanged":
+			passed = await _assert_ghost_only_canonical_state_does_not_replay_when_signature_unchanged(context)
+		"position_plus_ghost_surviving_replays_only_last_position_affecting_state":
+			passed = await _assert_position_plus_ghost_surviving_replays_only_last_position_affecting_state(context)
 		"empty_append_with_same_surviving_ghost_state_has_no_replay":
 			passed = await _assert_empty_append_with_same_surviving_ghost_state_has_no_replay(context)
 		"replay_still_occurs_when_surviving_remembered_state_actually_changes":
@@ -1390,7 +1392,7 @@ func _setup_auto_ghost_generated_then_parent_pushed_out_case(context: Dictionary
 	}
 
 
-func _assert_auto_ghost_persists_until_itself_is_pushed_out(context: Dictionary) -> bool:
+func _assert_ghost_is_formal_memory_and_survives_parent_pushout(context: Dictionary) -> bool:
 	var result: Dictionary = await _setup_auto_ghost_generated_then_parent_pushed_out_case(context)
 	var queue_after_compile_summaries: Array[String] = result["queue_after_compile_summaries"]
 	var queue_after_compile: Array[ChangeRecord] = result["queue_after_compile"]
@@ -1403,6 +1405,36 @@ func _assert_auto_ghost_persists_until_itself_is_pushed_out(context: Dictionary)
 		and not final_world.entity_positions.has(&"box_0") \
 		and final_world.ghost_entities.get(&"box_0", Vector2i(-1, -1)) == Vector2i(2, 1) \
 		and replay_gate_reason == "no_replayable_state_change"
+
+
+func _assert_ghost_is_evicted_normally_and_then_world_restores(context: Dictionary) -> bool:
+	var controller: GameController = context["controller"]
+	var queue: ChangeQueue = context["queue"]
+	queue.clear()
+	queue.append(ChangeRecord.new(
+		ChangeRecord.ChangeType.GHOST,
+		&"box_0",
+		Vector2i(2, 1),
+		false,
+		"ghost_will_be_evicted",
+		ChangeRecord.SourceKind.AUTO_GHOST
+	))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "e1", ChangeRecord.SourceKind.LIVE_INPUT))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "e2", ChangeRecord.SourceKind.LIVE_INPUT))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "e3", ChangeRecord.SourceKind.LIVE_INPUT))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "e4_push_ghost_out", ChangeRecord.SourceKind.LIVE_INPUT))
+	controller.call("_recompile_world", "test_ghost_evicted_world_restores")
+	for i: int in range(120):
+		if not controller.get("_input_locked"):
+			break
+		await process_frame
+	var pushed_out_changes: Array[String] = controller.get("_last_pushed_out_summaries")
+	var final_world: CompiledWorld = controller.get("_world")
+	var queue_after_compile_summaries: Array[String] = controller.get("_last_queue_after_compile_summaries")
+	return pushed_out_changes.has("Ghost[AUTO_GHOST](box_0 -> (2, 1))") \
+		and not queue_after_compile_summaries.has("Ghost[AUTO_GHOST](box_0 -> (2, 1))") \
+		and final_world.entity_positions.get(&"box_0", Vector2i(-1, -1)) == Vector2i(3, 1) \
+		and not final_world.ghost_entities.has(&"box_0")
 
 
 func _assert_pushing_out_parent_position_does_not_clear_surviving_auto_ghost(context: Dictionary) -> bool:
@@ -1420,7 +1452,7 @@ func _assert_surviving_auto_ghost_prevents_default_box_restore(context: Dictiona
 		and final_world.ghost_entities.get(&"box_0", Vector2i(-1, -1)) == Vector2i(2, 1)
 
 
-func _assert_persistent_auto_ghost_does_not_count_as_surviving_replayable_memory(context: Dictionary) -> bool:
+func _assert_ghost_only_canonical_state_does_not_replay_when_signature_unchanged(context: Dictionary) -> bool:
 	var result: Dictionary = await _setup_auto_ghost_generated_then_parent_pushed_out_case(context)
 	var replay_gate_allowed: bool = result["replay_gate_allowed"]
 	var replay_gate_reason: String = result["replay_gate_reason"]
@@ -1428,44 +1460,44 @@ func _assert_persistent_auto_ghost_does_not_count_as_surviving_replayable_memory
 		and replay_gate_reason == "no_replayable_state_change"
 
 
-func _assert_persistent_auto_ghost_does_not_produce_replay(context: Dictionary) -> bool:
-	var result: Dictionary = await _setup_auto_ghost_generated_then_parent_pushed_out_case(context)
-	var controller: GameController = result["controller"]
-	var queue_after_compile_summaries: Array[String] = result["queue_after_compile_summaries"]
-	var final_world: CompiledWorld = result["world"]
-	var replay_steps: Array[Dictionary] = result["replay_steps"]
-	var replay_display_steps: Array[Dictionary] = result["replay_display_steps"]
-	var replay_gate_reason: String = result["replay_gate_reason"]
-	var replay_stop_reason: String = result["replay_stop_reason"]
-	var snapshot: String = _formatter.build_snapshot(
-		controller.get("_world"),
-		context["queue"].entries(),
-		String(controller.get("_last_recompile_reason")),
-		replay_steps,
-		replay_display_steps,
-		controller.get("_last_replay_presenting_subjects"),
-		bool(controller.get("_last_replay_used_live_box_views")),
-		bool(controller.get("_last_replay_completed")),
-		BuildInfo.display_text(),
-		"board_ok",
-		"replay_ok",
-		replay_stop_reason
-	)
-	return replay_steps.is_empty() \
-		and replay_display_steps.is_empty() \
-		and replay_stop_reason == "no_replayable_state_change" \
-		and snapshot.contains("boxes=[]") \
-		and snapshot.contains("ghost_boxes=[(2, 1)]") \
-		and queue_after_compile_summaries.has("Ghost[AUTO_GHOST](box_0 -> (2, 1))") \
-		and not queue_after_compile_summaries.has("Position[REMEMBERED_REBUILD](box_0 -> (1, 1))") \
-		and not final_world.entity_positions.has(&"box_0") \
-		and final_world.ghost_entities.get(&"box_0", Vector2i(-1, -1)) == Vector2i(2, 1) \
-		and snapshot.contains("replay=none") \
-		and snapshot.contains("last_replay_display_steps=[]") \
-		and replay_gate_reason == "no_replayable_state_change"
+func _assert_ghost_only_canonical_state_can_replay_when_state_changes(context: Dictionary) -> bool:
+	var controller: GameController = context["controller"]
+	var queue: ChangeQueue = context["queue"]
+	queue.clear()
+	queue.append(ChangeRecord.new(
+		ChangeRecord.ChangeType.GHOST,
+		&"box_0",
+		Vector2i(2, 1),
+		false,
+		"ghost_subject_0",
+		ChangeRecord.SourceKind.AUTO_GHOST
+	))
+	queue.append(ChangeRecord.new(
+		ChangeRecord.ChangeType.GHOST,
+		&"box_1",
+		Vector2i(4, 1),
+		false,
+		"ghost_subject_1_survives",
+		ChangeRecord.SourceKind.AUTO_GHOST
+	))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "e1", ChangeRecord.SourceKind.LIVE_INPUT))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "e2", ChangeRecord.SourceKind.LIVE_INPUT))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "trigger", ChangeRecord.SourceKind.LIVE_INPUT))
+	controller.call("_recompile_world", "test_ghost_only_state_change_replays")
+	for i: int in range(120):
+		if not controller.get("_input_locked"):
+			break
+		await process_frame
+	var replay_steps: Array[Dictionary] = controller.get("_last_replay_steps")
+	var replay_gate_allowed: bool = bool(controller.get("_last_replay_gate_allowed"))
+	var replay_gate_reason: String = String(controller.get("_last_replay_gate_reason"))
+	return replay_gate_allowed \
+		and replay_gate_reason == "allowed_non_empty_pushed_out" \
+		and not replay_steps.is_empty() \
+		and (controller.get("_last_pushed_out_summaries") as Array[String]).has("Ghost[AUTO_GHOST](box_0 -> (2, 1))")
 
 
-func _assert_surviving_auto_ghost_with_parent_position_does_not_generate_standalone_replay(context: Dictionary) -> bool:
+func _assert_position_plus_ghost_surviving_replays_only_last_position_affecting_state(context: Dictionary) -> bool:
 	var defaults: WorldDefaults = context["defaults"]
 	var queue := ChangeQueue.new()
 	queue.append(ChangeRecord.new(
@@ -1490,7 +1522,8 @@ func _assert_surviving_auto_ghost_with_parent_position_does_not_generate_standal
 		and replay_steps[0].get("subject", &"") == &"box_0" \
 		and replay_steps[0].get("from", Vector2i.ZERO) == Vector2i(3, 1) \
 		and replay_steps[0].get("to", Vector2i.ZERO) == Vector2i(2, 1) \
-		and bool(replay_steps[0].get("is_conflict", false))
+		and bool(replay_steps[0].get("is_conflict", false)) \
+		and bool(replay_steps[0].get("ends_as_ghost", false))
 
 
 func _assert_empty_append_with_same_surviving_ghost_state_has_no_replay(context: Dictionary) -> bool:
@@ -2398,9 +2431,15 @@ func _build_cases() -> Array[Dictionary]:
 			},
 		},
 		{
-			"id": "auto_ghost_persists_until_itself_is_pushed_out",
-			"name": "auto_ghost_persists_until_itself_is_pushed_out",
-			"action": "generate AUTO_GHOST from player conflict then push out parent Position; ghost remains in queue/world",
+			"id": "ghost_is_formal_memory_and_survives_parent_pushout",
+			"name": "ghost_is_formal_memory_and_survives_parent_pushout",
+			"action": "generate AUTO_GHOST from player conflict then push out parent Position; ghost remains as formal surviving memory",
+			"context_mode": "controller_level001",
+		},
+		{
+			"id": "ghost_is_evicted_normally_and_then_world_restores",
+			"name": "ghost_is_evicted_normally_and_then_world_restores",
+			"action": "AUTO_GHOST is pushed out like normal change and world restores to surviving remembered/default state",
 			"context_mode": "controller_level001",
 		},
 		{
@@ -2416,21 +2455,21 @@ func _build_cases() -> Array[Dictionary]:
 			"context_mode": "controller_level001",
 		},
 		{
-			"id": "persistent_auto_ghost_does_not_count_as_surviving_replayable_memory",
-			"name": "persistent_auto_ghost_does_not_count_as_surviving_replayable_memory",
-			"action": "surviving AUTO_GHOST no longer opens replay gate after non-empty pushed out",
+			"id": "ghost_only_canonical_state_can_replay_when_state_changes",
+			"name": "ghost_only_canonical_state_can_replay_when_state_changes",
+			"action": "ghost-only surviving canonical state is replayable when canonical signature actually changes",
 			"context_mode": "controller_level001",
 		},
 		{
-			"id": "persistent_auto_ghost_does_not_produce_replay",
-			"name": "persistent_auto_ghost_does_not_produce_replay",
-			"action": "surviving AUTO_GHOST keeps final ghost world but replay should be none",
+			"id": "ghost_only_canonical_state_does_not_replay_when_signature_unchanged",
+			"name": "ghost_only_canonical_state_does_not_replay_when_signature_unchanged",
+			"action": "surviving ghost-only canonical state does not replay when pre/post canonical signature is unchanged",
 			"context_mode": "controller_level001",
 		},
 		{
-			"id": "surviving_auto_ghost_with_parent_position_does_not_generate_standalone_replay",
-			"name": "surviving_auto_ghost_with_parent_position_does_not_generate_standalone_replay",
-			"action": "AUTO_GHOST with surviving parent Position does not create duplicate standalone replay steps",
+			"id": "position_plus_ghost_surviving_replays_only_last_position_affecting_state",
+			"name": "position_plus_ghost_surviving_replays_only_last_position_affecting_state",
+			"action": "Position+Ghost surviving entries replay only the subject canonical last position-affecting state",
 			"context_mode": "controller_level001",
 		},
 		{

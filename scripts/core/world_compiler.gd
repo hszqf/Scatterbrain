@@ -179,6 +179,10 @@ func _apply_remembered_rebuild_position_change(
 	if bool(path_result.get("truncated_by_player_conflict", false)):
 		world.entity_positions.erase(change.subject_id)
 		world.ghost_entities[change.subject_id] = final_position
+		# AUTO_GHOST is formal remembered memory. We only append it when this remembered
+		# position change is the subject's last position-affecting entry in this apply pass.
+		# Later position/ghost entries will override canonical replay state and should not
+		# receive stale generated ghosts.
 		if world.ghost_entities.get(change.subject_id, Vector2i(-1, -1)) == final_position \
 			and not _has_later_position_affecting_change(last_position_affecting_index_by_subject, change.subject_id, change_index):
 			return ChangeRecord.new(
