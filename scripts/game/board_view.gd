@@ -57,9 +57,14 @@ func begin_replay_presentation(subject_ids: Array[StringName]) -> void:
 	_replay_presenting_subjects.clear()
 	for subject_id: StringName in subject_ids:
 		_replay_presenting_subjects[subject_id] = true
+		if _boxes.has(subject_id):
+			_boxes[subject_id].visible = false
 
 
 func end_replay_presentation() -> void:
+	for subject_id: StringName in _replay_presenting_subjects.keys():
+		if _boxes.has(subject_id):
+			_boxes[subject_id].visible = true
 	_replay_presenting_subjects.clear()
 
 
