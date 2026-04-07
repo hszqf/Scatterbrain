@@ -14,8 +14,13 @@ func build_steps(
 	if defaults == null:
 		return []
 	var steps: Array[Dictionary] = []
-	var replay_entity_positions_by_subject: Dictionary[StringName, Vector2i] = {}
-	var replay_ghost_positions_by_subject: Dictionary[StringName, Vector2i] = {}
+	# Replay uses two tracks:
+	# - visual_* : where a subject is currently shown during replay animation.
+	# - semantic_* : remembered queue semantics after applying surviving entries.
+	# Ghost[AUTO_GHOST] only changes state (solid -> ghost) and never creates motion.
+	var visual_position_by_subject: Dictionary[StringName, Vector2i] = {}
+	var semantic_position_by_subject: Dictionary[StringName, Vector2i] = {}
+	var semantic_is_ghost_by_subject: Dictionary[StringName, bool] = {}
 	var replayable_subject_seen: Dictionary[StringName, bool] = {}
 	for entry: ChangeRecord in surviving_queue_entries:
 		if entry == null:
@@ -27,8 +32,7 @@ func build_steps(
 		if entry.type == ChangeRecord.ChangeType.POSITION:
 			var from_data: Dictionary = _resolve_from_for_position(
 				defaults,
-				replay_entity_positions_by_subject,
-				replay_ghost_positions_by_subject,
+				visual_position_by_subject,
 				subject_id,
 				is_first_surviving_replayable_entry
 			)
@@ -41,43 +45,39 @@ func build_steps(
 			)
 			for path_step: Dictionary in path_steps:
 				steps.append(path_step)
-			replay_entity_positions_by_subject[subject_id] = entry.target_position
-			replay_ghost_positions_by_subject.erase(subject_id)
+			visual_position_by_subject[subject_id] = entry.target_position
+			semantic_position_by_subject[subject_id] = entry.target_position
+			semantic_is_ghost_by_subject[subject_id] = false
 		elif entry.type == ChangeRecord.ChangeType.GHOST:
-			var ghost_from_data: Dictionary = _resolve_from_for_ghost(
-				replay_entity_positions_by_subject,
-				replay_ghost_positions_by_subject,
+			var ghost_display_data: Dictionary = _resolve_display_for_ghost(
+				defaults,
+				visual_position_by_subject,
+				entry.target_position,
 				subject_id
 			)
 			var ghost_path_steps: Array[Dictionary] = _build_auto_ghost_steps(
 				subject_id,
-				ghost_from_data["from_pos"],
-				entry.target_position,
-				ghost_from_data["from_exists"]
+				ghost_display_data["display_pos"],
+				ghost_display_data["from_exists"]
 			)
 			for ghost_step: Dictionary in ghost_path_steps:
 				steps.append(ghost_step)
-			replay_entity_positions_by_subject.erase(subject_id)
-			replay_ghost_positions_by_subject[subject_id] = entry.target_position
+			visual_position_by_subject[subject_id] = ghost_display_data["display_pos"]
+			semantic_position_by_subject[subject_id] = entry.target_position
+			semantic_is_ghost_by_subject[subject_id] = true
 		replayable_subject_seen[subject_id] = true
 	return steps
 
 
 func _resolve_from_for_position(
 	defaults: WorldDefaults,
-	replay_entity_positions_by_subject: Dictionary[StringName, Vector2i],
-	replay_ghost_positions_by_subject: Dictionary[StringName, Vector2i],
+	visual_position_by_subject: Dictionary[StringName, Vector2i],
 	subject_id: StringName,
 	is_first_surviving_replayable_entry: bool
 ) -> Dictionary:
-	if replay_entity_positions_by_subject.has(subject_id):
+	if visual_position_by_subject.has(subject_id):
 		return {
-			"from_pos": replay_entity_positions_by_subject[subject_id],
-			"from_exists": true,
-		}
-	if replay_ghost_positions_by_subject.has(subject_id):
-		return {
-			"from_pos": replay_ghost_positions_by_subject[subject_id],
+			"from_pos": visual_position_by_subject[subject_id],
 			"from_exists": true,
 		}
 	if is_first_surviving_replayable_entry and defaults.default_entity_positions.has(subject_id):
@@ -91,24 +91,28 @@ func _resolve_from_for_position(
 	}
 
 
-func _resolve_from_for_ghost(
-	replay_entity_positions_by_subject: Dictionary[StringName, Vector2i],
-	replay_ghost_positions_by_subject: Dictionary[StringName, Vector2i],
+func _resolve_display_for_ghost(
+	defaults: WorldDefaults,
+	visual_position_by_subject: Dictionary[StringName, Vector2i],
+	target_position: Vector2i,
 	subject_id: StringName
 ) -> Dictionary:
-	if replay_entity_positions_by_subject.has(subject_id):
+	if visual_position_by_subject.has(subject_id):
 		return {
-			"from_pos": replay_entity_positions_by_subject[subject_id],
+			"display_pos": visual_position_by_subject[subject_id],
 			"from_exists": true,
+			"appears": false,
 		}
-	if replay_ghost_positions_by_subject.has(subject_id):
+	if defaults.default_entity_positions.has(subject_id):
 		return {
-			"from_pos": replay_ghost_positions_by_subject[subject_id],
+			"display_pos": defaults.default_entity_positions[subject_id],
 			"from_exists": true,
+			"appears": false,
 		}
 	return {
-		"from_pos": Vector2i.ZERO,
+		"display_pos": target_position,
 		"from_exists": false,
+		"appears": true,
 	}
 
 
@@ -131,39 +135,22 @@ func _build_remembered_position_steps(
 
 func _build_auto_ghost_steps(
 	subject_id: StringName,
-	from_pos: Vector2i,
-	to_pos: Vector2i,
+	display_pos: Vector2i,
 	from_exists: bool
 ) -> Array[Dictionary]:
-	if not from_exists:
-		return [{
-			"type": ChangeRecord.ChangeType.POSITION,
-			"from": to_pos,
-			"to": to_pos,
-			"subject": subject_id,
-			"from_exists": false,
-			"to_exists": true,
-			"appears": true,
-			"is_conflict": true,
-			"ends_as_ghost": true,
-		}]
-	var path_result: Dictionary = PositionPathHelper.expand_with_player_conflict(
-		subject_id,
-		from_pos,
-		to_pos,
-		from_exists,
-		Vector2i(999999, 999999)
-	)
-	var steps: Array[Dictionary] = path_result.get("steps", [])
-	if steps.is_empty():
-		return steps
-	var last_index: int = steps.size() - 1
-	for index: int in range(steps.size()):
-		var step: Dictionary = steps[index]
-		step["ends_as_ghost"] = index == last_index
-		step["is_conflict"] = index == last_index
-		steps[index] = step
-	return steps
+	# Hard rule: Ghost[AUTO_GHOST] never creates motion in replay.
+	# It only ghostifies at the current display position (from == to).
+	return [{
+		"type": ChangeRecord.ChangeType.POSITION,
+		"from": display_pos,
+		"to": display_pos,
+		"subject": subject_id,
+		"from_exists": from_exists,
+		"to_exists": true,
+		"appears": not from_exists,
+		"is_conflict": true,
+		"ends_as_ghost": true,
+	}]
 
 
 static func _is_replayable_position_affecting_entry(entry: ChangeRecord) -> bool:
