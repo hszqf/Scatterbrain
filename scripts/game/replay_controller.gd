@@ -9,6 +9,7 @@ extends Node
 var _board_view: BoardView
 var _replay_layer: Node2D
 var _replay_presenting_subjects: Dictionary[StringName, bool] = {}
+var _replay_actors: Dictionary[StringName, BoxView] = {}
 var _last_used_live_box_views: bool = false
 
 
@@ -24,15 +25,13 @@ func has_steps(steps: Array[Dictionary]) -> bool:
 func play_steps(steps: Array[Dictionary]) -> void:
 	_sync_replay_layer_transform()
 	var replay_subjects: Array[StringName] = _collect_replay_subjects(steps)
-	_last_used_live_box_views = not replay_subjects.is_empty()
+	_last_used_live_box_views = false
 	_replay_presenting_subjects.clear()
 	_board_view.begin_replay_presentation(replay_subjects)
+	_clear_replay_actors()
 	for subject_id: StringName in replay_subjects:
 		_replay_presenting_subjects[subject_id] = true
-		var box_view: BoxView = _board_view.get_box_view(subject_id)
-		box_view.visible = true
-		box_view.set_is_ghost(true)
-		box_view.set_is_conflict(false)
+		_ensure_replay_actor(subject_id)
 	for step: Dictionary in steps:
 		_sync_replay_layer_transform()
 		await _play_step(step)
@@ -40,6 +39,7 @@ func play_steps(steps: Array[Dictionary]) -> void:
 		if bool(step.get("is_conflict", false)):
 			break
 	_restore_live_subjects(replay_subjects)
+	_clear_replay_actors()
 	_replay_presenting_subjects.clear()
 	_board_view.end_replay_presentation()
 
@@ -54,9 +54,10 @@ func _play_step(step: Dictionary) -> void:
 	var subject_id: StringName = step.get("subject", &"")
 	if not _replay_presenting_subjects.has(subject_id):
 		return
-	var node: BoxView = _board_view.get_box_view(subject_id)
+	var node: BoxView = _ensure_replay_actor(subject_id)
 	node.set_is_ghost(true)
 	node.set_is_conflict(bool(step.get("is_conflict", false)))
+	node.visible = true
 	var from_pos: Vector2i = step.get("from", Vector2i.ZERO)
 	var to_pos: Vector2i = step.get("to", from_pos)
 	node.set_board_position(from_pos, _board_view.cell_size)
@@ -92,6 +93,16 @@ func used_live_box_views() -> bool:
 	return _last_used_live_box_views
 
 
+func get_replay_actor_count() -> int:
+	return _replay_actors.size()
+
+
+func get_replay_actor(subject_id: StringName) -> BoxView:
+	if _replay_actors.has(subject_id):
+		return _replay_actors[subject_id]
+	return null
+
+
 func _collect_replay_subjects(steps: Array[Dictionary]) -> Array[StringName]:
 	var seen: Dictionary[StringName, bool] = {}
 	for step: Dictionary in steps:
@@ -113,6 +124,26 @@ func _collect_replay_subjects(steps: Array[Dictionary]) -> Array[StringName]:
 func _restore_live_subjects(subject_ids: Array[StringName]) -> void:
 	for subject_id: StringName in subject_ids:
 		var box_view: BoxView = _board_view.get_box_view(subject_id)
-		box_view.set_is_ghost(false)
-		box_view.set_is_conflict(false)
 		box_view.visible = true
+
+
+func _ensure_replay_actor(subject_id: StringName) -> BoxView:
+	if _replay_actors.has(subject_id):
+		return _replay_actors[subject_id]
+	var live_box: BoxView = _board_view.get_box_view(subject_id)
+	var replay_actor: BoxView = preload("res://scenes/entities/BoxView.tscn").instantiate()
+	replay_actor.name = "ReplayActor_%s" % String(subject_id)
+	replay_actor.visible = true
+	replay_actor.set_is_ghost(live_box.is_ghost())
+	replay_actor.set_is_conflict(false)
+	replay_actor.position = live_box.position
+	_replay_layer.add_child(replay_actor)
+	_replay_actors[subject_id] = replay_actor
+	return replay_actor
+
+
+func _clear_replay_actors() -> void:
+	for actor: BoxView in _replay_actors.values():
+		if actor != null:
+			actor.queue_free()
+	_replay_actors.clear()

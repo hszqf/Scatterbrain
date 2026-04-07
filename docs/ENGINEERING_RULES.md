@@ -108,6 +108,8 @@
 - `level_editor` 只维护关卡可视化编辑与关卡数据抽取，不掺入推箱/重编译规则。
 - 规则修改必须在 `core` 层完成，再由 `game` 层消费结果。
 - replay 只允许存在于 `scripts/game/` 与 `scenes/game/`，不得写入 `core` 真相；`core` 只输出编译结果与挤出记录。
+- ReplayController 回放必须使用 `ReplayLayer` 上的独立 replay actor；禁止直接复用/位移 `BoardView` live `BoxView` 本体。
+- replay 期间 live subject 仅可临时隐藏，回放结束后清理 replay actor 并恢复 live 显示；最终位置始终以 `CompiledWorld` 同步结果为准。
 
 ## 12) 命名规范
 - 采用 Godot 4 typed GDScript。

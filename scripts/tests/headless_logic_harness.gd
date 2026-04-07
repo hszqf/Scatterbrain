@@ -95,14 +95,14 @@ func _run_case(case_data: Dictionary) -> bool:
 			passed = await _assert_replay_layer_transform_matches_board_view(context)
 		"replay_micro_steps_have_slower_cadence_config":
 			passed = _assert_replay_micro_steps_have_slower_cadence_config(context)
-		"replay_uses_live_box_view_and_restores_state":
-			passed = await _assert_replay_uses_live_box_view_and_restores_state(context)
-		"board_view_sync_does_not_override_replay_presenting_subjects":
-			passed = await _assert_board_view_sync_does_not_override_replay_presenting_subjects(context)
+		"replay_uses_detached_replay_actor_not_live_box_view":
+			passed = await _assert_replay_uses_detached_replay_actor_not_live_box_view(context)
+		"ghost_spawn_ghostify_replay_does_not_move_live_final_world_box":
+			passed = await _assert_ghost_spawn_ghostify_replay_does_not_move_live_final_world_box(context)
 		"replay_end_does_not_sync_old_world_before_final_world":
 			passed = await _assert_replay_end_does_not_sync_old_world_before_final_world(context)
-		"restore_live_subjects_does_not_override_final_position":
-			passed = await _assert_restore_live_subjects_does_not_override_final_position(context)
+		"replay_actor_is_cleaned_up_and_live_world_restored_after_playback":
+			passed = await _assert_replay_actor_is_cleaned_up_and_live_world_restored_after_playback(context)
 		"level001_layout_matches_expected":
 			passed = _assert_level001_layout_matches_expected(context)
 		"level001_two_left_moves_state_is_stable":
@@ -143,6 +143,8 @@ func _run_case(case_data: Dictionary) -> bool:
 			passed = _assert_snapshot_reports_ghost_boxes_and_truncated_replay(context)
 		"snapshot_reports_last_replay_display_info":
 			passed = _assert_snapshot_reports_last_replay_display_info(context)
+		"debug_snapshot_reports_detached_replay_actor_usage":
+			passed = await _assert_debug_snapshot_reports_detached_replay_actor_usage(context)
 		"controller_empty_overflow_snapshot_matches_memory_semantics":
 			passed = await _assert_controller_empty_overflow_snapshot_matches_memory_semantics(context)
 		"build_info_display_uses_generated_build_file_or_dev":
@@ -668,60 +670,59 @@ func _assert_replay_micro_steps_have_slower_cadence_config(context: Dictionary) 
 		and replay_controller.step_pause >= 0.18
 
 
-func _assert_replay_uses_live_box_view_and_restores_state(context: Dictionary) -> bool:
+func _assert_replay_uses_detached_replay_actor_not_live_box_view(context: Dictionary) -> bool:
 	var controller: GameController = context["controller"]
-	var replay_controller: ReplayController = controller.get_node(controller.replay_controller_path)
-	var board_view: BoardView = controller.get_node(controller.board_view_path)
 	controller.request_move(Vector2i.LEFT)
 	controller.request_move(Vector2i.LEFT)
 	controller.request_move(Vector2i.LEFT)
 	controller.request_empty_change()
 	controller.request_empty_change()
 	controller.request_empty_change()
-	var saw_live_presenting: bool = false
-	var box_during_playback: BoxView = null
-	for i: int in range(600):
-		if board_view.is_replay_presenting_subject(&"box_0"):
-			saw_live_presenting = true
-			box_during_playback = board_view.get_box_view(&"box_0")
-			break
-		await process_frame
 	for i: int in range(600):
 		if not controller.get("_input_locked"):
 			break
 		await process_frame
-	var world_after: CompiledWorld = controller.get("_world")
-	var box_after: BoxView = board_view.get_box_view(&"box_0")
-	var final_box_pos: Vector2i = world_after.get_entity_position(&"box_0")
-	return saw_live_presenting \
-		and box_during_playback == box_after \
-		and replay_controller.used_live_box_views() \
-		and box_after.is_ghost() \
-		and not box_after.is_conflict() \
-		and box_after.visible \
-		and final_box_pos == Vector2i(2, 1) \
-		and world_after.ghost_entities.has(&"box_0") \
-		and box_after.position.is_equal_approx(board_view.board_to_pixel_center(final_box_pos))
+	return not bool(controller.get("_last_replay_used_live_box_views"))
 
 
-func _assert_board_view_sync_does_not_override_replay_presenting_subjects(context: Dictionary) -> bool:
+func _assert_ghost_spawn_ghostify_replay_does_not_move_live_final_world_box(context: Dictionary) -> bool:
 	var controller: GameController = context["controller"]
+	var replay_controller: ReplayController = controller.get_node(controller.replay_controller_path)
 	var board_view: BoardView = controller.get_node(controller.board_view_path)
-	controller.request_move(Vector2i.LEFT)
-	controller.request_move(Vector2i.LEFT)
-	controller.request_move(Vector2i.LEFT)
-	controller.request_empty_change()
-	controller.request_empty_change()
-	controller.request_empty_change()
-	var position_before_forced_sync: Vector2 = Vector2.ZERO
-	var position_after_forced_sync: Vector2 = Vector2.ZERO
+	var queue: ChangeQueue = context["queue"]
+	queue.clear()
+	queue.append(ChangeRecord.new(
+		ChangeRecord.ChangeType.POSITION,
+		&"box_0",
+		Vector2i(1, 1),
+		false,
+		"remembered",
+		ChangeRecord.SourceKind.REMEMBERED_REBUILD
+	))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "e2", ChangeRecord.SourceKind.LIVE_INPUT))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "e3", ChangeRecord.SourceKind.LIVE_INPUT))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "e4", ChangeRecord.SourceKind.LIVE_INPUT))
+	var world: CompiledWorld = controller.get("_world")
+	world.player_position = Vector2i(2, 1)
+	controller.call("_recompile_world", "test_generate_auto_ghost")
+	for j: int in range(120):
+		if not controller.get("_input_locked"):
+			break
+		await process_frame
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "push_parent", ChangeRecord.SourceKind.LIVE_INPUT))
+	controller.call("_recompile_world", "test_push_out_parent_remembered_position")
+	var replay_actor_spawn_position: Vector2 = Vector2.ZERO
+	var replay_actor_conflict: bool = false
+	var live_position_during_replay: Vector2 = Vector2.ZERO
 	var captured: bool = false
 	for i: int in range(600):
 		if board_view.is_replay_presenting_subject(&"box_0"):
-			var box_view: BoxView = board_view.get_box_view(&"box_0")
-			position_before_forced_sync = box_view.position
-			board_view.sync_world(controller.get("_world"))
-			position_after_forced_sync = box_view.position
+			var replay_actor: BoxView = replay_controller.get_replay_actor(&"box_0")
+			var live_box: BoxView = board_view.get_box_view(&"box_0")
+			if replay_actor != null:
+				replay_actor_spawn_position = replay_actor.position
+				replay_actor_conflict = replay_actor.is_conflict()
+			live_position_during_replay = live_box.position
 			captured = true
 			break
 		await process_frame
@@ -731,10 +732,12 @@ func _assert_board_view_sync_does_not_override_replay_presenting_subjects(contex
 		await process_frame
 	var world_after: CompiledWorld = controller.get("_world")
 	var box_after: BoxView = board_view.get_box_view(&"box_0")
-	var final_box_pos: Vector2i = world_after.get_entity_position(&"box_0")
+	var final_box_pos: Vector2i = world_after.ghost_entities.get(&"box_0", Vector2i.ZERO)
+	var spawn_pixel: Vector2 = board_view.board_to_pixel_center(Vector2i(3, 1))
 	return captured \
-		and position_before_forced_sync.is_equal_approx(position_after_forced_sync) \
-		and not board_view.is_replay_presenting_subject(&"box_0") \
+		and replay_actor_spawn_position.is_equal_approx(spawn_pixel) \
+		and replay_actor_conflict \
+		and live_position_during_replay.is_equal_approx(board_view.board_to_pixel_center(final_box_pos)) \
 		and final_box_pos == Vector2i(2, 1) \
 		and world_after.ghost_entities.has(&"box_0") \
 		and box_after.position.is_equal_approx(board_view.board_to_pixel_center(final_box_pos))
@@ -765,22 +768,31 @@ func _assert_replay_end_does_not_sync_old_world_before_final_world(context: Dict
 		and box_after.position.is_equal_approx(board_view.board_to_pixel_center(final_box_pos))
 
 
-func _assert_restore_live_subjects_does_not_override_final_position(context: Dictionary) -> bool:
+func _assert_replay_actor_is_cleaned_up_and_live_world_restored_after_playback(context: Dictionary) -> bool:
 	var controller: GameController = context["controller"]
 	var replay_controller: ReplayController = controller.get_node(controller.replay_controller_path)
 	var board_view: BoardView = controller.get_node(controller.board_view_path)
-	var box_view: BoxView = board_view.get_box_view(&"box_0")
-	var expected_position: Vector2 = board_view.board_to_pixel_center(Vector2i(1, 1))
-	box_view.set_board_position(Vector2i(1, 1), board_view.cell_size)
-	box_view.set_is_ghost(true)
-	box_view.set_is_conflict(true)
-	box_view.visible = false
-	var subject_ids: Array[StringName] = [&"box_0"]
-	replay_controller.call("_restore_live_subjects", subject_ids)
-	return box_view.position.is_equal_approx(expected_position) \
-		and not box_view.is_ghost() \
-		and not box_view.is_conflict() \
-		and box_view.visible
+	controller.request_move(Vector2i.LEFT)
+	controller.request_move(Vector2i.LEFT)
+	controller.request_move(Vector2i.LEFT)
+	controller.request_empty_change()
+	controller.request_empty_change()
+	controller.request_empty_change()
+	for i: int in range(600):
+		if not controller.get("_input_locked"):
+			break
+		await process_frame
+	var world_after: CompiledWorld = controller.get("_world")
+	var live_box: BoxView = board_view.get_box_view(&"box_0")
+	var final_ghost_pos: Vector2i = world_after.ghost_entities.get(&"box_0", Vector2i.ZERO)
+	return replay_controller.get_replay_actor_count() == 0 \
+		and not board_view.is_replay_presenting_subject(&"box_0") \
+		and live_box.visible \
+		and live_box.is_ghost() \
+		and not live_box.is_conflict() \
+		and world_after.ghost_entities.has(&"box_0") \
+		and final_ghost_pos == Vector2i(2, 1) \
+		and live_box.position.is_equal_approx(board_view.board_to_pixel_center(final_ghost_pos))
 
 
 func _assert_level001_layout_matches_expected(context: Dictionary) -> bool:
@@ -1241,7 +1253,7 @@ func _assert_snapshot_reports_ghost_boxes_and_truncated_replay(context: Dictiona
 		replay_steps,
 		replay_steps,
 		[&"box_0"],
-		true,
+		false,
 		true,
 		BuildInfo.display_text(),
 		"board_ok",
@@ -1267,7 +1279,7 @@ func _assert_snapshot_reports_last_replay_display_info(context: Dictionary) -> b
 		replay_steps,
 		replay_steps,
 		[&"box_0"],
-		true,
+		false,
 		true,
 		BuildInfo.display_text(),
 		"board_ok",
@@ -1275,12 +1287,29 @@ func _assert_snapshot_reports_last_replay_display_info(context: Dictionary) -> b
 		"player_conflict"
 	)
 	return snapshot.contains("last_replay_display_steps=") \
-		and not snapshot.contains("last_replay_display_steps=[]") \
-		and snapshot.contains("last_replay_presenting_subjects=[&\"box_0\"]") \
-		and snapshot.contains("last_replay_used_live_box_views=true") \
-		and snapshot.contains("last_replay_completed=true") \
-		and snapshot.contains("board_view_transform=") \
-		and snapshot.contains("replay_layer_transform=")
+		and snapshot.contains("last_replay_used_live_box_views=false") \
+		and snapshot.contains("last_replay_completed=true")
+
+
+func _assert_debug_snapshot_reports_detached_replay_actor_usage(context: Dictionary) -> bool:
+	var result: Dictionary = await _setup_auto_ghost_generated_then_parent_pushed_out_case(context)
+	var controller: GameController = result["controller"]
+	var snapshot: String = _formatter.build_snapshot(
+		controller.get("_world"),
+		context["queue"].entries(),
+		String(controller.get("_last_recompile_reason")),
+		controller.get("_last_replay_steps"),
+		controller.get("_last_replay_display_steps"),
+		controller.get("_last_replay_presenting_subjects"),
+		bool(controller.get("_last_replay_used_live_box_views")),
+		bool(controller.get("_last_replay_completed")),
+		BuildInfo.display_text()
+	)
+	return snapshot.contains("last_replay_used_live_box_views=false") \
+		and not snapshot.contains("last_replay_used_live_box_views=true") \
+		and snapshot.contains("last_replay_display_steps=[") \
+		and snapshot.contains("box_0:(3, 1)->(3, 1)") \
+		and snapshot.contains("conflict=true")
 
 
 func _assert_controller_empty_overflow_snapshot_matches_memory_semantics(context: Dictionary) -> bool:
@@ -2241,15 +2270,15 @@ func _build_cases() -> Array[Dictionary]:
 			"context_mode": "controller_level001",
 		},
 		{
-			"id": "replay_uses_live_box_view_and_restores_state",
-			"name": "replay_uses_live_box_view_and_restores_state",
-			"action": "replay uses BoardView live BoxView and restores ghost/conflict/visible state afterwards",
+			"id": "replay_uses_detached_replay_actor_not_live_box_view",
+			"name": "replay_uses_detached_replay_actor_not_live_box_view",
+			"action": "replay uses detached actor on ReplayLayer and keeps live BoxView untouched during playback",
 			"context_mode": "controller_level001",
 		},
 		{
-			"id": "board_view_sync_does_not_override_replay_presenting_subjects",
-			"name": "board_view_sync_does_not_override_replay_presenting_subjects",
-			"action": "while replay presenting, sync_world does not overwrite replaying subject transforms",
+			"id": "ghost_spawn_ghostify_replay_does_not_move_live_final_world_box",
+			"name": "ghost_spawn_ghostify_replay_does_not_move_live_final_world_box",
+			"action": "spawn ghostify replay step stays at (3,1) on replay actor and never drags live final ghost from (2,1)",
 			"context_mode": "controller_level001",
 		},
 		{
@@ -2259,9 +2288,9 @@ func _build_cases() -> Array[Dictionary]:
 			"context_mode": "controller_level001",
 		},
 		{
-			"id": "restore_live_subjects_does_not_override_final_position",
-			"name": "restore_live_subjects_does_not_override_final_position",
-			"action": "restore_live_subjects only resets style and visibility without overriding BoxView position",
+			"id": "replay_actor_is_cleaned_up_and_live_world_restored_after_playback",
+			"name": "replay_actor_is_cleaned_up_and_live_world_restored_after_playback",
+			"action": "replay actor cleanup restores live world visibility and final compiled ghost state",
 			"context_mode": "controller_level001",
 		},
 		{
@@ -2551,6 +2580,12 @@ func _build_cases() -> Array[Dictionary]:
 				"walls": [],
 				"boxes": [Vector3i(3, 1, 0)],
 			},
+		},
+		{
+			"id": "debug_snapshot_reports_detached_replay_actor_usage",
+			"name": "debug_snapshot_reports_detached_replay_actor_usage",
+			"action": "controller snapshot reports detached replay actor usage with last_replay_used_live_box_views=false",
+			"context_mode": "controller_level001",
 		},
 		{
 			"id": "controller_empty_overflow_snapshot_matches_memory_semantics",
