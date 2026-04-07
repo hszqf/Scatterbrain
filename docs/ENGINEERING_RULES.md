@@ -87,10 +87,11 @@
 4. 冲突时对象幽灵化；无地板/越界/墙目标不会落地为实体。
 5. 仅当 `PositionChange` 属于 `REMEMBERED_REBUILD` 且微步路径在中途进入当前 live player 格时，必须在该格截断并以 ghost 落地（当前世界结果），并追加 `Ghost[AUTO_GHOST]` 入队作为正式 remembered change；该 ghost 后续也会正常参与挤出。
 6. `game` 层 replay 必须基于 `WorldDefaults + CompileResult.queue_entries`（即 surviving queue）生成，表示“剩余记忆如何从默认世界重建 remembered world”；禁止使用 `world_before_compile` / `world_after_compile` 可见差分生成 replay。
-7. replay 不逐条机械回放 raw queue，而是先做 canonical replay state 归约：对 surviving queue 按 subject 取最后一个 position-affecting remembered entry（`Position[REMEMBERED_REBUILD]` 或 `Ghost[AUTO_GHOST]`，`Empty` 不参与）。
-8. replay gate / replay signature / replay payload builder 必须使用同一 canonical replay state 规则；当 canonical state 无变化时不得触发 replay。
-9. replay 微步与 core 编译微步必须共用同一语义：先 X 后 Y，遇到 player conflict 立即截断并终止后续步骤；当 canonical 终态为 ghost 时，终点 replay step 必须标记冲突终止。
-10. 单次输入最多触发 4 轮编译，超限报错并保留最后稳定结果。
+7. replay 必须从 `WorldDefaults` 初始状态出发，按 surviving queue 的时间顺序逐条重访 remembered change；`Empty` 不产生 step，但会保留顺序位置。
+8. replay payload 的 from-state 必须来自 replay-time state 的前序结果（entity/ghost），禁止按 subject 做最终态 canonical 归约。
+9. replay gate 只基于：存在 replayable pushed_out、surviving queue 仍有 replayable remembered entry、且 builder 产出非空 steps。
+10. replay 微步与 core 编译微步必须共用同一语义：先 X 后 Y，遇到 player conflict 立即截断并终止后续步骤；当 surviving entry 为 `Ghost[AUTO_GHOST]` 时，终点 replay step 必须标记冲突终止。
+11. 单次输入最多触发 4 轮编译，超限报错并保留最后稳定结果。
 
 ## 10) 变化队列规则
 - 队列保存变化事实，不保存推箱动画过程。
