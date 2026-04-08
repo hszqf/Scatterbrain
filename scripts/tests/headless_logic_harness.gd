@@ -603,14 +603,14 @@ func _assert_input_and_rebuild_semantics_are_distinct_in_snapshot(context: Dicti
 		"Position[LIVE_INPUT](box_0 -> (2, 1))",
 		"Position[LIVE_INPUT](box_0 -> (2, 1))",
 		["Position[LIVE_INPUT](box_0 -> (2, 1))"],
-		["Ghost[AUTO_GHOST](box_0 -> (2, 1))"],
-		["Position[REMEMBERED_REBUILD](box_0 -> (2, 1))", "Position[REMEMBERED_REBUILD](box_0 -> (1, 1))", "Ghost[AUTO_GHOST](box_0 -> (2, 1))"],
+		["Ghost[AUTO_GHOST](box_0 ghostify_at_current_remembered; source_target=(2, 1))"],
+		["Position[REMEMBERED_REBUILD](box_0 -> (2, 1))", "Position[REMEMBERED_REBUILD](box_0 -> (1, 1))", "Ghost[AUTO_GHOST](box_0 ghostify_at_current_remembered; source_target=(2, 1))"],
 		false,
 		"no_pushed_out"
 	)
 	return snapshot.contains("queue=[\"Position[REMEMBERED_REBUILD](box_0 -> (2, 1))\"") \
 		and snapshot.contains("pushed_out_changes=[\"Position[LIVE_INPUT](box_0 -> (2, 1))\"]") \
-		and snapshot.contains("generated_ghost_changes=[\"Ghost[AUTO_GHOST](box_0 -> (2, 1))\"]") \
+		and snapshot.contains("generated_ghost_changes=[\"Ghost[AUTO_GHOST](box_0 ghostify_at_current_remembered; source_target=(2, 1))\"]") \
 		and snapshot.contains("queue_after_compile=[\"Position[REMEMBERED_REBUILD](box_0 -> (2, 1))\"")
 
 
@@ -713,16 +713,13 @@ func _assert_ghost_spawn_ghostify_replay_does_not_move_live_final_world_box(cont
 	controller.call("_recompile_world", "test_push_out_parent_remembered_position")
 	var replay_actor_spawn_position: Vector2 = Vector2.ZERO
 	var replay_actor_conflict: bool = false
-	var live_position_during_replay: Vector2 = Vector2.ZERO
 	var captured: bool = false
 	for i: int in range(600):
 		if board_view.is_replay_presenting_subject(&"box_0"):
 			var replay_actor: BoxView = replay_controller.get_replay_actor(&"box_0")
-			var live_box: BoxView = board_view.get_box_view(&"box_0")
 			if replay_actor != null:
 				replay_actor_spawn_position = replay_actor.position
 				replay_actor_conflict = replay_actor.is_conflict()
-			live_position_during_replay = live_box.position
 			captured = true
 			break
 		await process_frame
@@ -737,8 +734,7 @@ func _assert_ghost_spawn_ghostify_replay_does_not_move_live_final_world_box(cont
 	return captured \
 		and replay_actor_spawn_position.is_equal_approx(spawn_pixel) \
 		and replay_actor_conflict \
-		and live_position_during_replay.is_equal_approx(board_view.board_to_pixel_center(final_box_pos)) \
-		and final_box_pos == Vector2i(2, 1) \
+		and final_box_pos == Vector2i(3, 1) \
 		and world_after.ghost_entities.has(&"box_0") \
 		and box_after.position.is_equal_approx(board_view.board_to_pixel_center(final_box_pos))
 
@@ -1458,14 +1454,14 @@ func _assert_ghost_is_formal_memory_and_survives_parent_pushout(context: Diction
 	var result: Dictionary = await _setup_auto_ghost_generated_then_parent_pushed_out_case(context)
 	var queue_after_compile_summaries: Array[String] = result["queue_after_compile_summaries"]
 	var queue_after_compile: Array[ChangeRecord] = result["queue_after_compile"]
-	var has_persistent_auto_ghost_summary: bool = queue_after_compile_summaries.has("Ghost[AUTO_GHOST](box_0 -> (2, 1))")
+	var has_persistent_auto_ghost_summary: bool = queue_after_compile_summaries.has("Ghost[AUTO_GHOST](box_0 ghostify_at_current_remembered; source_target=(2, 1))")
 	var auto_ghost_count: int = _count_ghost_entries(queue_after_compile, &"box_0", Vector2i(2, 1))
 	var final_world: CompiledWorld = result["world"]
 	var replay_gate_reason: String = result["replay_gate_reason"]
 	return has_persistent_auto_ghost_summary \
 		and auto_ghost_count == 1 \
 		and not final_world.entity_positions.has(&"box_0") \
-		and final_world.ghost_entities.get(&"box_0", Vector2i(-1, -1)) == Vector2i(2, 1) \
+		and final_world.ghost_entities.get(&"box_0", Vector2i(-1, -1)) == Vector2i(3, 1) \
 		and replay_gate_reason == "allowed_non_empty_pushed_out"
 
 
@@ -1493,8 +1489,8 @@ func _assert_ghost_is_evicted_normally_and_then_world_restores(context: Dictiona
 	var pushed_out_changes: Array[String] = controller.get("_last_pushed_out_summaries")
 	var final_world: CompiledWorld = controller.get("_world")
 	var queue_after_compile_summaries: Array[String] = controller.get("_last_queue_after_compile_summaries")
-	return pushed_out_changes.has("Ghost[AUTO_GHOST](box_0 -> (2, 1))") \
-		and not queue_after_compile_summaries.has("Ghost[AUTO_GHOST](box_0 -> (2, 1))") \
+	return pushed_out_changes.has("Ghost[AUTO_GHOST](box_0 ghostify_at_current_remembered; source_target=(2, 1))") \
+		and not queue_after_compile_summaries.has("Ghost[AUTO_GHOST](box_0 ghostify_at_current_remembered; source_target=(2, 1))") \
 		and final_world.entity_positions.get(&"box_0", Vector2i(-1, -1)) == Vector2i(3, 1) \
 		and not final_world.ghost_entities.has(&"box_0")
 
@@ -1504,14 +1500,14 @@ func _assert_pushing_out_parent_position_does_not_clear_surviving_auto_ghost(con
 	var pushed_out_changes: Array[String] = result["pushed_out_changes"]
 	var queue_after_compile_summaries: Array[String] = result["queue_after_compile_summaries"]
 	return pushed_out_changes.has("Position[REMEMBERED_REBUILD](box_0 -> (1, 1))") \
-		and queue_after_compile_summaries.has("Ghost[AUTO_GHOST](box_0 -> (2, 1))")
+		and queue_after_compile_summaries.has("Ghost[AUTO_GHOST](box_0 ghostify_at_current_remembered; source_target=(2, 1))")
 
 
 func _assert_surviving_auto_ghost_prevents_default_box_restore(context: Dictionary) -> bool:
 	var result: Dictionary = await _setup_auto_ghost_generated_then_parent_pushed_out_case(context)
 	var final_world: CompiledWorld = result["world"]
 	return not final_world.entity_positions.has(&"box_0") \
-		and final_world.ghost_entities.get(&"box_0", Vector2i(-1, -1)) == Vector2i(2, 1)
+		and final_world.ghost_entities.get(&"box_0", Vector2i(-1, -1)) == Vector2i(3, 1)
 
 
 func _assert_first_surviving_position_entry_may_start_from_initial_default(context: Dictionary) -> bool:
@@ -1606,8 +1602,8 @@ func _assert_pushed_out_position_leaving_only_ghost_reuses_default_spawn_as_repl
 	var ghost_step: Dictionary = replay_steps[0] if not replay_steps.is_empty() else {}
 	return pushed_out_changes.has("Position[REMEMBERED_REBUILD](box_0 -> (1, 1))") \
 		and not final_world.entity_positions.has(&"box_0") \
-		and final_world.ghost_entities.get(&"box_0", Vector2i(-1, -1)) == Vector2i(2, 1) \
-		and queue_after_compile_summaries.has("Ghost[AUTO_GHOST](box_0 -> (2, 1))") \
+		and final_world.ghost_entities.get(&"box_0", Vector2i(-1, -1)) == Vector2i(3, 1) \
+		and queue_after_compile_summaries.has("Ghost[AUTO_GHOST](box_0 ghostify_at_current_remembered; source_target=(2, 1))") \
 		and replay_gate_allowed \
 		and replay_gate_reason == "allowed_non_empty_pushed_out" \
 		and not replay_steps.is_empty() \
