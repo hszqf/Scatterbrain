@@ -173,3 +173,14 @@
   - `short_sha` 使用 `${GITHUB_SHA::7}`；
   - `build_date` 使用 UTC 时间（ISO8601，`YYYY-MM-DDTHH:MM:SSZ`）。
 - 因此 Pages 上线产物会反映对应 workflow 构建提交的 short sha，本地未生成文件时稳定显示 `dev` fallback。
+
+## 20) 核心变化解释器（2026-04 重构）
+- 记忆队列保存的是**变化**（change record），不是世界快照/最终态。
+- `POSITION` 与 `GHOST` 是同层级变化：
+  - `POSITION`：基于 subject 当前状态应用位移（优先 `move_delta` 语义）；
+  - `GHOST`：只改变幽灵状态，不改变当前位置。
+- 重编译统一流程：`defaults -> surviving queue interpret -> generated changes append -> stabilize`。
+- 初始化落位失败与运行中落位失败都走统一冲突规则：`ConflictRules -> 产出 GHOST change`，禁止静默消失。
+- `WorldCompiler` 只负责编排；变化语义在 `ChangeInterpreter + handlers + rules`。
+- `ReplayPayloadBuilder` 复用同一解释语义：从 defaults 出发按 surviving queue 顺序解释，再转为可视 steps。
+- 允许连锁变化：handler 可通过 `CompileContext.add_generated_change()` 产出后续变化；编译器负责多轮收敛与安全上限。

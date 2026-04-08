@@ -187,6 +187,26 @@ func _run_case(case_data: Dictionary) -> bool:
 			passed = await _assert_snapshot_second_box_change_pushout_with_surviving_auto_ghost_replays(context)
 		"level001_three_left_moves_no_stale_ghost":
 			passed = _assert_level001_three_left_moves_no_stale_ghost(context)
+		"semantic_move_changes_position":
+			passed = _assert_semantic_move_changes_position(context)
+		"semantic_ghost_only_changes_state":
+			passed = _assert_semantic_ghost_only_changes_state(context)
+		"semantic_init_conflict_generates_ghost":
+			passed = _assert_semantic_init_conflict_generates_ghost(context)
+		"semantic_projection_conflict_generates_ghost":
+			passed = _assert_semantic_projection_conflict_generates_ghost(context)
+		"semantic_evicted_move_not_replayed":
+			passed = _assert_semantic_evicted_move_not_replayed(context)
+		"semantic_replay_matches_compile_semantics":
+			passed = _assert_semantic_replay_matches_compile_semantics(context)
+		"semantic_chain_converges":
+			passed = _assert_semantic_chain_converges(context)
+		"semantic_ghost_step_no_motion":
+			passed = _assert_semantic_ghost_step_no_motion(context)
+		"semantic_left_right_same_rules":
+			passed = _assert_semantic_left_right_same_rules(context)
+		"semantic_evict_last_related_restores_default":
+			passed = _assert_semantic_evict_last_related_restores_default(context)
 		"memory_queue_symbols_are_ascii_safe":
 			passed = _assert_memory_queue_symbols_are_ascii_safe(context)
 		_:
@@ -1958,6 +1978,105 @@ func _count_ghost_entries(entries: Array[ChangeRecord], subject_id: StringName, 
 	return count
 
 
+func _assert_semantic_move_changes_position(context: Dictionary) -> bool:
+	var queue: ChangeQueue = context["queue"]
+	var defaults: WorldDefaults = context["defaults"]
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.POSITION, &"box_0", Vector2i(2, 1), false, "move", ChangeRecord.SourceKind.REMEMBERED_REBUILD, Vector2i.RIGHT))
+	var result: CompileResult = _compiler.compile(defaults, queue, Vector2i(0, 0))
+	return result.world.entity_positions.get(&"box_0", Vector2i(-1, -1)) == Vector2i(2, 1)
+
+
+func _assert_semantic_ghost_only_changes_state(context: Dictionary) -> bool:
+	var queue: ChangeQueue = context["queue"]
+	var defaults: WorldDefaults = context["defaults"]
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.GHOST, &"box_0", Vector2i(9, 9), false, "ghost", ChangeRecord.SourceKind.AUTO_GHOST))
+	var result: CompileResult = _compiler.compile(defaults, queue, Vector2i(0, 0))
+	return result.world.ghost_entities.get(&"box_0", Vector2i(-1, -1)) == defaults.default_entity_positions[&"box_0"]
+
+
+func _assert_semantic_init_conflict_generates_ghost(context: Dictionary) -> bool:
+	var queue: ChangeQueue = context["queue"]
+	var defaults: WorldDefaults = context["defaults"]
+	var result: CompileResult = _compiler.compile(defaults, queue, defaults.default_entity_positions[&"box_0"])
+	return result.world.ghost_entities.has(&"box_0") and _contains_ghost_change(result.queue_entries, &"box_0", Vector2i(1, 1))
+
+
+func _assert_semantic_projection_conflict_generates_ghost(context: Dictionary) -> bool:
+	return _assert_semantic_init_conflict_generates_ghost(context)
+
+
+func _assert_semantic_evicted_move_not_replayed(context: Dictionary) -> bool:
+	var defaults: WorldDefaults = context["defaults"]
+	var queue: ChangeQueue = ChangeQueue.new()
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.POSITION, &"box_0", Vector2i(2, 1), false, "old", ChangeRecord.SourceKind.REMEMBERED_REBUILD, Vector2i.RIGHT))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "e1", ChangeRecord.SourceKind.LIVE_INPUT))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "e2", ChangeRecord.SourceKind.LIVE_INPUT))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "e3", ChangeRecord.SourceKind.LIVE_INPUT))
+	var result: CompileResult = _compiler.compile(defaults, queue, Vector2i(0, 0))
+	var steps: Array[Dictionary] = ReplayPayloadBuilder.new().build_steps(defaults, result.queue_entries)
+	return result.queue_entries.filter(func(e): return e.type == ChangeRecord.ChangeType.POSITION).is_empty() and steps.is_empty()
+
+
+func _assert_semantic_replay_matches_compile_semantics(context: Dictionary) -> bool:
+	var defaults: WorldDefaults = context["defaults"]
+	var queue: ChangeQueue = context["queue"]
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.POSITION, &"box_0", Vector2i(2, 1), false, "move", ChangeRecord.SourceKind.REMEMBERED_REBUILD, Vector2i.RIGHT))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.GHOST, &"box_0", Vector2i(2, 1), false, "ghost", ChangeRecord.SourceKind.AUTO_GHOST))
+	var result: CompileResult = _compiler.compile(defaults, queue, Vector2i(0, 0))
+	var steps: Array[Dictionary] = ReplayPayloadBuilder.new().build_steps(defaults, result.queue_entries)
+	if steps.is_empty():
+		return false
+	var last: Dictionary = steps[steps.size() - 1]
+	return result.world.ghost_entities.has(&"box_0") and last.get("from", Vector2i.ZERO) == last.get("to", Vector2i.ONE)
+
+
+func _assert_semantic_chain_converges(context: Dictionary) -> bool:
+	var defaults: WorldDefaults = context["defaults"]
+	var queue: ChangeQueue = context["queue"]
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.POSITION, &"box_0", Vector2i(1, 1), false, "stay", ChangeRecord.SourceKind.REMEMBERED_REBUILD, Vector2i.ZERO))
+	var result: CompileResult = _compiler.compile(defaults, queue, defaults.default_entity_positions[&"box_0"])
+	return not result.reached_safety_limit and result.iterations <= 2
+
+
+func _assert_semantic_ghost_step_no_motion(context: Dictionary) -> bool:
+	var defaults: WorldDefaults = context["defaults"]
+	var queue: ChangeQueue = context["queue"]
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.GHOST, &"box_0", Vector2i(2, 1), false, "ghost", ChangeRecord.SourceKind.AUTO_GHOST))
+	var steps: Array[Dictionary] = ReplayPayloadBuilder.new().build_steps(defaults, queue.entries())
+	return steps.size() == 1 and steps[0].get("from", Vector2i.ZERO) == steps[0].get("to", Vector2i.ONE)
+
+
+func _assert_semantic_left_right_same_rules(context: Dictionary) -> bool:
+	var defaults: WorldDefaults = context["defaults"]
+	var left_queue := ChangeQueue.new()
+	left_queue.append(ChangeRecord.new(ChangeRecord.ChangeType.POSITION, &"box_0", Vector2i(0, 1), false, "left", ChangeRecord.SourceKind.REMEMBERED_REBUILD, Vector2i.LEFT))
+	var right_queue := ChangeQueue.new()
+	right_queue.append(ChangeRecord.new(ChangeRecord.ChangeType.POSITION, &"box_0", Vector2i(2, 1), false, "right", ChangeRecord.SourceKind.REMEMBERED_REBUILD, Vector2i.RIGHT))
+	var left_result: CompileResult = _compiler.compile(defaults, left_queue, Vector2i(0, 0))
+	var right_result: CompileResult = _compiler.compile(defaults, right_queue, Vector2i(0, 0))
+	return left_result.generated_ghost_changes.size() == right_result.generated_ghost_changes.size()
+
+
+func _assert_semantic_evict_last_related_restores_default(context: Dictionary) -> bool:
+	var defaults: WorldDefaults = context["defaults"]
+	var queue := ChangeQueue.new()
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.GHOST, &"box_0", Vector2i(1, 1), false, "ghost", ChangeRecord.SourceKind.AUTO_GHOST))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "e1", ChangeRecord.SourceKind.LIVE_INPUT))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "e2", ChangeRecord.SourceKind.LIVE_INPUT))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "e3", ChangeRecord.SourceKind.LIVE_INPUT))
+	var result: CompileResult = _compiler.compile(defaults, queue, Vector2i(0, 0))
+	return not result.world.ghost_entities.has(&"box_0") and result.world.entity_positions.get(&"box_0", Vector2i(-1, -1)) == defaults.default_entity_positions[&"box_0"]
+
+
+
+func _contains_ghost_change(entries: Array[ChangeRecord], subject_id: StringName, target: Vector2i) -> bool:
+	for entry: ChangeRecord in entries:
+		if entry.type == ChangeRecord.ChangeType.GHOST and entry.subject_id == subject_id and entry.target_position == target:
+			return true
+	return false
+
+
+
 func _format_state(world: CompiledWorld, queue: ChangeQueue, runtime_data: LevelRuntimeData, defaults: WorldDefaults) -> String:
 	return "player=%s boxes=%s walls=%s floors=%s runtime[player=%s exit=%s floors=%s walls=%s boxes=%s] defaults[player=%s exit=%s floors=%s walls=%s boxes=%s]" % [
 		world.player_position,
@@ -2806,6 +2925,19 @@ func _build_cases() -> Array[Dictionary]:
 		"action": "after ghost eviction, default remembered box projects as live ghost when player blocks default tile",
 		"context_mode": "controller_level001",
 	})
+
+	cases.append_array([
+		{"id":"semantic_move_changes_position","name":"semantic_move_changes_position","action":"move change updates current position","blueprint":{"board_size":Vector2i(4,3),"player_start":Vector2i(0,0),"exit_position":Vector2i(3,2),"memory_capacity":3,"floors":[Vector3i(0,1,0),Vector3i(1,1,0),Vector3i(2,1,0),Vector3i(3,1,0)],"walls":[],"boxes":[Vector3i(1,1,0)]}},
+		{"id":"semantic_ghost_only_changes_state","name":"semantic_ghost_only_changes_state","action":"ghost change keeps position","blueprint":{"board_size":Vector2i(4,3),"player_start":Vector2i(0,0),"exit_position":Vector2i(3,2),"memory_capacity":3,"floors":[Vector3i(0,1,0),Vector3i(1,1,0),Vector3i(2,1,0),Vector3i(3,1,0)],"walls":[],"boxes":[Vector3i(1,1,0)]}},
+		{"id":"semantic_init_conflict_generates_ghost","name":"semantic_init_conflict_generates_ghost","action":"init conflict creates ghost","blueprint":{"board_size":Vector2i(4,3),"player_start":Vector2i(1,1),"exit_position":Vector2i(3,2),"memory_capacity":3,"floors":[Vector3i(0,1,0),Vector3i(1,1,0),Vector3i(2,1,0),Vector3i(3,1,0)],"walls":[],"boxes":[Vector3i(1,1,0)]}},
+		{"id":"semantic_projection_conflict_generates_ghost","name":"semantic_projection_conflict_generates_ghost","action":"projection conflict creates ghost","blueprint":{"board_size":Vector2i(4,3),"player_start":Vector2i(1,1),"exit_position":Vector2i(3,2),"memory_capacity":3,"floors":[Vector3i(0,1,0),Vector3i(1,1,0),Vector3i(2,1,0),Vector3i(3,1,0)],"walls":[],"boxes":[Vector3i(1,1,0)]}},
+		{"id":"semantic_evicted_move_not_replayed","name":"semantic_evicted_move_not_replayed","action":"evicted move is not replayed","blueprint":{"board_size":Vector2i(4,3),"player_start":Vector2i(0,0),"exit_position":Vector2i(3,2),"memory_capacity":3,"floors":[Vector3i(0,1,0),Vector3i(1,1,0),Vector3i(2,1,0),Vector3i(3,1,0)],"walls":[],"boxes":[Vector3i(1,1,0)]}},
+		{"id":"semantic_replay_matches_compile_semantics","name":"semantic_replay_matches_compile_semantics","action":"replay and compile share semantics","blueprint":{"board_size":Vector2i(4,3),"player_start":Vector2i(0,0),"exit_position":Vector2i(3,2),"memory_capacity":3,"floors":[Vector3i(0,1,0),Vector3i(1,1,0),Vector3i(2,1,0),Vector3i(3,1,0)],"walls":[],"boxes":[Vector3i(1,1,0)]}},
+		{"id":"semantic_chain_converges","name":"semantic_chain_converges","action":"generated chain converges","blueprint":{"board_size":Vector2i(4,3),"player_start":Vector2i(1,1),"exit_position":Vector2i(3,2),"memory_capacity":3,"floors":[Vector3i(0,1,0),Vector3i(1,1,0),Vector3i(2,1,0),Vector3i(3,1,0)],"walls":[],"boxes":[Vector3i(1,1,0)]}},
+		{"id":"semantic_ghost_step_no_motion","name":"semantic_ghost_step_no_motion","action":"ghost step has no displacement","blueprint":{"board_size":Vector2i(4,3),"player_start":Vector2i(0,0),"exit_position":Vector2i(3,2),"memory_capacity":3,"floors":[Vector3i(0,1,0),Vector3i(1,1,0),Vector3i(2,1,0),Vector3i(3,1,0)],"walls":[],"boxes":[Vector3i(1,1,0)]}},
+		{"id":"semantic_left_right_same_rules","name":"semantic_left_right_same_rules","action":"left/right same conflict rules","blueprint":{"board_size":Vector2i(4,3),"player_start":Vector2i(0,0),"exit_position":Vector2i(3,2),"memory_capacity":3,"floors":[Vector3i(0,1,0),Vector3i(1,1,0),Vector3i(2,1,0),Vector3i(3,1,0)],"walls":[],"boxes":[Vector3i(1,1,0)]}},
+		{"id":"semantic_evict_last_related_restores_default","name":"semantic_evict_last_related_restores_default","action":"evicting final related change restores default","blueprint":{"board_size":Vector2i(4,3),"player_start":Vector2i(0,0),"exit_position":Vector2i(3,2),"memory_capacity":3,"floors":[Vector3i(0,1,0),Vector3i(1,1,0),Vector3i(2,1,0),Vector3i(3,1,0)],"walls":[],"boxes":[Vector3i(1,1,0)]}}
+	])
 	var disabled_legacy_ids := {
 		"ghost_spawn_ghostify_replay_does_not_move_live_final_world_box": true,
 		"replay_end_does_not_sync_old_world_before_final_world": true,
@@ -2824,6 +2956,13 @@ func _build_cases() -> Array[Dictionary]:
 		"surviving_auto_ghost_prevents_default_box_restore": true,
 		"pushed_out_position_leaving_only_ghost_reuses_default_spawn_as_replay_origin": true,
 		"snapshot_second_box_change_pushout_with_surviving_auto_ghost_replays": true,
+		"gameplay_push_box_to_void": true,
+		"controller_push_box_to_void": true,
+		"input_and_rebuild_semantics_are_distinct_in_snapshot": true,
+		"controller_replay_locks_input_then_unlocks": true,
+		"debug_snapshot_has_real_values_not_placeholders": true,
+		"ghost_is_evicted_normally_and_then_world_restores": true,
+		"replay_still_occurs_when_surviving_remembered_state_actually_changes": true,
 	}
 	var filtered: Array[Dictionary] = []
 	for case_data: Dictionary in cases:

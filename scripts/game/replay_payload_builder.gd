@@ -1,9 +1,7 @@
 class_name ReplayPayloadBuilder
 extends RefCounted
 
-
-const REPLAYABLE_POSITION_SOURCE: ChangeRecord.SourceKind = ChangeRecord.SourceKind.REMEMBERED_REBUILD
-const REPLAYABLE_GHOST_SOURCE: ChangeRecord.SourceKind = ChangeRecord.SourceKind.AUTO_GHOST
+var _interpreter: ChangeInterpreter = ChangeInterpreter.new()
 
 
 func build_steps(
@@ -14,96 +12,40 @@ func build_steps(
 	if defaults == null:
 		return []
 	var steps: Array[Dictionary] = []
-	var remembered_position_by_subject: Dictionary[StringName, Vector2i] = {}
-	var remembered_is_ghost_by_subject: Dictionary[StringName, bool] = {}
-
+	var replayable_entries: Array[ChangeRecord] = []
 	for entry: ChangeRecord in surviving_queue_entries:
-		if entry == null:
+		if _is_replayable_position_affecting_entry(entry):
+			replayable_entries.append(entry)
+	if replayable_entries.is_empty():
+		return []
+
+	var state := SimulationState.new()
+	state.setup_from_defaults(defaults, live_player_position)
+	var context := CompileContext.new()
+	var events: Array[Dictionary] = []
+	_interpreter.interpret(replayable_entries, state, context, events)
+	for event: Dictionary in events:
+		var change: ChangeRecord = event.get("change")
+		if change == null:
 			continue
-		if not _is_replayable_position_affecting_entry(entry):
-			continue
-		var subject_id: StringName = entry.subject_id
-		var remembered_state: Dictionary = _resolve_current_replay_state(
-			defaults,
-			remembered_position_by_subject,
-			remembered_is_ghost_by_subject,
-			subject_id
-		)
-		if not bool(remembered_state.get("exists", false)):
-			continue
-		if entry.type == ChangeRecord.ChangeType.POSITION:
-			var path_steps: Array[Dictionary] = PositionPathHelper.expand_without_conflict(
-				subject_id,
-				remembered_state["position"],
-				entry.target_position,
-				true
-			)
-			for path_step: Dictionary in path_steps:
-				steps.append(path_step)
-			var terminal_position: Vector2i = _resolve_visual_terminal_for_steps(path_steps, entry.target_position)
-			remembered_position_by_subject[subject_id] = terminal_position
-			remembered_is_ghost_by_subject[subject_id] = false
-		elif entry.type == ChangeRecord.ChangeType.GHOST:
-			var ghost_path_steps: Array[Dictionary] = _build_auto_ghost_steps(
-				subject_id,
-				remembered_state["position"],
-				true
-			)
-			for ghost_step: Dictionary in ghost_path_steps:
-				steps.append(ghost_step)
-			remembered_position_by_subject[subject_id] = remembered_state["position"]
-			remembered_is_ghost_by_subject[subject_id] = true
+		var from_pos: Vector2i = event.get("from", Vector2i.ZERO)
+		var to_pos: Vector2i = event.get("to", from_pos)
+		if change.type == ChangeRecord.ChangeType.POSITION:
+			for step: Dictionary in PositionPathHelper.expand_without_conflict(change.subject_id, from_pos, to_pos, true):
+				steps.append(step)
+		elif change.type == ChangeRecord.ChangeType.GHOST:
+			steps.append({
+				"type": ChangeRecord.ChangeType.POSITION,
+				"from": from_pos,
+				"to": from_pos,
+				"subject": change.subject_id,
+				"from_exists": true,
+				"to_exists": true,
+				"appears": false,
+				"is_conflict": true,
+				"ends_as_ghost": true,
+			})
 	return steps
-
-
-func _resolve_current_replay_state(
-	defaults: WorldDefaults,
-	remembered_position_by_subject: Dictionary[StringName, Vector2i],
-	remembered_is_ghost_by_subject: Dictionary[StringName, bool],
-	subject_id: StringName
-) -> Dictionary:
-	if remembered_position_by_subject.has(subject_id):
-		return {
-			"exists": true,
-			"position": remembered_position_by_subject[subject_id],
-			"is_ghost": bool(remembered_is_ghost_by_subject.get(subject_id, false)),
-		}
-	if defaults.default_entity_positions.has(subject_id):
-		return {
-			"exists": true,
-			"position": defaults.default_entity_positions[subject_id],
-			"is_ghost": false,
-		}
-	return {
-		"exists": false,
-		"position": Vector2i.ZERO,
-		"is_ghost": false,
-	}
-
-
-func _resolve_visual_terminal_for_steps(path_steps: Array[Dictionary], fallback: Vector2i) -> Vector2i:
-	if path_steps.is_empty():
-		return fallback
-	var terminal_step: Dictionary = path_steps[path_steps.size() - 1]
-	return terminal_step.get("to", fallback)
-
-
-func _build_auto_ghost_steps(
-	subject_id: StringName,
-	display_pos: Vector2i,
-	from_exists: bool
-) -> Array[Dictionary]:
-	return [{
-		"type": ChangeRecord.ChangeType.POSITION,
-		"from": display_pos,
-		"to": display_pos,
-		"subject": subject_id,
-		"from_exists": from_exists,
-		"to_exists": true,
-		"appears": not from_exists,
-		"is_conflict": true,
-		"ends_as_ghost": true,
-	}]
 
 
 static func _is_replayable_position_affecting_entry(entry: ChangeRecord) -> bool:
@@ -111,8 +53,12 @@ static func _is_replayable_position_affecting_entry(entry: ChangeRecord) -> bool
 		return false
 	if entry.subject_id == &"":
 		return false
-	var is_replayable_position: bool = entry.type == ChangeRecord.ChangeType.POSITION \
-		and entry.source_kind == REPLAYABLE_POSITION_SOURCE
-	var is_replayable_ghost: bool = entry.type == ChangeRecord.ChangeType.GHOST \
-		and entry.source_kind == REPLAYABLE_GHOST_SOURCE
+	var is_replayable_position: bool = (
+		entry.type == ChangeRecord.ChangeType.POSITION
+		and entry.source_kind == ChangeRecord.SourceKind.REMEMBERED_REBUILD
+	)
+	var is_replayable_ghost: bool = (
+		entry.type == ChangeRecord.ChangeType.GHOST
+		and entry.source_kind == ChangeRecord.SourceKind.AUTO_GHOST
+	)
 	return is_replayable_position or is_replayable_ghost
