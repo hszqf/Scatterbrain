@@ -45,7 +45,7 @@ func summary() -> String:
 		ChangeType.EMPTY:
 			return "Empty[%s]" % source_tag
 		ChangeType.GHOST:
-			return "Ghost[%s](%s -> %s)" % [source_tag, subject_id, target_position]
+			return "Ghost[%s](%s ghostify_at_current_remembered; source_target=%s)" % [source_tag, subject_id, target_position]
 		_:
 			return "Unknown"
 
