@@ -161,16 +161,16 @@ func _run_case(case_data: Dictionary) -> bool:
 			passed = await _assert_pushing_out_parent_position_does_not_clear_surviving_auto_ghost(context)
 		"surviving_auto_ghost_prevents_default_box_restore":
 			passed = await _assert_surviving_auto_ghost_prevents_default_box_restore(context)
-		"ghost_only_surviving_replays_at_its_recorded_conflict_cell":
-			passed = _assert_ghost_only_surviving_replays_at_its_recorded_conflict_cell(context)
+		"ghost_only_surviving_queue_ghostifies_at_default_spawn":
+			passed = _assert_ghost_only_surviving_queue_ghostifies_at_default_spawn(context)
 		"first_surviving_position_entry_may_start_from_initial_default":
 			passed = _assert_first_surviving_position_entry_may_start_from_initial_default(context)
 		"position_then_ghost_replays_as_move_then_in_place_ghostify":
 			passed = _assert_position_then_ghost_replays_as_move_then_in_place_ghostify(context)
-		"second_box_change_pushout_with_surviving_auto_ghost_does_not_move_from_default":
-			passed = await _assert_second_box_change_pushout_with_surviving_auto_ghost_does_not_move_from_default(context)
-		"ghost_pushout_leaves_no_replayable_memory":
-			passed = await _assert_ghost_pushout_leaves_no_replayable_memory(context)
+		"pushed_out_position_leaving_only_ghost_reuses_default_spawn_as_replay_origin":
+			passed = await _assert_pushed_out_position_leaving_only_ghost_reuses_default_spawn_as_replay_origin(context)
+		"pushing_out_last_ghost_restores_default_world_and_replay_none":
+			passed = await _assert_pushing_out_last_ghost_restores_default_world_and_replay_none(context)
 		"ghost_entry_never_creates_motion_by_itself":
 			passed = _assert_ghost_entry_never_creates_motion_by_itself(context)
 		"position_entry_still_replays_as_motion":
@@ -733,7 +733,7 @@ func _assert_ghost_spawn_ghostify_replay_does_not_move_live_final_world_box(cont
 	var world_after: CompiledWorld = controller.get("_world")
 	var box_after: BoxView = board_view.get_box_view(&"box_0")
 	var final_box_pos: Vector2i = world_after.ghost_entities.get(&"box_0", Vector2i.ZERO)
-	var spawn_pixel: Vector2 = board_view.board_to_pixel_center(Vector2i(2, 1))
+	var spawn_pixel: Vector2 = board_view.board_to_pixel_center(Vector2i(3, 1))
 	return captured \
 		and replay_actor_spawn_position.is_equal_approx(spawn_pixel) \
 		and replay_actor_conflict \
@@ -1308,7 +1308,7 @@ func _assert_debug_snapshot_reports_detached_replay_actor_usage(context: Diction
 	return snapshot.contains("last_replay_used_live_box_views=false") \
 		and not snapshot.contains("last_replay_used_live_box_views=true") \
 		and snapshot.contains("last_replay_display_steps=[") \
-		and snapshot.contains("box_0:(2, 1)->(2, 1)") \
+		and snapshot.contains("box_0:(3, 1)->(3, 1)") \
 		and snapshot.contains("conflict=true")
 
 
@@ -1534,7 +1534,7 @@ func _assert_first_surviving_position_entry_may_start_from_initial_default(conte
 		and not bool(replay_steps[0].get("is_conflict", false))
 
 
-func _assert_ghost_only_surviving_replays_at_its_recorded_conflict_cell(context: Dictionary) -> bool:
+func _assert_ghost_only_surviving_queue_ghostifies_at_default_spawn(context: Dictionary) -> bool:
 	var defaults: WorldDefaults = context["defaults"]
 	var queue := ChangeQueue.new()
 	queue.append(ChangeRecord.new(
@@ -1549,13 +1549,14 @@ func _assert_ghost_only_surviving_replays_at_its_recorded_conflict_cell(context:
 	var replay_steps: Array[Dictionary] = builder.build_steps(defaults, queue.entries(), Vector2i(9, 9))
 	return replay_steps.size() == 1 \
 		and replay_steps[0].get("subject", &"") == &"box_0" \
-		and replay_steps[0].get("from", Vector2i.ZERO) == Vector2i(2, 1) \
-		and replay_steps[0].get("to", Vector2i.ZERO) == Vector2i(2, 1) \
+		and replay_steps[0].get("from", Vector2i.ZERO) == Vector2i(3, 1) \
+		and replay_steps[0].get("to", Vector2i.ZERO) == Vector2i(3, 1) \
 		and bool(replay_steps[0].get("from_exists", false)) \
 		and bool(replay_steps[0].get("to_exists", false)) \
 		and not bool(replay_steps[0].get("appears", true)) \
 		and bool(replay_steps[0].get("is_conflict", false)) \
-		and bool(replay_steps[0].get("ends_as_ghost", false))
+		and bool(replay_steps[0].get("ends_as_ghost", false)) \
+		and replay_steps[0].get("from", Vector2i.ZERO) != Vector2i(2, 1)
 
 
 func _assert_position_then_ghost_replays_as_move_then_in_place_ghostify(context: Dictionary) -> bool:
@@ -1589,7 +1590,7 @@ func _assert_position_then_ghost_replays_as_move_then_in_place_ghostify(context:
 		and bool(replay_steps[1].get("ends_as_ghost", false))
 
 
-func _assert_second_box_change_pushout_with_surviving_auto_ghost_does_not_move_from_default(context: Dictionary) -> bool:
+func _assert_pushed_out_position_leaving_only_ghost_reuses_default_spawn_as_replay_origin(context: Dictionary) -> bool:
 	var result: Dictionary = await _setup_auto_ghost_generated_then_parent_pushed_out_case(context)
 	var pushed_out_changes: Array[String] = result["pushed_out_changes"]
 	var final_world: CompiledWorld = result["world"]
@@ -1601,6 +1602,7 @@ func _assert_second_box_change_pushout_with_surviving_auto_ghost_does_not_move_f
 	var has_initial_to_ghost_move: bool = _has_replay_step(replay_steps, &"box_0", Vector2i(3, 1), Vector2i(2, 1), true, true)
 	var has_target_ghost_step: bool = _has_replay_step(replay_steps, &"box_0", Vector2i(2, 1), Vector2i(2, 1), true, true)
 	var has_spawn_ghostify_step: bool = _has_replay_step(replay_steps, &"box_0", Vector2i(3, 1), Vector2i(3, 1), true, true)
+	var has_spawn_to_target_motion: bool = _has_replay_step(replay_steps, &"box_0", Vector2i(3, 1), Vector2i(2, 1), true, true)
 	var ghost_step: Dictionary = replay_steps[0] if not replay_steps.is_empty() else {}
 	return pushed_out_changes.has("Position[REMEMBERED_REBUILD](box_0 -> (1, 1))") \
 		and not final_world.entity_positions.has(&"box_0") \
@@ -1611,14 +1613,15 @@ func _assert_second_box_change_pushout_with_surviving_auto_ghost_does_not_move_f
 		and not replay_steps.is_empty() \
 		and not replay_display_steps.is_empty() \
 		and not has_initial_to_ghost_move \
-		and has_target_ghost_step \
-		and not has_spawn_ghostify_step \
+		and not has_target_ghost_step \
+		and has_spawn_ghostify_step \
+		and not has_spawn_to_target_motion \
 		and bool(ghost_step.get("from_exists", false)) \
 		and not bool(ghost_step.get("appears", true)) \
 		and bool(replay_display_steps[replay_display_steps.size() - 1].get("is_conflict", false))
 
 
-func _assert_ghost_pushout_leaves_no_replayable_memory(context: Dictionary) -> bool:
+func _assert_pushing_out_last_ghost_restores_default_world_and_replay_none(context: Dictionary) -> bool:
 	var controller: GameController = context["controller"]
 	var queue: ChangeQueue = context["queue"]
 	queue.clear()
@@ -1703,8 +1706,8 @@ func _assert_ghost_entry_never_creates_motion_by_itself(context: Dictionary) -> 
 	return not has_motion_in_prior_visible_case \
 		and not has_motion_in_ghost_only_case \
 		and ghost_only_steps.size() == 1 \
-		and ghost_only_steps[0].get("from", Vector2i.ZERO) == Vector2i(2, 1) \
-		and ghost_only_steps[0].get("to", Vector2i.ZERO) == Vector2i(2, 1)
+		and ghost_only_steps[0].get("from", Vector2i.ZERO) == Vector2i(3, 1) \
+		and ghost_only_steps[0].get("to", Vector2i.ZERO) == Vector2i(3, 1)
 
 
 func _assert_position_entry_still_replays_as_motion(context: Dictionary) -> bool:
@@ -1794,9 +1797,9 @@ func _assert_snapshot_second_box_change_pushout_with_surviving_auto_ghost_replay
 		and replay_gate_reason == "allowed_non_empty_pushed_out" \
 		and snapshot.contains("replay=[") \
 		and not snapshot.contains("replay=none") \
-		and snapshot.contains("box_0:(2, 1)->(2, 1)") \
+		and snapshot.contains("box_0:(3, 1)->(3, 1)") \
+		and not snapshot.contains("box_0:(2, 1)->(2, 1)") \
 		and not snapshot.contains("box_0:(3, 1)->(2, 1)") \
-		and not snapshot.contains("box_0:(3, 1)->(3, 1)") \
 		and snapshot.contains("last_replay_display_steps=[") \
 		and String(controller.get("_last_replay_stop_reason")) != "none"
 
@@ -2669,9 +2672,9 @@ func _build_cases() -> Array[Dictionary]:
 			"context_mode": "controller_level001",
 		},
 		{
-			"id": "ghost_only_surviving_replays_at_its_recorded_conflict_cell",
-			"name": "ghost_only_surviving_replays_at_its_recorded_conflict_cell",
-			"action": "first surviving ghost replays as appearance/ghostify at target and never default->target",
+			"id": "ghost_only_surviving_queue_ghostifies_at_default_spawn",
+			"name": "ghost_only_surviving_queue_ghostifies_at_default_spawn",
+			"action": "first surviving ghost must ghostify in-place at default spawn, never at recorded ghost target",
 			"context_mode": "controller_level001",
 		},
 		{
@@ -2687,15 +2690,15 @@ func _build_cases() -> Array[Dictionary]:
 			"context_mode": "controller_level001",
 		},
 		{
-			"id": "second_box_change_pushout_with_surviving_auto_ghost_does_not_move_from_default",
-			"name": "second_box_change_pushout_with_surviving_auto_ghost_does_not_move_from_default",
-			"action": "pushout+surviving ghost replays ghost appearance only and must not include default->target move",
+			"id": "pushed_out_position_leaving_only_ghost_reuses_default_spawn_as_replay_origin",
+			"name": "pushed_out_position_leaving_only_ghost_reuses_default_spawn_as_replay_origin",
+			"action": "when Position is pushed out and only AUTO_GHOST survives, replay ghostifies at default spawn",
 			"context_mode": "controller_level001",
 		},
 		{
-			"id": "ghost_pushout_leaves_no_replayable_memory",
-			"name": "ghost_pushout_leaves_no_replayable_memory",
-			"action": "when final AUTO_GHOST is also pushed out, surviving queue has no replayable memory and replay=none",
+			"id": "pushing_out_last_ghost_restores_default_world_and_replay_none",
+			"name": "pushing_out_last_ghost_restores_default_world_and_replay_none",
+			"action": "when final AUTO_GHOST is pushed out, world restores defaults and replay=none",
 			"context_mode": "controller_level001",
 		},
 		{
