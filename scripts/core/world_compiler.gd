@@ -272,6 +272,10 @@ func _is_equivalent_ghost_change(entry: ChangeRecord, candidate: ChangeRecord) -
 func _apply_ghost_change(defaults: WorldDefaults, change: ChangeRecord, world: CompiledWorld) -> void:
 	if change.subject_id == &"":
 		return
+	# Ghost change is a status-only remembered change:
+	# - resolve current remembered position from surviving queue progress
+	# - keep position unchanged
+	# - only switch the subject into ghost state at that position
 	var remembered_state: Dictionary = _resolve_current_remembered_state(defaults, world, change.subject_id)
 	if not bool(remembered_state.get("exists", false)):
 		return

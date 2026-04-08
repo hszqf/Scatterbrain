@@ -1541,6 +1541,8 @@ func _assert_ghost_only_surviving_queue_ghostifies_at_default_spawn(context: Dic
 		"first_surviving_ghost",
 		ChangeRecord.SourceKind.AUTO_GHOST
 	))
+	var compiled: CompileResult = _compiler.compile(defaults, queue, defaults.player_start)
+	var final_world: CompiledWorld = compiled.world
 	var builder := ReplayPayloadBuilder.new()
 	var replay_steps: Array[Dictionary] = builder.build_steps(defaults, queue.entries(), Vector2i(9, 9))
 	return replay_steps.size() == 1 \
@@ -1552,6 +1554,8 @@ func _assert_ghost_only_surviving_queue_ghostifies_at_default_spawn(context: Dic
 		and not bool(replay_steps[0].get("appears", true)) \
 		and bool(replay_steps[0].get("is_conflict", false)) \
 		and bool(replay_steps[0].get("ends_as_ghost", false)) \
+		and not final_world.entity_positions.has(&"box_0") \
+		and final_world.ghost_entities.get(&"box_0", Vector2i(-1, -1)) == Vector2i(3, 1) \
 		and replay_steps[0].get("from", Vector2i.ZERO) != Vector2i(2, 1)
 
 
@@ -1574,6 +1578,8 @@ func _assert_position_then_ghost_replays_as_move_then_in_place_ghostify(context:
 		"ghost_at_b",
 		ChangeRecord.SourceKind.AUTO_GHOST
 	))
+	var compiled: CompileResult = _compiler.compile(defaults, queue, defaults.player_start)
+	var final_world: CompiledWorld = compiled.world
 	var builder := ReplayPayloadBuilder.new()
 	var replay_steps: Array[Dictionary] = builder.build_steps(defaults, queue.entries(), Vector2i(9, 9))
 	return replay_steps.size() == 2 \
@@ -1583,7 +1589,9 @@ func _assert_position_then_ghost_replays_as_move_then_in_place_ghostify(context:
 		and replay_steps[1].get("from", Vector2i.ZERO) == Vector2i(2, 1) \
 		and replay_steps[1].get("to", Vector2i.ZERO) == Vector2i(2, 1) \
 		and bool(replay_steps[1].get("is_conflict", false)) \
-		and bool(replay_steps[1].get("ends_as_ghost", false))
+		and bool(replay_steps[1].get("ends_as_ghost", false)) \
+		and not final_world.entity_positions.has(&"box_0") \
+		and final_world.ghost_entities.get(&"box_0", Vector2i(-1, -1)) == Vector2i(2, 1)
 
 
 func _assert_pushed_out_position_leaving_only_ghost_reuses_default_spawn_as_replay_origin(context: Dictionary) -> bool:
@@ -1674,12 +1682,14 @@ func _assert_ghost_entry_never_creates_motion_by_itself(context: Dictionary) -> 
 	))
 	var steps_with_prior_visible: Array[Dictionary] = builder.build_steps(defaults, queue_with_prior_visible.entries(), Vector2i(9, 9))
 	var has_motion_in_prior_visible_case: bool = false
+	var ghost_step_is_in_place_in_prior_visible_case: bool = false
 	for step: Dictionary in steps_with_prior_visible:
 		if step.get("subject", &"") == &"box_0" \
-			and bool(step.get("ends_as_ghost", false)) \
-			and step.get("from", Vector2i.ZERO) != step.get("to", Vector2i.ZERO):
-			has_motion_in_prior_visible_case = true
-			break
+			and bool(step.get("ends_as_ghost", false)):
+			ghost_step_is_in_place_in_prior_visible_case = step.get("from", Vector2i.ZERO) == step.get("to", Vector2i.ZERO)
+			if step.get("from", Vector2i.ZERO) != step.get("to", Vector2i.ZERO):
+				has_motion_in_prior_visible_case = true
+				break
 
 	var ghost_only_queue := ChangeQueue.new()
 	ghost_only_queue.append(ChangeRecord.new(
@@ -1692,15 +1702,19 @@ func _assert_ghost_entry_never_creates_motion_by_itself(context: Dictionary) -> 
 	))
 	var ghost_only_steps: Array[Dictionary] = builder.build_steps(defaults, ghost_only_queue.entries(), Vector2i(9, 9))
 	var has_motion_in_ghost_only_case: bool = false
+	var ghost_only_step_is_in_place: bool = false
 	for step2: Dictionary in ghost_only_steps:
 		if step2.get("subject", &"") == &"box_0" \
-			and bool(step2.get("ends_as_ghost", false)) \
-			and step2.get("from", Vector2i.ZERO) != step2.get("to", Vector2i.ZERO):
-			has_motion_in_ghost_only_case = true
-			break
+			and bool(step2.get("ends_as_ghost", false)):
+			ghost_only_step_is_in_place = step2.get("from", Vector2i.ZERO) == step2.get("to", Vector2i.ZERO)
+			if step2.get("from", Vector2i.ZERO) != step2.get("to", Vector2i.ZERO):
+				has_motion_in_ghost_only_case = true
+				break
 
 	return not has_motion_in_prior_visible_case \
 		and not has_motion_in_ghost_only_case \
+		and ghost_step_is_in_place_in_prior_visible_case \
+		and ghost_only_step_is_in_place \
 		and ghost_only_steps.size() == 1 \
 		and ghost_only_steps[0].get("from", Vector2i.ZERO) == Vector2i(3, 1) \
 		and ghost_only_steps[0].get("to", Vector2i.ZERO) == Vector2i(3, 1)
@@ -1721,15 +1735,15 @@ func _assert_replay_still_occurs_when_surviving_remembered_state_actually_change
 	queue.append(ChangeRecord.new(
 		ChangeRecord.ChangeType.POSITION,
 		&"box_0",
-		Vector2i(1, 1),
+		Vector2i(2, 1),
 		false,
 		"old_replayable",
 		ChangeRecord.SourceKind.REMEMBERED_REBUILD
 	))
 	queue.append(ChangeRecord.new(
 		ChangeRecord.ChangeType.POSITION,
-		&"box_1",
-		Vector2i(4, 1),
+		&"box_0",
+		Vector2i(1, 1),
 		false,
 		"survives_after_pushout",
 		ChangeRecord.SourceKind.REMEMBERED_REBUILD
@@ -1748,7 +1762,7 @@ func _assert_replay_still_occurs_when_surviving_remembered_state_actually_change
 	var pushed_out: Array[String] = controller.get("_last_pushed_out_summaries")
 	return replay_gate_allowed \
 		and replay_gate_reason == "allowed_non_empty_pushed_out" \
-		and pushed_out.has("Position[REMEMBERED_REBUILD](box_0 -> (1, 1))") \
+		and pushed_out.has("Position[REMEMBERED_REBUILD](box_0 -> (2, 1))") \
 		and not replay_steps.is_empty()
 
 
