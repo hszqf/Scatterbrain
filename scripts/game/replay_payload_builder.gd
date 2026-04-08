@@ -52,17 +52,21 @@ func build_steps(
 			semantic_position_by_subject[subject_id] = entry.target_position
 			semantic_is_ghost_by_subject[subject_id] = false
 		elif entry.type == ChangeRecord.ChangeType.GHOST:
-			# Hard rule: Ghost[AUTO_GHOST] replays at its own recorded target cell.
-			# Do not infer from default spawn or prior visual position.
+			var ghost_display_data: Dictionary = _resolve_display_pos_for_ghost(
+				defaults,
+				visual_position_by_subject,
+				subject_id,
+				entry.target_position
+			)
 			var ghost_path_steps: Array[Dictionary] = _build_auto_ghost_steps(
 				subject_id,
-				entry.target_position,
-				true
+				ghost_display_data["display_pos"],
+				ghost_display_data["from_exists"]
 			)
 			for ghost_step: Dictionary in ghost_path_steps:
 				steps.append(ghost_step)
-			visual_position_by_subject[subject_id] = entry.target_position
-			semantic_position_by_subject[subject_id] = entry.target_position
+			visual_position_by_subject[subject_id] = ghost_display_data["display_pos"]
+			semantic_position_by_subject[subject_id] = ghost_display_data["display_pos"]
 			semantic_is_ghost_by_subject[subject_id] = true
 		replayable_subject_seen[subject_id] = true
 	return steps
@@ -87,6 +91,28 @@ func _resolve_from_for_position(
 	return {
 		"from_pos": Vector2i.ZERO,
 		"from_exists": false,
+	}
+
+
+func _resolve_display_pos_for_ghost(
+	defaults: WorldDefaults,
+	visual_position_by_subject: Dictionary[StringName, Vector2i],
+	subject_id: StringName,
+	recorded_target_position: Vector2i
+) -> Dictionary:
+	if visual_position_by_subject.has(subject_id):
+		return {
+			"display_pos": visual_position_by_subject[subject_id],
+			"from_exists": true,
+		}
+	if defaults.default_entity_positions.has(subject_id):
+		return {
+			"display_pos": defaults.default_entity_positions[subject_id],
+			"from_exists": true,
+		}
+	return {
+		"display_pos": recorded_target_position,
+		"from_exists": true,
 	}
 
 
