@@ -18,9 +18,11 @@ func build_steps(
 	# - visual_* : where a subject is currently shown during replay animation.
 	# - semantic_* : remembered queue semantics after applying surviving entries.
 	# Ghost[AUTO_GHOST] only changes state (solid -> ghost) and never creates motion.
-	var visual_position_by_subject: Dictionary[StringName, Vector2i] = {}
 	var semantic_position_by_subject: Dictionary[StringName, Vector2i] = {}
 	var semantic_is_ghost_by_subject: Dictionary[StringName, bool] = {}
+	for subject_id: StringName in defaults.default_entity_positions.keys():
+		semantic_position_by_subject[subject_id] = defaults.default_entity_positions[subject_id]
+		semantic_is_ghost_by_subject[subject_id] = false
 	var replayable_subject_seen: Dictionary[StringName, bool] = {}
 	for entry: ChangeRecord in surviving_queue_entries:
 		if entry == null:
@@ -30,9 +32,10 @@ func build_steps(
 		var subject_id: StringName = entry.subject_id
 		var is_first_surviving_replayable_entry: bool = not replayable_subject_seen.has(subject_id)
 		if entry.type == ChangeRecord.ChangeType.POSITION:
-			var from_data: Dictionary = _resolve_from_for_position(
+			var from_data: Dictionary = _resolve_current_replay_state(
 				defaults,
-				visual_position_by_subject,
+				semantic_position_by_subject,
+				semantic_is_ghost_by_subject,
 				subject_id,
 				is_first_surviving_replayable_entry
 			)
@@ -45,18 +48,19 @@ func build_steps(
 			)
 			for path_step: Dictionary in path_steps:
 				steps.append(path_step)
-			visual_position_by_subject[subject_id] = _resolve_visual_terminal_for_steps(
+			var terminal_position: Vector2i = _resolve_visual_terminal_for_steps(
 				path_steps,
 				entry.target_position
 			)
-			semantic_position_by_subject[subject_id] = entry.target_position
+			semantic_position_by_subject[subject_id] = terminal_position
 			semantic_is_ghost_by_subject[subject_id] = false
 		elif entry.type == ChangeRecord.ChangeType.GHOST:
-			var ghost_display_data: Dictionary = _resolve_display_pos_for_ghost(
+			var ghost_display_data: Dictionary = _resolve_current_replay_state(
 				defaults,
-				visual_position_by_subject,
+				semantic_position_by_subject,
+				semantic_is_ghost_by_subject,
 				subject_id,
-				entry.target_position
+				is_first_surviving_replayable_entry
 			)
 			var ghost_path_steps: Array[Dictionary] = _build_auto_ghost_steps(
 				subject_id,
@@ -65,54 +69,38 @@ func build_steps(
 			)
 			for ghost_step: Dictionary in ghost_path_steps:
 				steps.append(ghost_step)
-			visual_position_by_subject[subject_id] = ghost_display_data["display_pos"]
 			semantic_position_by_subject[subject_id] = ghost_display_data["display_pos"]
 			semantic_is_ghost_by_subject[subject_id] = true
 		replayable_subject_seen[subject_id] = true
 	return steps
 
 
-func _resolve_from_for_position(
+func _resolve_current_replay_state(
 	defaults: WorldDefaults,
-	visual_position_by_subject: Dictionary[StringName, Vector2i],
+	semantic_position_by_subject: Dictionary[StringName, Vector2i],
+	semantic_is_ghost_by_subject: Dictionary[StringName, bool],
 	subject_id: StringName,
 	is_first_surviving_replayable_entry: bool
 ) -> Dictionary:
-	if visual_position_by_subject.has(subject_id):
+	if semantic_position_by_subject.has(subject_id):
 		return {
-			"from_pos": visual_position_by_subject[subject_id],
+			"display_pos": semantic_position_by_subject[subject_id],
+			"from_pos": semantic_position_by_subject[subject_id],
 			"from_exists": true,
+			"is_ghost": bool(semantic_is_ghost_by_subject.get(subject_id, false)),
 		}
 	if is_first_surviving_replayable_entry and defaults.default_entity_positions.has(subject_id):
 		return {
+			"display_pos": defaults.default_entity_positions[subject_id],
 			"from_pos": defaults.default_entity_positions[subject_id],
 			"from_exists": true,
+			"is_ghost": false,
 		}
 	return {
+		"display_pos": Vector2i.ZERO,
 		"from_pos": Vector2i.ZERO,
 		"from_exists": false,
-	}
-
-
-func _resolve_display_pos_for_ghost(
-	defaults: WorldDefaults,
-	visual_position_by_subject: Dictionary[StringName, Vector2i],
-	subject_id: StringName,
-	recorded_target_position: Vector2i
-) -> Dictionary:
-	if visual_position_by_subject.has(subject_id):
-		return {
-			"display_pos": visual_position_by_subject[subject_id],
-			"from_exists": true,
-		}
-	if defaults.default_entity_positions.has(subject_id):
-		return {
-			"display_pos": defaults.default_entity_positions[subject_id],
-			"from_exists": true,
-		}
-	return {
-		"display_pos": recorded_target_position,
-		"from_exists": true,
+		"is_ghost": false,
 	}
 
 
