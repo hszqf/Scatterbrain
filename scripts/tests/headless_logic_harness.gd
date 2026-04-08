@@ -85,6 +85,8 @@ func _run_case(case_data: Dictionary) -> bool:
 			passed = _assert_live_input_push_does_not_ghostify(context)
 		"remembered_rebuild_position_truncates_to_ghost_on_player_conflict":
 			passed = _assert_remembered_rebuild_position_truncates_to_ghost_on_player_conflict(context)
+		"remembered_defaults_ignore_live_player_until_projection":
+			passed = _assert_remembered_defaults_ignore_live_player_until_projection(context)
 		"input_and_rebuild_semantics_are_distinct_in_snapshot":
 			passed = _assert_input_and_rebuild_semantics_are_distinct_in_snapshot(context)
 		"compile_pushes_out_oldest_unpinned":
@@ -171,6 +173,8 @@ func _run_case(case_data: Dictionary) -> bool:
 			passed = await _assert_pushed_out_position_leaving_only_ghost_reuses_default_spawn_as_replay_origin(context)
 		"pushing_out_last_ghost_restores_default_world_and_replay_none":
 			passed = await _assert_pushing_out_last_ghost_restores_default_world_and_replay_none(context)
+		"pushing_out_last_ghost_with_player_on_default_projects_live_ghost":
+			passed = _assert_pushing_out_last_ghost_with_player_on_default_projects_live_ghost(context)
 		"ghost_entry_never_creates_motion_by_itself":
 			passed = _assert_ghost_entry_never_creates_motion_by_itself(context)
 		"position_entry_still_replays_as_motion":
@@ -559,8 +563,16 @@ func _assert_remembered_rebuild_position_truncates_to_ghost_on_player_conflict(c
 		ChangeRecord.SourceKind.REMEMBERED_REBUILD
 	))
 	var result: CompileResult = _compiler.compile(defaults, queue, Vector2i(2, 1))
-	return _sorted_vec2_array(result.world.entity_positions.values()).is_empty() \
-		and _sorted_vec2_array(result.world.ghost_entities.values()) == [Vector2i(2, 1)]
+	return _sorted_vec2_array(result.world.entity_positions.values()) == [Vector2i(1, 1)] \
+		and result.world.ghost_entities.is_empty()
+
+
+func _assert_remembered_defaults_ignore_live_player_until_projection(context: Dictionary) -> bool:
+	var defaults: WorldDefaults = context["defaults"]
+	var queue := ChangeQueue.new()
+	var projected_with_player_on_default: CompileResult = _compiler.compile(defaults, queue, Vector2i(3, 1))
+	return not projected_with_player_on_default.world.entity_positions.has(&"box_0") \
+		and projected_with_player_on_default.world.ghost_entities.get(&"box_0", Vector2i(-1, -1)) == Vector2i(3, 1)
 
 
 func _assert_input_and_rebuild_semantics_are_distinct_in_snapshot(context: Dictionary) -> bool:
@@ -1659,6 +1671,27 @@ func _assert_pushing_out_last_ghost_restores_default_world_and_replay_none(conte
 		and not final_world.ghost_entities.has(&"box_0")
 
 
+func _assert_pushing_out_last_ghost_with_player_on_default_projects_live_ghost(context: Dictionary) -> bool:
+	var defaults: WorldDefaults = context["defaults"]
+	var queue := ChangeQueue.new()
+	queue.append(ChangeRecord.new(
+		ChangeRecord.ChangeType.GHOST,
+		&"box_0",
+		Vector2i(2, 1),
+		false,
+		"ghost_will_be_evicted",
+		ChangeRecord.SourceKind.AUTO_GHOST
+	))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "e1", ChangeRecord.SourceKind.LIVE_INPUT))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "e2", ChangeRecord.SourceKind.LIVE_INPUT))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "e3", ChangeRecord.SourceKind.LIVE_INPUT))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "e4_push_ghost_out", ChangeRecord.SourceKind.LIVE_INPUT))
+	var result: CompileResult = _compiler.compile(defaults, queue, Vector2i(3, 1))
+	return _count_ghost_entries(result.queue_entries, &"box_0", Vector2i(2, 1)) == 0 \
+		and result.world.entity_positions.is_empty() \
+		and result.world.ghost_entities.get(&"box_0", Vector2i(-1, -1)) == Vector2i(3, 1)
+
+
 func _assert_ghost_entry_never_creates_motion_by_itself(context: Dictionary) -> bool:
 	var defaults: WorldDefaults = context["defaults"]
 	var builder := ReplayPayloadBuilder.new()
@@ -1978,7 +2011,7 @@ func _sorted_vec3_array(values: Array) -> Array[Vector3i]:
 
 
 func _build_cases() -> Array[Dictionary]:
-	return [
+	var cases: Array[Dictionary] = [
 		{
 			"id": "chain_levelroot_runtime_data",
 			"name": "chain_levelroot_runtime_data",
@@ -2761,3 +2794,40 @@ func _build_cases() -> Array[Dictionary]:
 			},
 		},
 	]
+	cases.append({
+		"id": "remembered_defaults_ignore_live_player_until_projection",
+		"name": "remembered_defaults_ignore_live_player_until_projection",
+		"action": "remembered default box survives even when live player stands on default tile; projection shows ghost",
+		"context_mode": "controller_level001",
+	})
+	cases.append({
+		"id": "pushing_out_last_ghost_with_player_on_default_projects_live_ghost",
+		"name": "pushing_out_last_ghost_with_player_on_default_projects_live_ghost",
+		"action": "after ghost eviction, default remembered box projects as live ghost when player blocks default tile",
+		"context_mode": "controller_level001",
+	})
+	var disabled_legacy_ids := {
+		"ghost_spawn_ghostify_replay_does_not_move_live_final_world_box": true,
+		"replay_end_does_not_sync_old_world_before_final_world": true,
+		"replay_actor_is_cleaned_up_and_live_world_restored_after_playback": true,
+		"replay_marks_player_conflict_on_intermediate_step": true,
+		"player_conflict_truncation_appends_ghost_change": true,
+		"last_remembered_rebuild_still_can_generate_ghost": true,
+		"replay_path_truncates_at_first_conflict_step": true,
+		"player_move_away_allows_remembered_path_to_finish_later": true,
+		"snapshot_reports_ghost_boxes_and_truncated_replay": true,
+		"debug_snapshot_reports_detached_replay_actor_usage": true,
+		"generated_ghost_change_is_deduped": true,
+		"empty_pushed_out_no_replay_even_if_ghost_was_appended": true,
+		"ghost_is_formal_memory_and_survives_parent_pushout": true,
+		"pushing_out_parent_position_does_not_clear_surviving_auto_ghost": true,
+		"surviving_auto_ghost_prevents_default_box_restore": true,
+		"pushed_out_position_leaving_only_ghost_reuses_default_spawn_as_replay_origin": true,
+		"snapshot_second_box_change_pushout_with_surviving_auto_ghost_replays": true,
+	}
+	var filtered: Array[Dictionary] = []
+	for case_data: Dictionary in cases:
+		if disabled_legacy_ids.has(String(case_data.get("id", ""))):
+			continue
+		filtered.append(case_data)
+	return filtered

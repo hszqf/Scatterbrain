@@ -78,19 +78,16 @@
 ## 9) 重编译流程
 1. 新变化入列后检查容量。
 2. 超容时先挤出最老未钉住变化。
-3. 锁定输入并执行完整重编译：
-   - 从默认世界重建（含 floor/wall/box/player/exit）。
-   - 按队列时间顺序应用变化，并按 `ChangeRecord.SourceKind` 分流语义：
-     - `LIVE_INPUT`：表示刚发生的合法实时输入结果，按目标格直接落地，不走 remembered 路径冲突截断。
-     - `REMEMBERED_REBUILD`：表示 surviving memory 的重建语义，必须从“当前 remembered 位置”按 Manhattan 微步（先 X 后 Y）重建，并将状态置为非幽灵。
-     - `AUTO_GHOST`：表示编译冲突后自动生成的 ghost 记录；该记录只改变状态为幽灵，不定义新位置。
-4. 冲突时对象幽灵化；无地板/越界/墙目标不会落地为实体。
-5. 仅当 `PositionChange` 属于 `REMEMBERED_REBUILD` 且微步路径在中途进入当前 live player 格时，必须在该格截断并以 ghost 落地（当前世界结果），并追加 `Ghost[AUTO_GHOST]` 入队作为正式 remembered change；该 ghost 后续也会正常参与挤出。
+3. 锁定输入并执行完整重编译（两阶段）：
+   - 阶段 A（remembered world）：从默认箱子状态出发，仅按 surviving queue 顺序解释 remembered change；此阶段禁止读取当前玩家位置。
+   - 阶段 B（projected live world）：把阶段 A 的 remembered 结果投影到当前玩家位置；若 remembered 实体箱子与玩家/实体冲突则投影为 live ghost，不直接删除。
+4. `Ghost[AUTO_GHOST]` 是状态事件：只把“当前 remembered 位置”的箱子改为幽灵，不定义新位置；`target_position` 仅允许作为调试元数据。
+5. 默认箱子在记忆归零后必须先恢复 remembered 实体；若当前玩家正占默认格，live 投影显示幽灵，不可直接消失。
 6. `game` 层 replay 必须基于 `WorldDefaults + CompileResult.queue_entries`（即 surviving queue）生成，表示“剩余记忆如何从默认世界重建 remembered world”；禁止使用 `world_before_compile` / `world_after_compile` 可见差分生成 replay。
 7. replay 必须从 `WorldDefaults` 初始状态出发，按 surviving queue 的时间顺序逐条重访 remembered change；`Empty` 不产生 step，但会保留顺序位置。
 8. replay payload 的 from-state 必须来自 replay-time state 的前序结果（entity/ghost），禁止按 subject 做最终态 canonical 归约。
 9. replay gate 只基于：存在 replayable pushed_out、surviving queue 仍有 replayable remembered entry、且 builder 产出非空 steps。
-10. replay 微步与 core 编译微步必须共用同一语义：先 X 后 Y，遇到 player conflict 立即截断并终止后续步骤；当 surviving entry 为 `Ghost[AUTO_GHOST]` 时，终点 replay step 必须标记冲突终止。
+10. replay 微步与 remembered world 解释必须共用同一语义：先 X 后 Y；`Ghost[AUTO_GHOST]` replay step 必须是原地状态变化（`from == to`），禁止单独制造位移。
 11. remembered queue 应用（compile/replay）必须维护每个 subject 的“当前 remembered 位置 + 是否幽灵”：
    - `Position`：从当前 remembered 位置位移并更新位置，状态重置为非幽灵；
    - `Ghost`：仅在当前 remembered 位置原地幽灵化（from==to），不得单独制造位移；若前序 surviving 位移已被挤出，则当前位置回落为默认初始位置。
