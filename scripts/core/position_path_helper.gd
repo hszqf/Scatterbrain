@@ -2,6 +2,57 @@ class_name PositionPathHelper
 extends RefCounted
 
 
+static func expand_without_conflict(
+	subject_id: StringName,
+	from_pos: Vector2i,
+	to_pos: Vector2i,
+	from_exists: bool
+) -> Array[Dictionary]:
+	var steps: Array[Dictionary] = []
+	if not from_exists:
+		steps.append({
+			"type": ChangeRecord.ChangeType.POSITION,
+			"from": from_pos,
+			"to": to_pos,
+			"subject": subject_id,
+			"from_exists": false,
+			"to_exists": true,
+			"is_conflict": false,
+		})
+		return steps
+
+	var current: Vector2i = from_pos
+	while current.x != to_pos.x:
+		var x_dir: int = 1 if to_pos.x > current.x else -1
+		var next_x := Vector2i(current.x + x_dir, current.y)
+		steps.append({
+			"type": ChangeRecord.ChangeType.POSITION,
+			"from": current,
+			"to": next_x,
+			"subject": subject_id,
+			"from_exists": true,
+			"to_exists": true,
+			"is_conflict": false,
+		})
+		current = next_x
+
+	while current.y != to_pos.y:
+		var y_dir: int = 1 if to_pos.y > current.y else -1
+		var next_y := Vector2i(current.x, current.y + y_dir)
+		steps.append({
+			"type": ChangeRecord.ChangeType.POSITION,
+			"from": current,
+			"to": next_y,
+			"subject": subject_id,
+			"from_exists": true,
+			"to_exists": true,
+			"is_conflict": false,
+		})
+		current = next_y
+
+	return steps
+
+
 static func expand_with_player_conflict(
 	subject_id: StringName,
 	from_pos: Vector2i,

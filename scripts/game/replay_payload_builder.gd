@@ -14,11 +14,9 @@ func build_steps(
 	if defaults == null:
 		return []
 	var steps: Array[Dictionary] = []
-	# Replay must execute the same remembered queue semantics as compile:
-	# 1) Position: update remembered position and clear ghost state.
-	# 2) Ghost[AUTO_GHOST]: ghostify at current remembered position (from == to).
 	var remembered_position_by_subject: Dictionary[StringName, Vector2i] = {}
 	var remembered_is_ghost_by_subject: Dictionary[StringName, bool] = {}
+
 	for entry: ChangeRecord in surviving_queue_entries:
 		if entry == null:
 			continue
@@ -34,19 +32,15 @@ func build_steps(
 		if not bool(remembered_state.get("exists", false)):
 			continue
 		if entry.type == ChangeRecord.ChangeType.POSITION:
-			var path_steps: Array[Dictionary] = _build_remembered_position_steps(
+			var path_steps: Array[Dictionary] = PositionPathHelper.expand_without_conflict(
 				subject_id,
 				remembered_state["position"],
 				entry.target_position,
-				true,
-				live_player_position
+				true
 			)
 			for path_step: Dictionary in path_steps:
 				steps.append(path_step)
-			var terminal_position: Vector2i = _resolve_visual_terminal_for_steps(
-				path_steps,
-				entry.target_position
-			)
+			var terminal_position: Vector2i = _resolve_visual_terminal_for_steps(path_steps, entry.target_position)
 			remembered_position_by_subject[subject_id] = terminal_position
 			remembered_is_ghost_by_subject[subject_id] = false
 		elif entry.type == ChangeRecord.ChangeType.GHOST:
@@ -87,23 +81,6 @@ func _resolve_current_replay_state(
 	}
 
 
-func _build_remembered_position_steps(
-	subject_id: StringName,
-	from_pos: Vector2i,
-	to_pos: Vector2i,
-	from_exists: bool,
-	live_player_position: Vector2i
-) -> Array[Dictionary]:
-	var path_result: Dictionary = PositionPathHelper.expand_with_player_conflict(
-		subject_id,
-		from_pos,
-		to_pos,
-		from_exists,
-		live_player_position
-	)
-	return path_result.get("steps", [])
-
-
 func _resolve_visual_terminal_for_steps(path_steps: Array[Dictionary], fallback: Vector2i) -> Vector2i:
 	if path_steps.is_empty():
 		return fallback
@@ -116,8 +93,6 @@ func _build_auto_ghost_steps(
 	display_pos: Vector2i,
 	from_exists: bool
 ) -> Array[Dictionary]:
-	# Hard rule: Ghost[AUTO_GHOST] never creates motion in replay.
-	# It only ghostifies at the current display position (from == to).
 	return [{
 		"type": ChangeRecord.ChangeType.POSITION,
 		"from": display_pos,
