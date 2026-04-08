@@ -85,7 +85,7 @@ func _build_base_world(defaults: WorldDefaults, player_position: Vector2i) -> Co
 
 
 func _apply_changes(
-	_defaults: WorldDefaults,
+	defaults: WorldDefaults,
 	entries: Array[ChangeRecord],
 	world: CompiledWorld
 ) -> Array[ChangeRecord]:
@@ -96,6 +96,7 @@ func _apply_changes(
 		match change.type:
 			ChangeRecord.ChangeType.POSITION:
 				var generated_ghost: ChangeRecord = _apply_position_change(
+					defaults,
 					change,
 					world,
 					last_position_affecting_index_by_subject,
@@ -104,7 +105,7 @@ func _apply_changes(
 				if generated_ghost != null and not _contains_equivalent_ghost_change(entries, generated_ghost_changes, generated_ghost):
 					generated_ghost_changes.append(generated_ghost)
 			ChangeRecord.ChangeType.GHOST:
-				_apply_ghost_change(change, world)
+				_apply_ghost_change(defaults, change, world)
 			ChangeRecord.ChangeType.EMPTY:
 				continue
 			_:
@@ -127,6 +128,7 @@ func _build_last_position_affecting_index_by_subject(entries: Array[ChangeRecord
 
 
 func _apply_position_change(
+	defaults: WorldDefaults,
 	change: ChangeRecord,
 	world: CompiledWorld,
 	last_position_affecting_index_by_subject: Dictionary,
@@ -138,6 +140,7 @@ func _apply_position_change(
 	if change.source_kind == ChangeRecord.SourceKind.LIVE_INPUT:
 		return _apply_live_input_position_change(change, world)
 	return _apply_remembered_rebuild_position_change(
+		defaults,
 		change,
 		world,
 		last_position_affecting_index_by_subject,
@@ -161,13 +164,15 @@ func _apply_live_input_position_change(change: ChangeRecord, world: CompiledWorl
 
 
 func _apply_remembered_rebuild_position_change(
+	defaults: WorldDefaults,
 	change: ChangeRecord,
 	world: CompiledWorld,
 	last_position_affecting_index_by_subject: Dictionary,
 	change_index: int
 ) -> ChangeRecord:
-	var from_exists: bool = world.entity_positions.has(change.subject_id)
-	var from_pos: Vector2i = world.entity_positions.get(change.subject_id, change.target_position)
+	var remembered_state: Dictionary = _resolve_current_remembered_state(defaults, world, change.subject_id)
+	var from_exists: bool = bool(remembered_state.get("exists", false))
+	var from_pos: Vector2i = remembered_state.get("position", change.target_position)
 	var path_result: Dictionary = PositionPathHelper.expand_with_player_conflict(
 		change.subject_id,
 		from_pos,
@@ -264,16 +269,45 @@ func _is_equivalent_ghost_change(entry: ChangeRecord, candidate: ChangeRecord) -
 		and entry.target_position == candidate.target_position
 
 
-func _apply_ghost_change(change: ChangeRecord, world: CompiledWorld) -> void:
+func _apply_ghost_change(defaults: WorldDefaults, change: ChangeRecord, world: CompiledWorld) -> void:
 	if change.subject_id == &"":
 		return
-	var target: Vector2i = change.target_position
-	if not world.is_inside(target) or not world.has_floor_at(target) or world.has_wall_at(target):
+	var remembered_state: Dictionary = _resolve_current_remembered_state(defaults, world, change.subject_id)
+	if not bool(remembered_state.get("exists", false)):
+		return
+	var ghostify_position: Vector2i = remembered_state.get("position", Vector2i.ZERO)
+	if not world.is_inside(ghostify_position) or not world.has_floor_at(ghostify_position) or world.has_wall_at(ghostify_position):
 		world.entity_positions.erase(change.subject_id)
 		world.ghost_entities.erase(change.subject_id)
 		return
 	world.entity_positions.erase(change.subject_id)
-	world.ghost_entities[change.subject_id] = target
+	world.ghost_entities[change.subject_id] = ghostify_position
+
+
+func _resolve_current_remembered_state(defaults: WorldDefaults, world: CompiledWorld, subject_id: StringName) -> Dictionary:
+	if world.entity_positions.has(subject_id):
+		return {
+			"exists": true,
+			"position": world.entity_positions[subject_id],
+			"is_ghost": false,
+		}
+	if world.ghost_entities.has(subject_id):
+		return {
+			"exists": true,
+			"position": world.ghost_entities[subject_id],
+			"is_ghost": true,
+		}
+	if defaults.default_entity_positions.has(subject_id):
+		return {
+			"exists": true,
+			"position": defaults.default_entity_positions[subject_id],
+			"is_ghost": false,
+		}
+	return {
+		"exists": false,
+		"position": Vector2i.ZERO,
+		"is_ghost": false,
+	}
 
 
 func _can_place_box(world: CompiledWorld, target: Vector2i, ignore_entity_id: StringName = &"") -> bool:
