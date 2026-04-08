@@ -3,18 +3,55 @@ extends RefCounted
 
 const MAX_ITERATIONS: int = 4
 
+var _interpreter: ChangeInterpreter = ChangeInterpreter.new()
 
-## Applies memory queue changes onto default world in two layers:
-## 1) remembered world interpreter (default + surviving queue only)
-## 2) projected live world (remembered world + current player projection)
+
 func compile(defaults: WorldDefaults, queue: ChangeQueue, player_position: Vector2i) -> CompileResult:
 	var result := CompileResult.new()
-	var removed: Array[ChangeRecord] = queue.normalize_to_capacity(defaults.memory_capacity)
-	result.pushed_out_changes.append_array(removed)
-	result.iterations = 1
-	result.queue_entries = _normalize_queue_for_rebuild_context(queue.entries())
-	var remembered_state: Dictionary = _build_remembered_world(defaults, result.queue_entries)
-	result.world = _project_live_world(defaults, remembered_state, player_position)
+	var normalized_queue: Array[ChangeRecord] = _normalize_queue_for_rebuild_context(queue.entries())
+	var queue_entries: Array[ChangeRecord] = normalized_queue.duplicate()
+	var context := CompileContext.new()
+	var iteration: int = 0
+
+	while iteration < MAX_ITERATIONS:
+		iteration += 1
+		var temp_queue := ChangeQueue.new()
+		for entry: ChangeRecord in queue_entries:
+			temp_queue.append(entry)
+		var removed: Array[ChangeRecord] = temp_queue.normalize_to_capacity(defaults.memory_capacity)
+		if iteration == 1:
+			result.pushed_out_changes.append_array(removed)
+		queue_entries = temp_queue.entries()
+
+		context.clear_generated()
+		var state := SimulationState.new()
+		state.setup_from_defaults(defaults, player_position)
+		_interpreter.interpret(queue_entries, state, context)
+		_collect_conflict_generated_changes(state, queue_entries, context)
+
+		if context.generated_changes.is_empty():
+			result.world = _build_projected_world(state)
+			break
+		for generated: ChangeRecord in context.generated_changes:
+			if _has_same_change(queue_entries, generated):
+				continue
+			queue_entries.append(generated)
+			if generated.type == ChangeRecord.ChangeType.GHOST and not _has_same_change(result.generated_ghost_changes, generated):
+				result.generated_ghost_changes.append(generated)
+
+	result.iterations = iteration
+	if result.world == null:
+		var fallback_state := SimulationState.new()
+		fallback_state.setup_from_defaults(defaults, player_position)
+		_interpreter.interpret(queue_entries, fallback_state, CompileContext.new())
+		result.world = _build_projected_world(fallback_state)
+	if iteration >= MAX_ITERATIONS and not context.generated_changes.is_empty():
+		result.reached_safety_limit = true
+	var final_queue := ChangeQueue.new()
+	for entry: ChangeRecord in queue_entries:
+		final_queue.append(entry)
+	final_queue.normalize_to_capacity(defaults.memory_capacity)
+	result.queue_entries = final_queue.entries()
 	return result
 
 
@@ -30,97 +67,41 @@ func _normalize_queue_for_rebuild_context(entries: Array[ChangeRecord]) -> Array
 	return normalized
 
 
-func _build_remembered_world(defaults: WorldDefaults, entries: Array[ChangeRecord]) -> Dictionary:
-	var exists_by_subject: Dictionary[StringName, bool] = {}
-	var position_by_subject: Dictionary[StringName, Vector2i] = {}
-	var is_ghost_by_subject: Dictionary[StringName, bool] = {}
-
-	for subject_id: StringName in defaults.default_entity_positions.keys():
-		exists_by_subject[subject_id] = true
-		position_by_subject[subject_id] = defaults.default_entity_positions[subject_id]
-		is_ghost_by_subject[subject_id] = false
-
-	for entry: ChangeRecord in entries:
-		if entry == null:
+func _collect_conflict_generated_changes(
+	state: SimulationState,
+	queue_entries: Array[ChangeRecord],
+	context: CompileContext
+) -> void:
+	for subject_id: StringName in state.position_by_subject.keys():
+		if not state.subject_exists(subject_id):
 			continue
-		if entry.subject_id == &"":
+		if bool(state.is_ghost_by_subject.get(subject_id, false)):
 			continue
-		match entry.type:
-			ChangeRecord.ChangeType.POSITION:
-				exists_by_subject[entry.subject_id] = true
-				position_by_subject[entry.subject_id] = entry.target_position
-				is_ghost_by_subject[entry.subject_id] = false
-			ChangeRecord.ChangeType.GHOST:
-				if not bool(exists_by_subject.get(entry.subject_id, false)):
-					continue
-				is_ghost_by_subject[entry.subject_id] = true
-			_:
-				continue
-
-	return {
-		"exists_by_subject": exists_by_subject,
-		"position_by_subject": position_by_subject,
-		"is_ghost_by_subject": is_ghost_by_subject,
-	}
+		var position: Vector2i = state.subject_position(subject_id)
+		if PlacementRules.can_land_solid(state, subject_id, position):
+			continue
+		var ghost_change: ChangeRecord = ConflictRules.ghostify_change(subject_id, position, "placement_conflict")
+		if _has_same_change(queue_entries, ghost_change):
+			continue
+		context.add_generated_change(ghost_change)
 
 
-func _project_live_world(
-	defaults: WorldDefaults,
-	remembered_state: Dictionary,
-	player_position: Vector2i
-) -> CompiledWorld:
-	var world := CompiledWorld.new()
-	world.board_size = defaults.board_size
-	world.player_position = player_position
-	world.exit_position = defaults.exit_position
-	for floor_pos: Vector2i in defaults.floor_cells:
-		world.floor_cells[floor_pos] = true
-	for wall_pos: Vector2i in defaults.wall_positions:
-		world.wall_positions[wall_pos] = true
-
-	var exists_by_subject: Dictionary = remembered_state.get("exists_by_subject", {})
-	var position_by_subject: Dictionary = remembered_state.get("position_by_subject", {})
-	var is_ghost_by_subject: Dictionary = remembered_state.get("is_ghost_by_subject", {})
-	var ordered_subjects: Array[StringName] = []
-	for subject_id_variant: Variant in position_by_subject.keys():
-		ordered_subjects.append(subject_id_variant)
-	ordered_subjects.sort()
-
-	for subject_id: StringName in ordered_subjects:
-		if not bool(exists_by_subject.get(subject_id, false)):
-			continue
-		if not position_by_subject.has(subject_id):
-			continue
-		var remembered_position: Vector2i = position_by_subject[subject_id]
-		if not world.is_inside(remembered_position):
-			continue
-		if not world.has_floor_at(remembered_position):
-			continue
-		if world.has_wall_at(remembered_position):
-			continue
-		if bool(is_ghost_by_subject.get(subject_id, false)):
-			world.ghost_entities[subject_id] = remembered_position
-			continue
-		if _can_project_solid_box(world, remembered_position, subject_id):
-			world.entity_positions[subject_id] = remembered_position
-			continue
-		world.ghost_entities[subject_id] = remembered_position
-
+func _build_projected_world(state: SimulationState) -> CompiledWorld:
+	var world: CompiledWorld = state.build_world()
+	var to_ghostify: Array[StringName] = []
+	for subject_id: StringName in world.entity_positions.keys():
+		var position: Vector2i = world.entity_positions[subject_id]
+		if position == world.player_position:
+			to_ghostify.append(subject_id)
+	for subject_id: StringName in to_ghostify:
+		var position: Vector2i = world.entity_positions[subject_id]
+		world.entity_positions.erase(subject_id)
+		world.ghost_entities[subject_id] = position
 	return world
 
 
-func _can_project_solid_box(world: CompiledWorld, target: Vector2i, ignore_entity_id: StringName = &"") -> bool:
-	if not world.is_inside(target):
-		return false
-	if not world.has_floor_at(target):
-		return false
-	if world.has_wall_at(target):
-		return false
-	if target == world.player_position:
-		return false
-	for entity_id: StringName in world.entity_positions.keys():
-		if entity_id == ignore_entity_id:
-			continue
-		if world.entity_positions[entity_id] == target:
-			return false
-	return true
+func _has_same_change(changes: Array[ChangeRecord], candidate: ChangeRecord) -> bool:
+	for entry: ChangeRecord in changes:
+		if entry.type == candidate.type and entry.subject_id == candidate.subject_id and entry.target_position == candidate.target_position and entry.source_kind == candidate.source_kind:
+			return true
+	return false

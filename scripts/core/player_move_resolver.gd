@@ -51,7 +51,8 @@ func resolve_move(world: CompiledWorld, direction: Vector2i) -> Dictionary:
 			push_target,
 			false,
 			"push",
-			ChangeRecord.SourceKind.LIVE_INPUT
+			ChangeRecord.SourceKind.LIVE_INPUT,
+			direction
 		)
 		result["reason"] = "push_success"
 		return result
@@ -63,7 +64,8 @@ func resolve_move(world: CompiledWorld, direction: Vector2i) -> Dictionary:
 		push_target,
 		false,
 		"push_fall",
-		ChangeRecord.SourceKind.LIVE_INPUT
+		ChangeRecord.SourceKind.LIVE_INPUT,
+		direction
 	)
 	result["reason"] = "push_fall"
 	return result
