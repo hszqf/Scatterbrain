@@ -321,20 +321,13 @@ func _play_memory_synchronized_replay(replay_steps: Array[Dictionary]) -> void:
 		var beat_steps: Array = beat.get("steps", [])
 		if queue_index >= 0:
 			_last_presentation_trace.append("queue:focus:%d" % queue_index)
+			_last_presentation_trace.append("queue:beat:start:%d" % queue_index)
 			_queue_view.begin_focus_on_slot(queue_index)
-		var beat_timing: Dictionary = _replay_controller.get_phase_timing(_replay_controller.memory_beat_duration)
-		var prepare_time: float = float(beat_timing.get("prepare", 0.0))
-		var action_time: float = float(beat_timing.get("action", 0.0))
-		var tail_time: float = float(beat_timing.get("tail", 0.0))
-		if prepare_time > 0.0:
-			await get_tree().create_timer(prepare_time).timeout
-		if queue_index >= 0:
-			_last_presentation_trace.append("queue:action:%d" % queue_index)
-		await _replay_controller.play_memory_beat_action(beat_steps, action_time)
+		_last_presentation_trace.append("board:beat:start:%d" % queue_index)
+		await _replay_controller.play_memory_beat(beat_steps, _replay_controller.memory_beat_duration)
 		if queue_index >= 0:
 			_queue_view.end_focus_on_slot(queue_index)
-		if tail_time > 0.0:
-			await get_tree().create_timer(tail_time).timeout
+		_last_presentation_trace.append("board:beat:end:%d" % queue_index)
 
 
 func _group_replay_steps_by_queue_index(replay_steps: Array[Dictionary]) -> Array[Dictionary]:
