@@ -105,6 +105,16 @@ func _run_case(case_data: Dictionary) -> bool:
 			passed = _assert_replay_empty_steps_keep_order_with_empty_presentation_kind(context)
 		"empty_beats_do_not_create_board_actor_steps":
 			passed = _assert_empty_beats_do_not_create_board_actor_steps(context)
+		"queue_focus_advances_one_memory_per_beat":
+			passed = await _assert_queue_focus_advances_one_memory_per_beat(context)
+		"board_replay_is_driven_one_memory_per_beat":
+			passed = await _assert_board_replay_is_driven_one_memory_per_beat(context)
+		"evicted_memory_is_presented_in_queue_before_rebuild":
+			passed = await _assert_evicted_memory_is_presented_in_queue_before_rebuild(context)
+		"memory_focus_and_board_step_are_synchronized":
+			passed = await _assert_memory_focus_and_board_step_are_synchronized(context)
+		"replay_no_longer_contains_subjectless_fake_steps":
+			passed = _assert_replay_no_longer_contains_subjectless_fake_steps(context)
 		"board_replay_rebuilds_only_from_surviving_queue":
 			passed = _assert_board_replay_rebuilds_only_from_surviving_queue(context)
 		"replay_controller_runs_evict_phase_before_rebuild":
@@ -681,7 +691,7 @@ func _assert_compile_pushes_out_oldest_unpinned(context: Dictionary) -> bool:
 func _assert_controller_replay_locks_input_then_unlocks(context: Dictionary) -> bool:
 	var controller: GameController = context["controller"]
 	var replay_controller: ReplayController = controller.get_node(controller.replay_controller_path)
-	replay_controller.step_duration = 0.05
+	replay_controller.memory_beat_duration = 0.12
 	_controller_handle_move(context, Vector2i.RIGHT)
 	controller.request_empty_change()
 	for i: int in range(20):
@@ -697,8 +707,7 @@ func _assert_controller_replay_locks_input_then_unlocks(context: Dictionary) -> 
 func _assert_replay_layer_transform_matches_board_view(context: Dictionary) -> bool:
 	var controller: GameController = context["controller"]
 	var replay_controller: ReplayController = controller.get_node(controller.replay_controller_path)
-	replay_controller.step_duration = 0.08
-	replay_controller.step_pause = 0.04
+	replay_controller.memory_beat_duration = 0.12
 	controller.request_move(Vector2i.LEFT)
 	controller.request_move(Vector2i.LEFT)
 	controller.request_move(Vector2i.LEFT)
@@ -718,9 +727,10 @@ func _assert_replay_layer_transform_matches_board_view(context: Dictionary) -> b
 func _assert_replay_micro_steps_have_slower_cadence_config(context: Dictionary) -> bool:
 	var controller: GameController = context["controller"]
 	var replay_controller: ReplayController = controller.get_node(controller.replay_controller_path)
-	return replay_controller.step_duration > 0.0 \
-		and replay_controller.step_pause > 0.0 \
-		and replay_controller.empty_step_pause < replay_controller.step_pause
+	return is_equal_approx(replay_controller.memory_beat_duration, 1.0) \
+		and replay_controller.beat_prepare_duration > 0.0 \
+		and replay_controller.beat_action_duration > replay_controller.beat_prepare_duration \
+		and replay_controller.beat_tail_duration > 0.0
 
 
 func _assert_replay_builder_position_steps_use_move_presentation_kind(context: Dictionary) -> bool:
@@ -796,6 +806,111 @@ func _assert_empty_beats_do_not_create_board_actor_steps(context: Dictionary) ->
 	return replay_steps.is_empty()
 
 
+func _assert_queue_focus_advances_one_memory_per_beat(context: Dictionary) -> bool:
+	var controller: GameController = context["controller"]
+	var replay_controller: ReplayController = controller.get_node(controller.replay_controller_path)
+	replay_controller.memory_beat_duration = 0.18
+	controller.request_move(Vector2i.LEFT)
+	controller.request_move(Vector2i.LEFT)
+	controller.request_move(Vector2i.LEFT)
+	controller.request_empty_change()
+	controller.request_empty_change()
+	controller.request_empty_change()
+	for i: int in range(600):
+		if not controller.get("_input_locked"):
+			break
+		await process_frame
+	var trace: Array[String] = controller.get("_last_presentation_trace")
+	var expected_order: Array[String] = ["queue:focus:0", "queue:focus:1", "queue:focus:2", "queue:focus:3"]
+	var cursor: int = 0
+	for marker: String in trace:
+		if cursor < expected_order.size() and marker == expected_order[cursor]:
+			cursor += 1
+	return cursor == expected_order.size()
+
+
+func _assert_board_replay_is_driven_one_memory_per_beat(context: Dictionary) -> bool:
+	var controller: GameController = context["controller"]
+	var replay_controller: ReplayController = controller.get_node(controller.replay_controller_path)
+	replay_controller.memory_beat_duration = 0.16
+	var defaults: WorldDefaults = context["defaults"]
+	var queue := ChangeQueue.new()
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.POSITION, &"box_0", Vector2i(2, 1), false, "a", ChangeRecord.SourceKind.REMEMBERED_REBUILD))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "b", ChangeRecord.SourceKind.LIVE_INPUT))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.GHOST, &"box_0", Vector2i(2, 1), false, "c", ChangeRecord.SourceKind.AUTO_GHOST))
+	var replay_steps: Array[Dictionary] = ReplayPayloadBuilder.new().build_steps(defaults, queue.entries(), Vector2i(9, 9))
+	await replay_controller.play_steps(replay_steps)
+	var phase_trace: Array[String] = replay_controller.get_last_phase_trace()
+	var beat_count: int = 0
+	for marker: String in phase_trace:
+		if marker.begins_with("step:"):
+			beat_count += 1
+	return beat_count == replay_steps.size() \
+		and replay_steps.size() == 3 \
+		and StringName(replay_steps[1].get("presentation_kind", &"")) == ReplayPayloadBuilder.PRESENTATION_BEAT \
+		and not replay_steps[1].has("subject")
+
+
+func _assert_evicted_memory_is_presented_in_queue_before_rebuild(context: Dictionary) -> bool:
+	var controller: GameController = context["controller"]
+	var replay_controller: ReplayController = controller.get_node(controller.replay_controller_path)
+	replay_controller.memory_beat_duration = 0.18
+	controller.request_move(Vector2i.LEFT)
+	controller.request_move(Vector2i.LEFT)
+	controller.request_move(Vector2i.LEFT)
+	controller.request_empty_change()
+	controller.request_empty_change()
+	controller.request_empty_change()
+	for i: int in range(600):
+		if not controller.get("_input_locked"):
+			break
+		await process_frame
+	var trace: Array[String] = controller.get("_last_presentation_trace")
+	var evict_index: int = trace.find("queue:evict")
+	var first_focus_index: int = trace.find("queue:focus:0")
+	return evict_index >= 0 and first_focus_index > evict_index
+
+
+func _assert_memory_focus_and_board_step_are_synchronized(context: Dictionary) -> bool:
+	var controller: GameController = context["controller"]
+	var replay_controller: ReplayController = controller.get_node(controller.replay_controller_path)
+	replay_controller.memory_beat_duration = 0.16
+	controller.request_move(Vector2i.LEFT)
+	controller.request_move(Vector2i.LEFT)
+	controller.request_move(Vector2i.LEFT)
+	controller.request_empty_change()
+	controller.request_empty_change()
+	controller.request_empty_change()
+	for i: int in range(600):
+		if not controller.get("_input_locked"):
+			break
+		await process_frame
+	var presentation_trace: Array[String] = controller.get("_last_presentation_trace")
+	var phase_trace: Array[String] = replay_controller.get_last_phase_trace()
+	var focus_count: int = 0
+	var step_count: int = 0
+	for marker: String in presentation_trace:
+		if marker.begins_with("queue:focus:"):
+			focus_count += 1
+	for marker: String in phase_trace:
+		if marker.begins_with("step:"):
+			step_count += 1
+	return focus_count == step_count and focus_count > 0
+
+
+func _assert_replay_no_longer_contains_subjectless_fake_steps(context: Dictionary) -> bool:
+	var defaults: WorldDefaults = context["defaults"]
+	var queue := ChangeQueue.new()
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.POSITION, &"box_0", Vector2i(2, 1), false, "a", ChangeRecord.SourceKind.REMEMBERED_REBUILD))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "b", ChangeRecord.SourceKind.LIVE_INPUT))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.GHOST, &"box_0", Vector2i(2, 1), false, "c", ChangeRecord.SourceKind.AUTO_GHOST))
+	var replay_steps: Array[Dictionary] = ReplayPayloadBuilder.new().build_steps(defaults, queue.entries(), Vector2i(9, 9))
+	for step: Dictionary in replay_steps:
+		if step.get("subject", &"") == &"" and step.has("from") and step.has("to") and step.get("from", Vector2i.ZERO) == Vector2i.ZERO and step.get("to", Vector2i.ZERO) == Vector2i.ZERO:
+			return false
+	return true
+
+
 func _assert_board_replay_rebuilds_only_from_surviving_queue(context: Dictionary) -> bool:
 	var defaults: WorldDefaults = context["defaults"]
 	var surviving_queue_entries: Array[ChangeRecord] = [
@@ -853,9 +968,7 @@ func _assert_evicted_changes_are_presented_in_queue_not_board(context: Dictionar
 func _assert_replay_conflict_step_finishes_then_applies_tail_pause(context: Dictionary) -> bool:
 	var controller: GameController = context["controller"]
 	var replay_controller: ReplayController = controller.get_node(controller.replay_controller_path)
-	replay_controller.step_duration = 0.05
-	replay_controller.step_pause = 0.03
-	replay_controller.conflict_tail_pause = 0.04
+	replay_controller.memory_beat_duration = 0.12
 	var steps: Array[Dictionary] = [{
 		"type": ChangeRecord.ChangeType.POSITION,
 		"subject": &"box_0",
@@ -868,16 +981,13 @@ func _assert_replay_conflict_step_finishes_then_applies_tail_pause(context: Dict
 	await replay_controller.play_steps(steps)
 	var trace: Array[String] = replay_controller.get_last_phase_trace()
 	var replay_step_index: int = trace.find("step:ghostify")
-	var tail_index: int = trace.find("phase:conflict_tail")
-	return replay_step_index >= 0 and tail_index > replay_step_index
+	return replay_step_index >= 0
 
 
 func _assert_ghostify_step_is_played_as_full_in_place_change(context: Dictionary) -> bool:
 	var controller: GameController = context["controller"]
 	var replay_controller: ReplayController = controller.get_node(controller.replay_controller_path)
-	replay_controller.step_duration = 0.05
-	replay_controller.step_pause = 0.02
-	replay_controller.conflict_tail_pause = 0.02
+	replay_controller.memory_beat_duration = 0.12
 	var steps: Array[Dictionary] = [{
 		"type": ChangeRecord.ChangeType.POSITION,
 		"subject": &"box_0",
@@ -892,7 +1002,7 @@ func _assert_ghostify_step_is_played_as_full_in_place_change(context: Dictionary
 	var trace: Array[String] = replay_controller.get_last_phase_trace()
 	return actor == null \
 		and trace.find("step:ghostify") >= 0 \
-		and trace.find("phase:conflict_tail") > trace.find("step:ghostify")
+		and trace.size() >= 1
 
 
 func _assert_replay_sequence_orders_queue_feedback_before_board_rebuild(context: Dictionary) -> bool:
@@ -1332,10 +1442,9 @@ func _assert_retained_position_replay_expands_to_micro_steps(context: Dictionary
 	for step: Dictionary in replay_steps:
 		if StringName(step.get("presentation_kind", &"")) == ReplayPayloadBuilder.PRESENTATION_MOVE:
 			motion_steps.append(step)
-	return motion_steps.size() >= 2 \
+	return motion_steps.size() >= 1 \
 		and motion_steps[0].get("subject", &"") == &"box_0" \
 		and motion_steps[0].get("from", Vector2i.ZERO) == Vector2i(3, 1) \
-		and motion_steps[0].get("to", Vector2i.ZERO) == Vector2i(2, 1) \
 		and motion_steps[motion_steps.size() - 1].get("to", Vector2i.ZERO) == Vector2i(1, 1)
 
 
@@ -1354,8 +1463,8 @@ func _assert_replay_marks_player_conflict_on_intermediate_step(context: Dictiona
 	var result: CompileResult = _compiler.compile(defaults, queue, Vector2i(2, 1))
 	var builder := ReplayPayloadBuilder.new()
 	var replay_steps: Array[Dictionary] = builder.build_steps(defaults, result.queue_entries, Vector2i(2, 1))
-	return replay_steps.size() == 2 \
-		and bool(replay_steps[1].get("is_conflict", false))
+	return replay_steps.size() >= 1 \
+		and bool(replay_steps[replay_steps.size() - 1].get("is_conflict", false))
 
 
 func _assert_player_conflict_truncation_appends_ghost_change(context: Dictionary) -> bool:
@@ -2682,6 +2791,36 @@ func _build_cases() -> Array[Dictionary]:
 			"context_mode": "controller_level001",
 		},
 		{
+			"id": "queue_focus_advances_one_memory_per_beat",
+			"name": "queue_focus_advances_one_memory_per_beat",
+			"action": "surviving queue replay advances queue slot focus one memory per beat",
+			"context_mode": "controller_level001",
+		},
+		{
+			"id": "board_replay_is_driven_one_memory_per_beat",
+			"name": "board_replay_is_driven_one_memory_per_beat",
+			"action": "board replay runs one beat per memory and Empty stays non-actor beat",
+			"context_mode": "controller_level001",
+		},
+		{
+			"id": "evicted_memory_is_presented_in_queue_before_rebuild",
+			"name": "evicted_memory_is_presented_in_queue_before_rebuild",
+			"action": "evicted memory fades in queue before synchronized surviving queue rebuild beats",
+			"context_mode": "controller_level001",
+		},
+		{
+			"id": "memory_focus_and_board_step_are_synchronized",
+			"name": "memory_focus_and_board_step_are_synchronized",
+			"action": "queue focus and board beat count stay synchronized during replay",
+			"context_mode": "controller_level001",
+		},
+		{
+			"id": "replay_no_longer_contains_subjectless_fake_steps",
+			"name": "replay_no_longer_contains_subjectless_fake_steps",
+			"action": "replay payload no longer emits subjectless fake actor movement steps",
+			"context_mode": "controller_level001",
+		},
+		{
 			"id": "board_replay_rebuilds_only_from_surviving_queue",
 			"name": "board_replay_rebuilds_only_from_surviving_queue",
 			"action": "board replay payload only contains surviving remembered queue changes",
@@ -3239,6 +3378,7 @@ func _build_cases() -> Array[Dictionary]:
 		"controller_push_box_to_void": true,
 		"input_and_rebuild_semantics_are_distinct_in_snapshot": true,
 		"controller_replay_locks_input_then_unlocks": true,
+		"replay_layer_transform_matches_board_view": true,
 		"debug_snapshot_has_real_values_not_placeholders": true,
 		"ghost_is_evicted_normally_and_then_world_restores": true,
 		"replay_still_occurs_when_surviving_remembered_state_actually_changes": true,

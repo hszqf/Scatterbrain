@@ -18,13 +18,15 @@ func build_steps(
 	var steps: Array[Dictionary] = []
 	var state := SimulationState.new()
 	state.setup_from_defaults(defaults, live_player_position)
-	for entry: ChangeRecord in surviving_queue_entries:
+	for queue_index: int in range(surviving_queue_entries.size()):
+		var entry: ChangeRecord = surviving_queue_entries[queue_index]
 		if entry == null:
 			continue
 		if entry.type == ChangeRecord.ChangeType.EMPTY:
 			steps.append({
 				"type": ChangeRecord.ChangeType.EMPTY,
 				"presentation_kind": PRESENTATION_BEAT,
+				"queue_index": queue_index,
 			})
 			continue
 		if not _is_replayable_position_affecting_entry(entry):
@@ -39,9 +41,19 @@ func build_steps(
 			var from_pos: Vector2i = event.get("from", Vector2i.ZERO)
 			var to_pos: Vector2i = event.get("to", from_pos)
 			if change.type == ChangeRecord.ChangeType.POSITION:
-				for step: Dictionary in PositionPathHelper.expand_without_conflict(change.subject_id, from_pos, to_pos, true):
-					step["presentation_kind"] = PRESENTATION_MOVE
-					steps.append(step)
+				steps.append({
+					"type": ChangeRecord.ChangeType.POSITION,
+					"from": from_pos,
+					"to": to_pos,
+					"subject": change.subject_id,
+					"from_exists": true,
+					"to_exists": true,
+					"appears": false,
+					"is_conflict": bool(event.get("is_conflict", false)),
+					"ends_as_ghost": bool(event.get("ends_as_ghost", false)),
+					"presentation_kind": PRESENTATION_MOVE,
+					"queue_index": queue_index,
+				})
 			elif change.type == ChangeRecord.ChangeType.GHOST:
 				steps.append({
 					"type": ChangeRecord.ChangeType.POSITION,
@@ -54,6 +66,7 @@ func build_steps(
 					"is_conflict": true,
 					"ends_as_ghost": true,
 					"presentation_kind": PRESENTATION_GHOSTIFY,
+					"queue_index": queue_index,
 				})
 	if steps.is_empty():
 		return []
