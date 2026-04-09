@@ -315,12 +315,43 @@ func _recompile_world(reason: String) -> void:
 
 
 func _play_memory_synchronized_replay(replay_steps: Array[Dictionary]) -> void:
-	for step: Dictionary in replay_steps:
-		var queue_index: int = int(step.get("queue_index", -1))
+	var replay_beats: Array[Dictionary] = _group_replay_steps_by_queue_index(replay_steps)
+	for beat: Dictionary in replay_beats:
+		var queue_index: int = int(beat.get("queue_index", -1))
+		var beat_steps: Array[Dictionary] = beat.get("steps", [])
 		if queue_index >= 0:
 			_last_presentation_trace.append("queue:focus:%d" % queue_index)
-			_queue_view.call_deferred("play_focus_on_slot", queue_index, _replay_controller.memory_beat_duration)
-		await _replay_controller.play_memory_step(step, _replay_controller.memory_beat_duration)
+			_queue_view.begin_focus_on_slot(queue_index)
+		var beat_timing: Dictionary = _replay_controller.get_phase_timing(_replay_controller.memory_beat_duration)
+		var prepare_time: float = float(beat_timing.get("prepare", 0.0))
+		var action_time: float = float(beat_timing.get("action", 0.0))
+		var tail_time: float = float(beat_timing.get("tail", 0.0))
+		if prepare_time > 0.0:
+			await get_tree().create_timer(prepare_time).timeout
+		if queue_index >= 0:
+			_last_presentation_trace.append("queue:action:%d" % queue_index)
+		await _replay_controller.play_memory_beat_action(beat_steps, action_time)
+		if queue_index >= 0:
+			_queue_view.end_focus_on_slot(queue_index)
+		if tail_time > 0.0:
+			await get_tree().create_timer(tail_time).timeout
+
+
+func _group_replay_steps_by_queue_index(replay_steps: Array[Dictionary]) -> Array[Dictionary]:
+	var groups: Array[Dictionary] = []
+	var grouped_by_index: Dictionary[int, Dictionary] = {}
+	for step: Dictionary in replay_steps:
+		var queue_index: int = int(step.get("queue_index", -1))
+		if not grouped_by_index.has(queue_index):
+			var group := {
+				"queue_index": queue_index,
+				"steps": Array([], TYPE_DICTIONARY, "", null),
+			}
+			grouped_by_index[queue_index] = group
+			groups.append(group)
+		var beat_steps: Array = grouped_by_index[queue_index]["steps"]
+		beat_steps.append(step)
+	return groups
 
 
 func _update_status() -> void:

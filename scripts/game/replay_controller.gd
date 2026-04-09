@@ -45,7 +45,7 @@ func play_steps(steps: Array[Dictionary]) -> void:
 		_last_phase_trace.append("phase:rebuild")
 	for step: Dictionary in steps:
 		_sync_replay_layer_transform()
-		await play_memory_step(step)
+		await play_memory_beat([step], memory_beat_duration)
 		_sync_replay_layer_transform()
 	_restore_live_subjects(replay_subjects)
 	_clear_replay_actors()
@@ -53,7 +53,7 @@ func play_steps(steps: Array[Dictionary]) -> void:
 	_board_view.end_replay_presentation()
 
 
-func play_memory_step(step: Dictionary, beat_duration: float = memory_beat_duration) -> void:
+func play_memory_beat(beat_steps: Array[Dictionary], beat_duration: float = memory_beat_duration) -> void:
 	_sync_replay_layer_transform()
 	var phase_timing: Dictionary = _resolve_phase_timing(beat_duration)
 	var prepare_time: float = float(phase_timing.get("prepare", 0.0))
@@ -61,19 +61,46 @@ func play_memory_step(step: Dictionary, beat_duration: float = memory_beat_durat
 	var tail_time: float = float(phase_timing.get("tail", 0.0))
 	if prepare_time > 0.0:
 		await get_tree().create_timer(prepare_time).timeout
-	var presentation_kind: StringName = StringName(step.get("presentation_kind", _resolve_presentation_kind(step)))
-	match presentation_kind:
-		ReplayPayloadBuilder.PRESENTATION_BEAT:
-			_last_phase_trace.append("step:beat")
-			await play_timing_beat(action_time)
-		ReplayPayloadBuilder.PRESENTATION_GHOSTIFY:
-			_last_phase_trace.append("step:ghostify")
-			await play_board_replay(step, action_time)
-		_:
-			_last_phase_trace.append("step:move")
-			await play_board_replay(step, action_time)
+	await play_memory_beat_action(beat_steps, action_time)
 	if tail_time > 0.0:
 		await get_tree().create_timer(tail_time).timeout
+
+
+func play_memory_beat_action(beat_steps: Array[Dictionary], action_duration: float) -> void:
+	if beat_steps.is_empty():
+		if action_duration > 0.0:
+			await get_tree().create_timer(action_duration).timeout
+		return
+	var board_steps: Array[Dictionary] = []
+	var has_beat_step: bool = false
+	for step: Dictionary in beat_steps:
+		var presentation_kind: StringName = StringName(step.get("presentation_kind", _resolve_presentation_kind(step)))
+		if presentation_kind == ReplayPayloadBuilder.PRESENTATION_BEAT:
+			has_beat_step = true
+			continue
+		board_steps.append(step)
+	if board_steps.is_empty() and has_beat_step:
+		_last_phase_trace.append("step:meditate_pulse")
+		await play_timing_beat(action_duration)
+		return
+	if board_steps.is_empty():
+		if action_duration > 0.0:
+			await get_tree().create_timer(action_duration).timeout
+		return
+	var step_duration: float = action_duration / float(board_steps.size())
+	for step: Dictionary in board_steps:
+		var presentation_kind: StringName = StringName(step.get("presentation_kind", _resolve_presentation_kind(step)))
+		match presentation_kind:
+			ReplayPayloadBuilder.PRESENTATION_GHOSTIFY:
+				_last_phase_trace.append("step:ghostify")
+				await play_board_replay(step, step_duration)
+			_:
+				_last_phase_trace.append("step:move")
+				await play_board_replay(step, step_duration)
+
+
+func play_memory_step(step: Dictionary, beat_duration: float = memory_beat_duration) -> void:
+	await play_memory_beat([step], beat_duration)
 
 
 func play_board_replay(step: Dictionary, action_duration: float) -> void:
@@ -145,7 +172,7 @@ func _play_ghostify_step(step: Dictionary, action_duration: float) -> void:
 
 
 func play_timing_beat(action_duration: float) -> void:
-	await get_tree().create_timer(action_duration).timeout
+	await _board_view.play_player_meditate_pulse(action_duration)
 
 
 func _prepare_step_actor(step: Dictionary) -> BoxView:
@@ -221,6 +248,10 @@ func get_replay_actor(subject_id: StringName) -> BoxView:
 
 func get_last_phase_trace() -> Array[String]:
 	return _last_phase_trace.duplicate()
+
+
+func get_phase_timing(beat_duration: float = memory_beat_duration) -> Dictionary:
+	return _resolve_phase_timing(beat_duration)
 
 
 func _collect_replay_subjects(steps: Array[Dictionary]) -> Array[StringName]:
