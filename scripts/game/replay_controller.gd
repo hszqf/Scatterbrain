@@ -3,16 +3,15 @@ extends Node
 
 @export var board_view_path: NodePath
 @export var replay_layer_path: NodePath
-@export var step_duration: float = 0.52
-@export var step_pause: float = 0.1
-@export var conflict_tail_pause: float = 0.14
-@export var empty_step_pause: float = 0.05
+@export var memory_beat_duration: float = 1.0
+@export var beat_prepare_duration: float = 0.15
+@export var beat_action_duration: float = 0.65
+@export var beat_tail_duration: float = 0.2
 @export var move_anticipation_ratio: float = 0.2
 @export var move_travel_ratio: float = 0.62
 @export var move_settle_ratio: float = 0.3
 @export var ghost_expand_ratio: float = 0.32
 @export var ghost_stamp_ratio: float = 0.28
-@export var ghost_tail_ratio: float = 0.72
 
 var _board_view: BoardView
 var _replay_layer: Node2D
@@ -46,56 +45,51 @@ func play_steps(steps: Array[Dictionary]) -> void:
 		_last_phase_trace.append("phase:rebuild")
 	for step: Dictionary in steps:
 		_sync_replay_layer_transform()
-		var should_stop: bool = await _play_step(step)
+		await play_memory_step(step)
 		_sync_replay_layer_transform()
-		if should_stop:
-			break
 	_restore_live_subjects(replay_subjects)
 	_clear_replay_actors()
 	_replay_presenting_subjects.clear()
 	_board_view.end_replay_presentation()
 
 
-func _play_step(step: Dictionary) -> bool:
+func play_memory_step(step: Dictionary, beat_duration: float = memory_beat_duration) -> void:
 	_sync_replay_layer_transform()
+	var phase_timing: Dictionary = _resolve_phase_timing(beat_duration)
+	var prepare_time: float = float(phase_timing.get("prepare", 0.0))
+	var action_time: float = float(phase_timing.get("action", 0.0))
+	var tail_time: float = float(phase_timing.get("tail", 0.0))
+	if prepare_time > 0.0:
+		await get_tree().create_timer(prepare_time).timeout
 	var presentation_kind: StringName = StringName(step.get("presentation_kind", _resolve_presentation_kind(step)))
 	match presentation_kind:
 		ReplayPayloadBuilder.PRESENTATION_BEAT:
 			_last_phase_trace.append("step:beat")
-			await play_timing_beat(step)
+			await play_timing_beat(action_time)
 		ReplayPayloadBuilder.PRESENTATION_GHOSTIFY:
 			_last_phase_trace.append("step:ghostify")
-			var did_play_ghostify: bool = await play_board_replay(step)
-			if not did_play_ghostify:
-				return false
+			await play_board_replay(step, action_time)
 		_:
 			_last_phase_trace.append("step:move")
-			var did_play_move: bool = await play_board_replay(step)
-			if not did_play_move:
-				return false
-	if bool(step.get("is_conflict", false)):
-		_last_phase_trace.append("phase:conflict_tail")
-		await get_tree().create_timer(conflict_tail_pause).timeout
-		return true
-	return false
+			await play_board_replay(step, action_time)
+	if tail_time > 0.0:
+		await get_tree().create_timer(tail_time).timeout
 
 
-func play_board_replay(step: Dictionary) -> bool:
+func play_board_replay(step: Dictionary, action_duration: float) -> void:
 	var presentation_kind: StringName = StringName(step.get("presentation_kind", _resolve_presentation_kind(step)))
 	match presentation_kind:
 		ReplayPayloadBuilder.PRESENTATION_GHOSTIFY:
-			await _play_ghostify_step(step)
-			return true
+			await _play_ghostify_step(step, action_duration)
 		ReplayPayloadBuilder.PRESENTATION_MOVE:
-			await _play_move_step(step)
-			return true
-		_:
-			return false
+			await _play_move_step(step, action_duration)
 
 
-func _play_move_step(step: Dictionary) -> void:
+func _play_move_step(step: Dictionary, action_duration: float) -> void:
 	var node: BoxView = _prepare_step_actor(step)
 	if node == null:
+		if action_duration > 0.0:
+			await get_tree().create_timer(action_duration).timeout
 		return
 	var from_pos: Vector2i = step.get("from", Vector2i.ZERO)
 	var to_pos: Vector2i = step.get("to", from_pos)
@@ -105,27 +99,28 @@ func _play_move_step(step: Dictionary) -> void:
 	node.set_is_ghost(false)
 	node.set_is_conflict(false)
 	var anticipate: Tween = create_tween()
-	anticipate.tween_property(node, "scale", Vector2(0.92, 1.06), step_duration * move_anticipation_ratio)
+	anticipate.tween_property(node, "scale", Vector2(0.92, 1.06), action_duration * move_anticipation_ratio)
 	await anticipate.finished
 
 	var travel: Tween = create_tween()
 	travel.set_parallel(true)
-	travel.tween_property(node, "position", _board_view.board_to_pixel_center(to_pos), step_duration * move_travel_ratio)
-	travel.tween_property(node, "scale", Vector2(1.06, 0.94), step_duration * move_travel_ratio)
+	travel.tween_property(node, "position", _board_view.board_to_pixel_center(to_pos), action_duration * move_travel_ratio)
+	travel.tween_property(node, "scale", Vector2(1.06, 0.94), action_duration * move_travel_ratio)
 	await travel.finished
 
 	var settle: Tween = create_tween()
-	settle.tween_property(node, "scale", Vector2.ONE, step_duration * move_settle_ratio)
+	settle.tween_property(node, "scale", Vector2.ONE, action_duration * move_settle_ratio)
 	await settle.finished
 	if bool(step.get("ends_as_ghost", false)):
 		node.set_is_ghost(true)
 	node.set_is_conflict(bool(step.get("is_conflict", false)))
-	await get_tree().create_timer(step_pause).timeout
 
 
-func _play_ghostify_step(step: Dictionary) -> void:
+func _play_ghostify_step(step: Dictionary, action_duration: float) -> void:
 	var node: BoxView = _prepare_step_actor(step)
 	if node == null:
+		if action_duration > 0.0:
+			await get_tree().create_timer(action_duration).timeout
 		return
 	var from_pos: Vector2i = step.get("from", Vector2i.ZERO)
 	node.set_board_position(from_pos, _board_view.cell_size)
@@ -135,23 +130,22 @@ func _play_ghostify_step(step: Dictionary) -> void:
 	node.scale = Vector2.ONE
 
 	var expand: Tween = create_tween()
-	expand.tween_property(node, "scale", Vector2(1.18, 1.18), step_duration * ghost_expand_ratio)
+	expand.tween_property(node, "scale", Vector2(1.18, 1.18), action_duration * ghost_expand_ratio)
 	await expand.finished
 
 	node.set_is_ghost(true)
 	node.set_is_conflict(bool(step.get("is_conflict", false)))
 	var stamp: Tween = create_tween()
-	stamp.tween_property(node, "scale", Vector2(0.94, 0.94), step_duration * ghost_stamp_ratio)
+	stamp.tween_property(node, "scale", Vector2(0.94, 0.94), action_duration * ghost_stamp_ratio)
 	await stamp.finished
 
 	var settle: Tween = create_tween()
-	settle.tween_property(node, "scale", Vector2.ONE, step_duration * 0.2)
+	settle.tween_property(node, "scale", Vector2.ONE, action_duration * 0.2)
 	await settle.finished
-	await get_tree().create_timer(step_pause * ghost_tail_ratio).timeout
 
 
-func play_timing_beat(_step: Dictionary) -> void:
-	await get_tree().create_timer(empty_step_pause).timeout
+func play_timing_beat(action_duration: float) -> void:
+	await get_tree().create_timer(action_duration).timeout
 
 
 func _prepare_step_actor(step: Dictionary) -> BoxView:
@@ -178,6 +172,23 @@ func _sync_replay_layer_transform() -> void:
 		return
 	_replay_layer.position = _board_view.position
 	_replay_layer.scale = _board_view.scale
+
+
+func _resolve_phase_timing(beat_duration: float) -> Dictionary:
+	var clamped_duration: float = maxf(beat_duration, 0.01)
+	var configured_total: float = beat_prepare_duration + beat_action_duration + beat_tail_duration
+	if configured_total <= 0.001:
+		return {
+			"prepare": 0.0,
+			"action": clamped_duration,
+			"tail": 0.0,
+		}
+	var scale_factor: float = clamped_duration / configured_total
+	return {
+		"prepare": beat_prepare_duration * scale_factor,
+		"action": beat_action_duration * scale_factor,
+		"tail": beat_tail_duration * scale_factor,
+	}
 
 
 func get_replay_actor_subjects() -> Array[StringName]:

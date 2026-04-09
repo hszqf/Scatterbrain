@@ -5,15 +5,20 @@ extends Control
 @export var slots_container_path: NodePath
 @export var obsession_label_path: NodePath
 @export var evict_drop_pixels: float = 14.0
-@export var evict_scale: float = 1.16
-@export var evict_duration: float = 0.12
-@export var append_pop_scale: float = 1.12
-@export var append_duration: float = 0.1
-@export var settle_duration: float = 0.05
+@export var evict_scale: float = 1.24
+@export var evict_duration: float = 0.34
+@export var append_pop_scale: float = 1.2
+@export var append_duration: float = 0.3
+@export var settle_duration: float = 0.16
+@export var focus_scale: float = 1.3
+@export var focus_in_duration: float = 0.15
+@export var focus_out_duration: float = 0.2
+@export var focus_modulate: Color = Color(1.42, 1.35, 1.05, 1.0)
 
 var _slots_container: HBoxContainer
 var _obsession_label: Label
 var _slot_nodes: Array[Panel] = []
+var _slot_base_modulates: Array[Color] = []
 var _last_animation_trace: Array[String] = []
 
 
@@ -93,7 +98,32 @@ func animate_queue_settle() -> void:
 			continue
 		slot.pivot_offset = slot.size * 0.5
 		tween.tween_property(slot, "scale", Vector2.ONE, settle_duration)
+		tween.tween_property(slot, "modulate", _base_modulate_for_slot(slot), settle_duration)
 	await tween.finished
+
+
+func play_focus_on_slot(slot_index: int, beat_duration: float = 1.0) -> void:
+	var slot: Panel = _slot_at(slot_index)
+	if slot == null:
+		if beat_duration > 0.0:
+			await get_tree().create_timer(beat_duration).timeout
+		return
+	var focus_hold: float = maxf(0.0, beat_duration - focus_in_duration - focus_out_duration)
+	_last_animation_trace.append("queue:focus:%d:start" % slot_index)
+	slot.pivot_offset = slot.size * 0.5
+	var focus_in: Tween = create_tween()
+	focus_in.set_parallel(true)
+	focus_in.tween_property(slot, "scale", Vector2(focus_scale, focus_scale), focus_in_duration)
+	focus_in.tween_property(slot, "modulate", _base_modulate_for_slot(slot) * focus_modulate, focus_in_duration)
+	await focus_in.finished
+	if focus_hold > 0.0:
+		await get_tree().create_timer(focus_hold).timeout
+	var focus_out: Tween = create_tween()
+	focus_out.set_parallel(true)
+	focus_out.tween_property(slot, "scale", Vector2.ONE, focus_out_duration)
+	focus_out.tween_property(slot, "modulate", _base_modulate_for_slot(slot), focus_out_duration)
+	await focus_out.finished
+	_last_animation_trace.append("queue:focus:%d:end" % slot_index)
 
 
 func get_last_animation_trace() -> Array[String]:
@@ -104,11 +134,13 @@ func _rebuild_slots(entries: Array[ChangeRecord], capacity: int) -> void:
 	for child: Node in _slots_container.get_children():
 		child.queue_free()
 	_slot_nodes.clear()
+	_slot_base_modulates.clear()
 	for i: int in range(capacity):
 		var has_entry: bool = i < entries.size()
 		var slot: Panel = _build_slot(entries[i] if has_entry else null)
 		_slots_container.add_child(slot)
 		_slot_nodes.append(slot)
+		_slot_base_modulates.append(slot.modulate)
 
 
 func _build_slot(entry: ChangeRecord) -> Panel:
@@ -198,3 +230,16 @@ func _slot_marker_color(entry: ChangeRecord) -> Color:
 			return Color("321a4f")
 		_:
 			return Color("3b4555")
+
+
+func _slot_at(slot_index: int) -> Panel:
+	if slot_index < 0 or slot_index >= _slot_nodes.size():
+		return null
+	return _slot_nodes[slot_index]
+
+
+func _base_modulate_for_slot(slot: Panel) -> Color:
+	var slot_index: int = _slot_nodes.find(slot)
+	if slot_index < 0 or slot_index >= _slot_base_modulates.size():
+		return Color.WHITE
+	return _slot_base_modulates[slot_index]

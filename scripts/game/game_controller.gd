@@ -286,7 +286,7 @@ func _recompile_world(reason: String) -> void:
 
 		if _replay_controller.has_steps(replay_steps):
 			_last_presentation_trace.append("board:rebuild")
-			await _replay_controller.play_steps(replay_steps)
+			await _play_memory_synchronized_replay(replay_steps)
 			_last_replay_used_live_box_views = _replay_controller.used_live_box_views()
 			_last_replay_completed = true
 		elif not replay_steps.is_empty():
@@ -312,6 +312,15 @@ func _recompile_world(reason: String) -> void:
 		push_error("compile reached safety limit")
 	print("[Recompile] end iterations=%d queue=%d" % [result.iterations, _queue.size()])
 	_input_locked = false
+
+
+func _play_memory_synchronized_replay(replay_steps: Array[Dictionary]) -> void:
+	for step: Dictionary in replay_steps:
+		var queue_index: int = int(step.get("queue_index", -1))
+		if queue_index >= 0:
+			_last_presentation_trace.append("queue:focus:%d" % queue_index)
+			_queue_view.call_deferred("play_focus_on_slot", queue_index, _replay_controller.memory_beat_duration)
+		await _replay_controller.play_memory_step(step, _replay_controller.memory_beat_duration)
 
 
 func _update_status() -> void:
