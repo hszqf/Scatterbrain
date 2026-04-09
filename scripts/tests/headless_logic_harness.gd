@@ -107,15 +107,23 @@ func _run_case(case_data: Dictionary) -> bool:
 			passed = _assert_empty_beats_do_not_create_board_actor_steps(context)
 		"replay_is_grouped_by_queue_index_not_raw_steps":
 			passed = _assert_replay_is_grouped_by_queue_index_not_raw_steps(context)
+		"replay_groups_steps_by_queue_index":
+			passed = _assert_replay_is_grouped_by_queue_index_not_raw_steps(context)
 		"queue_focus_advances_one_memory_per_beat":
 			passed = await _assert_queue_focus_advances_one_memory_per_beat(context)
 		"board_replay_is_driven_one_memory_per_beat":
 			passed = await _assert_board_replay_is_driven_one_memory_per_beat(context)
 		"one_memory_one_beat_presentation":
 			passed = await _assert_one_memory_one_beat_presentation(context)
+		"one_queue_entry_one_visible_beat":
+			passed = await _assert_one_queue_entry_one_visible_beat(context)
 		"empty_beat_triggers_player_meditate_pulse":
 			passed = await _assert_empty_beat_triggers_player_meditate_pulse(context)
+		"empty_beats_trigger_player_pulse_each_beat":
+			passed = await _assert_empty_beats_trigger_player_pulse_each_beat(context)
 		"empty_beat_does_not_create_box_actor_movement":
+			passed = _assert_empty_beat_does_not_create_box_actor_movement(context)
+		"empty_beats_do_not_create_box_motion":
 			passed = _assert_empty_beat_does_not_create_box_actor_movement(context)
 		"evicted_memory_is_presented_in_queue_before_rebuild":
 			passed = await _assert_evicted_memory_is_presented_in_queue_before_rebuild(context)
@@ -123,6 +131,8 @@ func _run_case(case_data: Dictionary) -> bool:
 			passed = await _assert_memory_focus_and_board_step_are_synchronized(context)
 		"queue_focus_and_board_action_start_in_same_beat":
 			passed = await _assert_queue_focus_and_board_action_start_in_same_beat(context)
+		"queue_focus_and_board_beat_start_together":
+			passed = await _assert_queue_focus_and_board_beat_start_together(context)
 		"replay_no_longer_contains_subjectless_fake_steps":
 			passed = _assert_replay_no_longer_contains_subjectless_fake_steps(context)
 		"board_replay_rebuilds_only_from_surviving_queue":
@@ -906,6 +916,38 @@ func _assert_one_memory_one_beat_presentation(context: Dictionary) -> bool:
 	return beat_focus_count > 0 and beat_focus_count == action_markers
 
 
+func _assert_one_queue_entry_one_visible_beat(context: Dictionary) -> bool:
+	var controller: GameController = context["controller"]
+	var replay_controller: ReplayController = controller.get_node(controller.replay_controller_path)
+	replay_controller.memory_beat_duration = 0.16
+	controller.request_move(Vector2i.LEFT)
+	controller.request_move(Vector2i.LEFT)
+	controller.request_move(Vector2i.LEFT)
+	controller.request_empty_change()
+	controller.request_empty_change()
+	controller.request_empty_change()
+	for i: int in range(600):
+		if not controller.get("_input_locked"):
+			break
+		await process_frame
+	var replay_steps: Array[Dictionary] = controller.get("_last_replay_steps")
+	if replay_steps.is_empty():
+		return false
+	var unique_queue_indexes: Dictionary[int, bool] = {}
+	for step: Dictionary in replay_steps:
+		var queue_index: int = int(step.get("queue_index", -1))
+		unique_queue_indexes[queue_index] = true
+	var presentation_trace: Array[String] = controller.get("_last_presentation_trace")
+	var focus_count: int = 0
+	var beat_start_count: int = 0
+	for marker: String in presentation_trace:
+		if marker.begins_with("queue:focus:"):
+			focus_count += 1
+		if marker.begins_with("board:beat:start:"):
+			beat_start_count += 1
+	return unique_queue_indexes.size() == focus_count and focus_count == beat_start_count and focus_count > 0
+
+
 func _assert_empty_beat_triggers_player_meditate_pulse(context: Dictionary) -> bool:
 	var controller: GameController = context["controller"]
 	var replay_controller: ReplayController = controller.get_node(controller.replay_controller_path)
@@ -922,6 +964,33 @@ func _assert_empty_beat_triggers_player_meditate_pulse(context: Dictionary) -> b
 		await process_frame
 	var phase_trace: Array[String] = replay_controller.get_last_phase_trace()
 	return phase_trace.has("step:meditate_pulse")
+
+
+func _assert_empty_beats_trigger_player_pulse_each_beat(context: Dictionary) -> bool:
+	var controller: GameController = context["controller"]
+	var replay_controller: ReplayController = controller.get_node(controller.replay_controller_path)
+	replay_controller.memory_beat_duration = 0.16
+	controller.request_move(Vector2i.LEFT)
+	controller.request_move(Vector2i.LEFT)
+	controller.request_move(Vector2i.LEFT)
+	controller.request_empty_change()
+	controller.request_empty_change()
+	controller.request_empty_change()
+	for i: int in range(600):
+		if not controller.get("_input_locked"):
+			break
+		await process_frame
+	var replay_steps: Array[Dictionary] = controller.get("_last_replay_steps")
+	var empty_beat_count: int = 0
+	for step: Dictionary in replay_steps:
+		if StringName(step.get("presentation_kind", &"")) == ReplayPayloadBuilder.PRESENTATION_BEAT:
+			empty_beat_count += 1
+	var pulse_count: int = 0
+	var phase_trace: Array[String] = replay_controller.get_last_phase_trace()
+	for marker: String in phase_trace:
+		if marker == "step:meditate_pulse":
+			pulse_count += 1
+	return empty_beat_count > 0 and pulse_count == empty_beat_count
 
 
 func _assert_empty_beat_does_not_create_box_actor_movement(context: Dictionary) -> bool:
@@ -976,6 +1045,10 @@ func _assert_memory_focus_and_board_step_are_synchronized(context: Dictionary) -
 
 
 func _assert_queue_focus_and_board_action_start_in_same_beat(context: Dictionary) -> bool:
+	return await _assert_queue_focus_and_board_beat_start_together(context)
+
+
+func _assert_queue_focus_and_board_beat_start_together(context: Dictionary) -> bool:
 	var controller: GameController = context["controller"]
 	var replay_controller: ReplayController = controller.get_node(controller.replay_controller_path)
 	replay_controller.memory_beat_duration = 0.16
@@ -990,14 +1063,17 @@ func _assert_queue_focus_and_board_action_start_in_same_beat(context: Dictionary
 			break
 		await process_frame
 	var presentation_trace: Array[String] = controller.get("_last_presentation_trace")
-	var focus_count: int = 0
-	var action_count: int = 0
-	for marker: String in presentation_trace:
-		if marker.begins_with("queue:focus:"):
-			focus_count += 1
-		if marker.begins_with("queue:action:"):
-			action_count += 1
-	return focus_count > 0 and action_count == focus_count
+	var checked_beats: int = 0
+	for i: int in range(presentation_trace.size() - 1):
+		var marker: String = presentation_trace[i]
+		if not marker.begins_with("queue:beat:start:"):
+			continue
+		var queue_index: String = marker.trim_prefix("queue:beat:start:")
+		var next_marker: String = presentation_trace[i + 1]
+		if next_marker != "board:beat:start:%s" % queue_index:
+			return false
+		checked_beats += 1
+	return checked_beats > 0
 
 
 func _assert_replay_no_longer_contains_subjectless_fake_steps(context: Dictionary) -> bool:
@@ -2899,6 +2975,12 @@ func _build_cases() -> Array[Dictionary]:
 			"context_mode": "controller_level001",
 		},
 		{
+			"id": "replay_groups_steps_by_queue_index",
+			"name": "replay_groups_steps_by_queue_index",
+			"action": "assert replay groups steps by queue_index instead of driving each raw step independently",
+			"context_mode": "controller_level001",
+		},
+		{
 			"id": "queue_focus_advances_one_memory_per_beat",
 			"name": "queue_focus_advances_one_memory_per_beat",
 			"action": "surviving queue replay advances queue slot focus one memory per beat",
@@ -2917,15 +2999,33 @@ func _build_cases() -> Array[Dictionary]:
 			"context_mode": "controller_level001",
 		},
 		{
+			"id": "one_queue_entry_one_visible_beat",
+			"name": "one_queue_entry_one_visible_beat",
+			"action": "each queue entry maps to exactly one visible beat with queue focus and board feedback",
+			"context_mode": "controller_level001",
+		},
+		{
 			"id": "empty_beat_triggers_player_meditate_pulse",
 			"name": "empty_beat_triggers_player_meditate_pulse",
 			"action": "empty beat triggers player meditate pulse instead of pure wait",
 			"context_mode": "controller_level001",
 		},
 		{
+			"id": "empty_beats_trigger_player_pulse_each_beat",
+			"name": "empty_beats_trigger_player_pulse_each_beat",
+			"action": "each empty beat triggers one player meditate pulse",
+			"context_mode": "controller_level001",
+		},
+		{
 			"id": "empty_beat_does_not_create_box_actor_movement",
 			"name": "empty_beat_does_not_create_box_actor_movement",
 			"action": "empty beat never creates box actor movement or subjectless fake board steps",
+			"context_mode": "controller_level001",
+		},
+		{
+			"id": "empty_beats_do_not_create_box_motion",
+			"name": "empty_beats_do_not_create_box_motion",
+			"action": "empty beats do not create any box motion",
 			"context_mode": "controller_level001",
 		},
 		{
@@ -2944,6 +3044,12 @@ func _build_cases() -> Array[Dictionary]:
 			"id": "queue_focus_and_board_action_start_in_same_beat",
 			"name": "queue_focus_and_board_action_start_in_same_beat",
 			"action": "queue slot focus and board action start inside the same beat without deferred scheduling",
+			"context_mode": "controller_level001",
+		},
+		{
+			"id": "queue_focus_and_board_beat_start_together",
+			"name": "queue_focus_and_board_beat_start_together",
+			"action": "queue focus and board beat start at the same beat boundary",
 			"context_mode": "controller_level001",
 		},
 		{
