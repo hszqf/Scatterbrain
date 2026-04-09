@@ -826,8 +826,8 @@ func _assert_replay_is_grouped_by_queue_index_not_raw_steps(context: Dictionary)
 	var beats: Array[Dictionary] = controller.call("_group_replay_steps_by_queue_index", replay_steps)
 	if beats.size() != 2:
 		return false
-	var beat_zero_steps: Array[Dictionary] = beats[0].get("steps", [])
-	var beat_one_steps: Array[Dictionary] = beats[1].get("steps", [])
+	var beat_zero_steps: Array = beats[0].get("steps", [])
+	var beat_one_steps: Array = beats[1].get("steps", [])
 	return int(beats[0].get("queue_index", -1)) == 0 \
 		and int(beats[1].get("queue_index", -1)) == 1 \
 		and beat_zero_steps.size() == 2 \
