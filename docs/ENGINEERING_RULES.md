@@ -84,14 +84,15 @@
 4. `Ghost[AUTO_GHOST]` 是状态事件：只把“当前 remembered 位置”的箱子改为幽灵，不定义新位置；`target_position` 仅允许作为调试元数据。
 5. 默认箱子在记忆归零后必须先恢复 remembered 实体；若当前玩家正占默认格，live 投影显示幽灵，不可直接消失。
 6. `game` 层 replay 必须基于 `WorldDefaults + CompileResult.queue_entries`（即 surviving queue）生成，表示“剩余记忆如何从默认世界重建 remembered world”；禁止使用 `world_before_compile` / `world_after_compile` 可见差分生成 replay。
-7. replay 必须从 `WorldDefaults` 初始状态出发，按 surviving queue 的时间顺序逐条重访 remembered change；`Empty` 不改变 remembered 语义，但可产出极短 `empty` 表现 step 以保留节奏顺序。
+7. replay 必须从 `WorldDefaults` 初始状态出发，按 surviving queue 的时间顺序逐条重访 remembered change；`Empty` 不改变 remembered 语义，但可产出极短 `beat` 节拍以保留顺序，且该节拍不得生成棋盘 actor 动作。
 8. replay payload 的 from-state 必须来自 replay-time state 的前序结果（entity/ghost），禁止按 subject 做最终态 canonical 归约。
 9. replay gate 只基于：存在 replayable pushed_out、surviving queue 仍有 replayable remembered entry、且 builder 产出非空 steps。
 10. replay 微步与 remembered world 解释必须共用同一语义：先 X 后 Y；`Ghost[AUTO_GHOST]` replay step 必须是原地状态变化（`from == to`），禁止单独制造位移。
-11. remembered queue 应用（compile/replay）必须维护每个 subject 的“当前 remembered 位置 + 是否幽灵”：
+11. recompile 表现层必须分层：先做 `MemoryQueueView`（evict/append/settle）反馈，再做棋盘 `Board replay` 重建；棋盘层禁止承担 evict 离场表现。
+12. remembered queue 应用（compile/replay）必须维护每个 subject 的“当前 remembered 位置 + 是否幽灵”：
    - `Position`：从当前 remembered 位置位移并更新位置，状态重置为非幽灵；
    - `Ghost`：仅在当前 remembered 位置原地幽灵化（from==to），不得单独制造位移；若前序 surviving 位移已被挤出，则当前位置回落为默认初始位置。
-12. 单次输入最多触发 4 轮编译，超限报错并保留最后稳定结果。
+13. 单次输入最多触发 4 轮编译，超限报错并保留最后稳定结果。
 
 ## 10) 变化队列规则
 - 队列保存变化事实，不保存推箱动画过程。

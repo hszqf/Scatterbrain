@@ -3,7 +3,7 @@ extends RefCounted
 
 const PRESENTATION_MOVE: StringName = &"move"
 const PRESENTATION_GHOSTIFY: StringName = &"ghostify"
-const PRESENTATION_EMPTY: StringName = &"empty"
+const PRESENTATION_BEAT: StringName = &"beat"
 
 var _interpreter: ChangeInterpreter = ChangeInterpreter.new()
 
@@ -24,7 +24,7 @@ func build_steps(
 		if entry.type == ChangeRecord.ChangeType.EMPTY:
 			steps.append({
 				"type": ChangeRecord.ChangeType.EMPTY,
-				"presentation_kind": PRESENTATION_EMPTY,
+				"presentation_kind": PRESENTATION_BEAT,
 			})
 			continue
 		if not _is_replayable_position_affecting_entry(entry):
@@ -59,7 +59,7 @@ func build_steps(
 		return []
 	var has_replayable_visual_step: bool = false
 	for step: Dictionary in steps:
-		if StringName(step.get("presentation_kind", PRESENTATION_EMPTY)) != PRESENTATION_EMPTY:
+		if StringName(step.get("presentation_kind", PRESENTATION_BEAT)) != PRESENTATION_BEAT:
 			has_replayable_visual_step = true
 			break
 	if not has_replayable_visual_step:
