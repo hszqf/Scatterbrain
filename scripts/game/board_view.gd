@@ -101,6 +101,10 @@ func play_player_meditate_pulse(action_duration: float) -> void:
 	await _player_view.play_meditate_pulse(action_duration)
 
 
+func get_player_view() -> PlayerView:
+	return _player_view
+
+
 func _draw() -> void:
 	if _player_view == null:
 		return

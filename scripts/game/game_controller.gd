@@ -318,7 +318,7 @@ func _play_memory_synchronized_replay(replay_steps: Array[Dictionary]) -> void:
 	var replay_beats: Array[Dictionary] = _group_replay_steps_by_queue_index(replay_steps)
 	for beat: Dictionary in replay_beats:
 		var queue_index: int = int(beat.get("queue_index", -1))
-		var beat_steps: Array[Dictionary] = beat.get("steps", [])
+		var beat_steps: Array = beat.get("steps", [])
 		if queue_index >= 0:
 			_last_presentation_trace.append("queue:focus:%d" % queue_index)
 			_queue_view.begin_focus_on_slot(queue_index)
@@ -338,19 +338,23 @@ func _play_memory_synchronized_replay(replay_steps: Array[Dictionary]) -> void:
 
 
 func _group_replay_steps_by_queue_index(replay_steps: Array[Dictionary]) -> Array[Dictionary]:
-	var groups: Array[Dictionary] = []
-	var grouped_by_index: Dictionary[int, Dictionary] = {}
+	var grouped_by_index: Dictionary = {}
 	for step: Dictionary in replay_steps:
 		var queue_index: int = int(step.get("queue_index", -1))
 		if not grouped_by_index.has(queue_index):
-			var group := {
-				"queue_index": queue_index,
-				"steps": Array([], TYPE_DICTIONARY, "", null),
-			}
-			grouped_by_index[queue_index] = group
-			groups.append(group)
-		var beat_steps: Array = grouped_by_index[queue_index]["steps"]
+			grouped_by_index[queue_index] = []
+		var beat_steps: Array = grouped_by_index[queue_index]
 		beat_steps.append(step)
+	var ordered_indexes: Array[int] = []
+	for queue_index: int in grouped_by_index.keys():
+		ordered_indexes.append(queue_index)
+	ordered_indexes.sort()
+	var groups: Array[Dictionary] = []
+	for queue_index: int in ordered_indexes:
+		groups.append({
+			"queue_index": queue_index,
+			"steps": grouped_by_index[queue_index],
+		})
 	return groups
 
 

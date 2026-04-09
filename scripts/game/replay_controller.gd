@@ -26,13 +26,14 @@ func _ready() -> void:
 	_replay_layer = get_node(replay_layer_path)
 
 
-func has_steps(steps: Array[Dictionary]) -> bool:
+func has_steps(steps: Array) -> bool:
 	return not steps.is_empty()
 
 
-func play_steps(steps: Array[Dictionary]) -> void:
+func play_steps(steps: Array) -> void:
 	_sync_replay_layer_transform()
 	var replay_subjects: Array[StringName] = _collect_replay_subjects(steps)
+	var replay_beats: Array[Dictionary] = _group_steps_by_queue_index(steps)
 	_last_used_live_box_views = false
 	_last_phase_trace = []
 	_replay_presenting_subjects.clear()
@@ -43,9 +44,10 @@ func play_steps(steps: Array[Dictionary]) -> void:
 		_ensure_replay_actor(subject_id)
 	if not steps.is_empty():
 		_last_phase_trace.append("phase:rebuild")
-	for step: Dictionary in steps:
+	for beat: Dictionary in replay_beats:
+		var beat_steps: Array = beat.get("steps", [])
 		_sync_replay_layer_transform()
-		await play_memory_beat([step], memory_beat_duration)
+		await play_memory_beat(beat_steps, memory_beat_duration)
 		_sync_replay_layer_transform()
 	_restore_live_subjects(replay_subjects)
 	_clear_replay_actors()
@@ -53,7 +55,7 @@ func play_steps(steps: Array[Dictionary]) -> void:
 	_board_view.end_replay_presentation()
 
 
-func play_memory_beat(beat_steps: Array[Dictionary], beat_duration: float = memory_beat_duration) -> void:
+func play_memory_beat(beat_steps: Array, beat_duration: float = memory_beat_duration) -> void:
 	_sync_replay_layer_transform()
 	var phase_timing: Dictionary = _resolve_phase_timing(beat_duration)
 	var prepare_time: float = float(phase_timing.get("prepare", 0.0))
@@ -66,7 +68,7 @@ func play_memory_beat(beat_steps: Array[Dictionary], beat_duration: float = memo
 		await get_tree().create_timer(tail_time).timeout
 
 
-func play_memory_beat_action(beat_steps: Array[Dictionary], action_duration: float) -> void:
+func play_memory_beat_action(beat_steps: Array, action_duration: float) -> void:
 	if beat_steps.is_empty():
 		if action_duration > 0.0:
 			await get_tree().create_timer(action_duration).timeout
@@ -254,7 +256,7 @@ func get_phase_timing(beat_duration: float = memory_beat_duration) -> Dictionary
 	return _resolve_phase_timing(beat_duration)
 
 
-func _collect_replay_subjects(steps: Array[Dictionary]) -> Array[StringName]:
+func _collect_replay_subjects(steps: Array) -> Array[StringName]:
 	var seen: Dictionary[StringName, bool] = {}
 	for step: Dictionary in steps:
 		if int(step.get("type", -1)) == ChangeRecord.ChangeType.EMPTY:
@@ -270,6 +272,27 @@ func _collect_replay_subjects(steps: Array[Dictionary]) -> Array[StringName]:
 		return String(a) < String(b)
 	)
 	return subjects
+
+
+func _group_steps_by_queue_index(steps: Array) -> Array[Dictionary]:
+	var grouped: Dictionary = {}
+	for step: Dictionary in steps:
+		var queue_index: int = int(step.get("queue_index", -1))
+		if not grouped.has(queue_index):
+			grouped[queue_index] = []
+		var beat_steps: Array = grouped[queue_index]
+		beat_steps.append(step)
+	var ordered_indexes: Array[int] = []
+	for queue_index: int in grouped.keys():
+		ordered_indexes.append(queue_index)
+	ordered_indexes.sort()
+	var beats: Array[Dictionary] = []
+	for queue_index: int in ordered_indexes:
+		beats.append({
+			"queue_index": queue_index,
+			"steps": grouped[queue_index],
+		})
+	return beats
 
 
 func _restore_live_subjects(subject_ids: Array[StringName]) -> void:
