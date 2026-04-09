@@ -3,14 +3,25 @@ extends Node
 
 @export var board_view_path: NodePath
 @export var replay_layer_path: NodePath
-@export var step_duration: float = 0.6
-@export var step_pause: float = 0.18
+@export var step_duration: float = 0.52
+@export var step_pause: float = 0.1
+@export var conflict_tail_pause: float = 0.14
+@export var empty_step_pause: float = 0.05
+@export var evict_fall_ratio: float = 0.8
+@export var evict_tail_ratio: float = 0.45
+@export var move_anticipation_ratio: float = 0.2
+@export var move_travel_ratio: float = 0.62
+@export var move_settle_ratio: float = 0.3
+@export var ghost_expand_ratio: float = 0.32
+@export var ghost_stamp_ratio: float = 0.28
+@export var ghost_tail_ratio: float = 0.72
 
 var _board_view: BoardView
 var _replay_layer: Node2D
 var _replay_presenting_subjects: Dictionary[StringName, bool] = {}
 var _replay_actors: Dictionary[StringName, BoxView] = {}
 var _last_used_live_box_views: bool = false
+var _last_phase_trace: Array[String] = []
 
 
 func _ready() -> void:
@@ -18,25 +29,31 @@ func _ready() -> void:
 	_replay_layer = get_node(replay_layer_path)
 
 
-func has_steps(steps: Array[Dictionary]) -> bool:
-	return not steps.is_empty()
+func has_steps(steps: Array[Dictionary], evicted_changes: Array[ChangeRecord] = []) -> bool:
+	return not steps.is_empty() or _has_replayable_evictions(evicted_changes)
 
 
-func play_steps(steps: Array[Dictionary]) -> void:
+func play_steps(steps: Array[Dictionary], evicted_changes: Array[ChangeRecord] = []) -> void:
 	_sync_replay_layer_transform()
-	var replay_subjects: Array[StringName] = _collect_replay_subjects(steps)
+	var replay_subjects: Array[StringName] = _collect_replay_subjects(steps, evicted_changes)
 	_last_used_live_box_views = false
+	_last_phase_trace = []
 	_replay_presenting_subjects.clear()
 	_board_view.begin_replay_presentation(replay_subjects)
 	_clear_replay_actors()
 	for subject_id: StringName in replay_subjects:
 		_replay_presenting_subjects[subject_id] = true
 		_ensure_replay_actor(subject_id)
+	if _has_replayable_evictions(evicted_changes):
+		_last_phase_trace.append("phase:evict")
+		await _play_evict_sequence(evicted_changes)
+	if not steps.is_empty():
+		_last_phase_trace.append("phase:rebuild")
 	for step: Dictionary in steps:
 		_sync_replay_layer_transform()
-		await _play_step(step)
+		var should_stop: bool = await _play_step(step)
 		_sync_replay_layer_transform()
-		if bool(step.get("is_conflict", false)):
+		if should_stop:
 			break
 	_restore_live_subjects(replay_subjects)
 	_clear_replay_actors()
@@ -44,28 +61,131 @@ func play_steps(steps: Array[Dictionary]) -> void:
 	_board_view.end_replay_presentation()
 
 
-func _play_step(step: Dictionary) -> void:
+func _play_step(step: Dictionary) -> bool:
 	_sync_replay_layer_transform()
-	if int(step.get("type", -1)) == ChangeRecord.ChangeType.EMPTY:
-		await get_tree().create_timer(step_duration).timeout
-		await get_tree().create_timer(step_pause).timeout
-		return
+	var presentation_kind: StringName = StringName(step.get("presentation_kind", _resolve_presentation_kind(step)))
+	match presentation_kind:
+		ReplayPayloadBuilder.PRESENTATION_EMPTY:
+			_last_phase_trace.append("step:empty")
+			await _play_empty_step(step)
+		ReplayPayloadBuilder.PRESENTATION_GHOSTIFY:
+			_last_phase_trace.append("step:ghostify")
+			await _play_ghostify_step(step)
+		_:
+			_last_phase_trace.append("step:move")
+			await _play_move_step(step)
+	if bool(step.get("is_conflict", false)):
+		_last_phase_trace.append("phase:conflict_tail")
+		await get_tree().create_timer(conflict_tail_pause).timeout
+		return true
+	return false
 
-	var subject_id: StringName = step.get("subject", &"")
-	if not _replay_presenting_subjects.has(subject_id):
+
+func _play_move_step(step: Dictionary) -> void:
+	var node: BoxView = _prepare_step_actor(step)
+	if node == null:
 		return
-	var node: BoxView = _ensure_replay_actor(subject_id)
-	node.set_is_ghost(true)
-	node.set_is_conflict(bool(step.get("is_conflict", false)))
-	node.visible = true
 	var from_pos: Vector2i = step.get("from", Vector2i.ZERO)
 	var to_pos: Vector2i = step.get("to", from_pos)
 	node.set_board_position(from_pos, _board_view.cell_size)
+	node.scale = Vector2.ONE
+	node.modulate = Color.WHITE
+	node.set_is_ghost(false)
+	node.set_is_conflict(false)
+	var anticipate: Tween = create_tween()
+	anticipate.tween_property(node, "scale", Vector2(0.92, 1.06), step_duration * move_anticipation_ratio)
+	await anticipate.finished
 
-	var tween: Tween = create_tween()
-	tween.tween_property(node, "position", _board_view.board_to_pixel_center(to_pos), step_duration)
-	await tween.finished
+	var travel: Tween = create_tween()
+	travel.set_parallel(true)
+	travel.tween_property(node, "position", _board_view.board_to_pixel_center(to_pos), step_duration * move_travel_ratio)
+	travel.tween_property(node, "scale", Vector2(1.06, 0.94), step_duration * move_travel_ratio)
+	await travel.finished
+
+	var settle: Tween = create_tween()
+	settle.tween_property(node, "scale", Vector2.ONE, step_duration * move_settle_ratio)
+	await settle.finished
+	if bool(step.get("ends_as_ghost", false)):
+		node.set_is_ghost(true)
+	node.set_is_conflict(bool(step.get("is_conflict", false)))
 	await get_tree().create_timer(step_pause).timeout
+
+
+func _play_ghostify_step(step: Dictionary) -> void:
+	var node: BoxView = _prepare_step_actor(step)
+	if node == null:
+		return
+	var from_pos: Vector2i = step.get("from", Vector2i.ZERO)
+	node.set_board_position(from_pos, _board_view.cell_size)
+	node.set_is_ghost(false)
+	node.set_is_conflict(false)
+	node.modulate = Color.WHITE
+	node.scale = Vector2.ONE
+
+	var expand: Tween = create_tween()
+	expand.tween_property(node, "scale", Vector2(1.18, 1.18), step_duration * ghost_expand_ratio)
+	await expand.finished
+
+	node.set_is_ghost(true)
+	node.set_is_conflict(bool(step.get("is_conflict", false)))
+	var stamp: Tween = create_tween()
+	stamp.tween_property(node, "scale", Vector2(0.94, 0.94), step_duration * ghost_stamp_ratio)
+	await stamp.finished
+
+	var settle: Tween = create_tween()
+	settle.tween_property(node, "scale", Vector2.ONE, step_duration * 0.2)
+	await settle.finished
+	await get_tree().create_timer(step_pause * ghost_tail_ratio).timeout
+
+
+func _play_empty_step(_step: Dictionary) -> void:
+	await get_tree().create_timer(empty_step_pause).timeout
+
+
+func _play_evict_sequence(evicted_changes: Array[ChangeRecord]) -> void:
+	for change: ChangeRecord in evicted_changes:
+		if not _is_replayable_eviction(change):
+			continue
+		var subject_id: StringName = change.subject_id
+		if not _replay_presenting_subjects.has(subject_id):
+			continue
+		var node: BoxView = _ensure_replay_actor(subject_id)
+		var start_pos: Vector2i = _resolve_evict_start_position(change, subject_id)
+		node.visible = true
+		node.set_board_position(start_pos, _board_view.cell_size)
+		node.set_is_ghost(false)
+		node.set_is_conflict(false)
+		node.scale = Vector2.ONE
+		node.modulate = Color.WHITE
+		_last_phase_trace.append("evict:%s" % String(subject_id))
+		var drop_target: Vector2 = node.position + Vector2(0.0, _board_view.cell_size * 0.36)
+		var tween: Tween = create_tween()
+		tween.set_parallel(true)
+		tween.tween_property(node, "position", drop_target, step_duration * evict_fall_ratio)
+		tween.tween_property(node, "scale", Vector2(1.12, 1.12), step_duration * evict_fall_ratio)
+		tween.tween_property(node, "modulate", Color(1.0, 1.0, 1.0, 0.0), step_duration * evict_fall_ratio)
+		await tween.finished
+		node.visible = false
+		await get_tree().create_timer(step_pause * evict_tail_ratio).timeout
+
+
+func _prepare_step_actor(step: Dictionary) -> BoxView:
+	var subject_id: StringName = step.get("subject", &"")
+	if subject_id == &"" or not _replay_presenting_subjects.has(subject_id):
+		return null
+	var node: BoxView = _ensure_replay_actor(subject_id)
+	node.visible = true
+	node.modulate = Color.WHITE
+	node.scale = Vector2.ONE
+	return node
+
+
+func _resolve_presentation_kind(step: Dictionary) -> StringName:
+	if int(step.get("type", -1)) == ChangeRecord.ChangeType.EMPTY:
+		return ReplayPayloadBuilder.PRESENTATION_EMPTY
+	if bool(step.get("ends_as_ghost", false)):
+		return ReplayPayloadBuilder.PRESENTATION_GHOSTIFY
+	return ReplayPayloadBuilder.PRESENTATION_MOVE
 
 
 func _sync_replay_layer_transform() -> void:
@@ -103,7 +223,11 @@ func get_replay_actor(subject_id: StringName) -> BoxView:
 	return null
 
 
-func _collect_replay_subjects(steps: Array[Dictionary]) -> Array[StringName]:
+func get_last_phase_trace() -> Array[String]:
+	return _last_phase_trace.duplicate()
+
+
+func _collect_replay_subjects(steps: Array[Dictionary], evicted_changes: Array[ChangeRecord] = []) -> Array[StringName]:
 	var seen: Dictionary[StringName, bool] = {}
 	for step: Dictionary in steps:
 		if int(step.get("type", -1)) == ChangeRecord.ChangeType.EMPTY:
@@ -112,6 +236,10 @@ func _collect_replay_subjects(steps: Array[Dictionary]) -> Array[StringName]:
 		if subject_id == &"":
 			continue
 		seen[subject_id] = true
+	for change: ChangeRecord in evicted_changes:
+		if not _is_replayable_eviction(change):
+			continue
+		seen[change.subject_id] = true
 	var subjects: Array[StringName] = []
 	for subject_id: StringName in seen.keys():
 		subjects.append(subject_id)
@@ -147,3 +275,30 @@ func _clear_replay_actors() -> void:
 		if actor != null:
 			actor.queue_free()
 	_replay_actors.clear()
+
+
+func _has_replayable_evictions(evicted_changes: Array[ChangeRecord]) -> bool:
+	for change: ChangeRecord in evicted_changes:
+		if _is_replayable_eviction(change):
+			return true
+	return false
+
+
+func _is_replayable_eviction(change: ChangeRecord) -> bool:
+	if change == null:
+		return false
+	if change.type == ChangeRecord.ChangeType.EMPTY:
+		return false
+	if change.subject_id == &"":
+		return false
+	return true
+
+
+func _resolve_evict_start_position(change: ChangeRecord, subject_id: StringName) -> Vector2i:
+	var live_box: BoxView = _board_view.get_box_view(subject_id)
+	if live_box != null and live_box.visible:
+		return Vector2i(
+			int(round((live_box.position.x / float(_board_view.cell_size)) - 0.5)),
+			int(round((live_box.position.y / float(_board_view.cell_size)) - 0.5))
+		)
+	return change.target_position

@@ -270,8 +270,8 @@ func _recompile_world(reason: String) -> void:
 					break
 			_last_replay_stop_reason = "player_conflict" if has_player_conflict_step else "completed"
 
-		if _replay_controller.has_steps(replay_steps):
-			await _replay_controller.play_steps(replay_steps)
+		if _replay_controller.has_steps(replay_steps, result.pushed_out_changes):
+			await _replay_controller.play_steps(replay_steps, result.pushed_out_changes)
 			_last_replay_used_live_box_views = _replay_controller.used_live_box_views()
 			_last_replay_completed = true
 		elif not replay_steps.is_empty():

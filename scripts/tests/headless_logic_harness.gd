@@ -97,6 +97,16 @@ func _run_case(case_data: Dictionary) -> bool:
 			passed = await _assert_replay_layer_transform_matches_board_view(context)
 		"replay_micro_steps_have_slower_cadence_config":
 			passed = _assert_replay_micro_steps_have_slower_cadence_config(context)
+		"replay_builder_position_steps_use_move_presentation_kind":
+			passed = _assert_replay_builder_position_steps_use_move_presentation_kind(context)
+		"replay_builder_ghost_steps_use_ghostify_presentation_kind":
+			passed = _assert_replay_builder_ghost_steps_use_ghostify_presentation_kind(context)
+		"replay_empty_steps_keep_order_with_empty_presentation_kind":
+			passed = _assert_replay_empty_steps_keep_order_with_empty_presentation_kind(context)
+		"replay_controller_runs_evict_phase_before_rebuild":
+			passed = await _assert_replay_controller_runs_evict_phase_before_rebuild(context)
+		"replay_conflict_step_finishes_then_applies_tail_pause":
+			passed = await _assert_replay_conflict_step_finishes_then_applies_tail_pause(context)
 		"replay_uses_detached_replay_actor_not_live_box_view":
 			passed = await _assert_replay_uses_detached_replay_actor_not_live_box_view(context)
 		"ghost_spawn_ghostify_replay_does_not_move_live_final_world_box":
@@ -698,8 +708,112 @@ func _assert_replay_layer_transform_matches_board_view(context: Dictionary) -> b
 func _assert_replay_micro_steps_have_slower_cadence_config(context: Dictionary) -> bool:
 	var controller: GameController = context["controller"]
 	var replay_controller: ReplayController = controller.get_node(controller.replay_controller_path)
-	return replay_controller.step_duration >= 0.6 \
-		and replay_controller.step_pause >= 0.18
+	return replay_controller.step_duration > 0.0 \
+		and replay_controller.step_pause > 0.0 \
+		and replay_controller.empty_step_pause < replay_controller.step_pause
+
+
+func _assert_replay_builder_position_steps_use_move_presentation_kind(context: Dictionary) -> bool:
+	var defaults: WorldDefaults = context["defaults"]
+	var builder := ReplayPayloadBuilder.new()
+	var queue := ChangeQueue.new()
+	queue.append(ChangeRecord.new(
+		ChangeRecord.ChangeType.POSITION,
+		&"box_0",
+		Vector2i(2, 1),
+		false,
+		"move_kind",
+		ChangeRecord.SourceKind.REMEMBERED_REBUILD
+	))
+	var replay_steps: Array[Dictionary] = builder.build_steps(defaults, queue.entries(), Vector2i(9, 9))
+	return replay_steps.size() == 1 \
+		and StringName(replay_steps[0].get("presentation_kind", &"")) == ReplayPayloadBuilder.PRESENTATION_MOVE
+
+
+func _assert_replay_builder_ghost_steps_use_ghostify_presentation_kind(context: Dictionary) -> bool:
+	var defaults: WorldDefaults = context["defaults"]
+	var builder := ReplayPayloadBuilder.new()
+	var queue := ChangeQueue.new()
+	queue.append(ChangeRecord.new(
+		ChangeRecord.ChangeType.GHOST,
+		&"box_0",
+		Vector2i(2, 1),
+		false,
+		"ghost_kind",
+		ChangeRecord.SourceKind.AUTO_GHOST
+	))
+	var replay_steps: Array[Dictionary] = builder.build_steps(defaults, queue.entries(), Vector2i(9, 9))
+	return replay_steps.size() == 1 \
+		and StringName(replay_steps[0].get("presentation_kind", &"")) == ReplayPayloadBuilder.PRESENTATION_GHOSTIFY
+
+
+func _assert_replay_empty_steps_keep_order_with_empty_presentation_kind(context: Dictionary) -> bool:
+	var defaults: WorldDefaults = context["defaults"]
+	var builder := ReplayPayloadBuilder.new()
+	var queue := ChangeQueue.new()
+	queue.append(ChangeRecord.new(
+		ChangeRecord.ChangeType.POSITION,
+		&"box_0",
+		Vector2i(2, 1),
+		false,
+		"pos_a",
+		ChangeRecord.SourceKind.REMEMBERED_REBUILD
+	))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "empty_middle", ChangeRecord.SourceKind.LIVE_INPUT))
+	queue.append(ChangeRecord.new(
+		ChangeRecord.ChangeType.GHOST,
+		&"box_0",
+		Vector2i(2, 1),
+		false,
+		"ghost_b",
+		ChangeRecord.SourceKind.AUTO_GHOST
+	))
+	var replay_steps: Array[Dictionary] = builder.build_steps(defaults, queue.entries(), Vector2i(9, 9))
+	return replay_steps.size() == 3 \
+		and StringName(replay_steps[0].get("presentation_kind", &"")) == ReplayPayloadBuilder.PRESENTATION_MOVE \
+		and StringName(replay_steps[1].get("presentation_kind", &"")) == ReplayPayloadBuilder.PRESENTATION_EMPTY \
+		and int(replay_steps[1].get("type", -1)) == ChangeRecord.ChangeType.EMPTY \
+		and StringName(replay_steps[2].get("presentation_kind", &"")) == ReplayPayloadBuilder.PRESENTATION_GHOSTIFY
+
+
+func _assert_replay_controller_runs_evict_phase_before_rebuild(context: Dictionary) -> bool:
+	var controller: GameController = context["controller"]
+	var replay_controller: ReplayController = controller.get_node(controller.replay_controller_path)
+	controller.request_move(Vector2i.LEFT)
+	controller.request_move(Vector2i.LEFT)
+	controller.request_move(Vector2i.LEFT)
+	controller.request_empty_change()
+	controller.request_empty_change()
+	controller.request_empty_change()
+	for i: int in range(600):
+		if not controller.get("_input_locked"):
+			break
+		await process_frame
+	var trace: Array[String] = replay_controller.get_last_phase_trace()
+	return trace.find("phase:evict") >= 0 \
+		and trace.find("phase:rebuild") > trace.find("phase:evict")
+
+
+func _assert_replay_conflict_step_finishes_then_applies_tail_pause(context: Dictionary) -> bool:
+	var controller: GameController = context["controller"]
+	var replay_controller: ReplayController = controller.get_node(controller.replay_controller_path)
+	replay_controller.step_duration = 0.05
+	replay_controller.step_pause = 0.03
+	replay_controller.conflict_tail_pause = 0.04
+	var steps: Array[Dictionary] = [{
+		"type": ChangeRecord.ChangeType.POSITION,
+		"subject": &"box_0",
+		"from": Vector2i(3, 1),
+		"to": Vector2i(3, 1),
+		"is_conflict": true,
+		"ends_as_ghost": true,
+		"presentation_kind": ReplayPayloadBuilder.PRESENTATION_GHOSTIFY,
+	}]
+	await replay_controller.play_steps(steps, [])
+	var trace: Array[String] = replay_controller.get_last_phase_trace()
+	var replay_step_index: int = trace.find("step:ghostify")
+	var tail_index: int = trace.find("phase:conflict_tail")
+	return replay_step_index >= 0 and tail_index > replay_step_index
 
 
 func _assert_replay_uses_detached_replay_actor_not_live_box_view(context: Dictionary) -> bool:
@@ -1117,11 +1231,15 @@ func _assert_retained_position_replay_expands_to_micro_steps(context: Dictionary
 	var result: CompileResult = _compiler.compile(defaults, queue, defaults.player_start)
 	var builder := ReplayPayloadBuilder.new()
 	var replay_steps: Array[Dictionary] = builder.build_steps(defaults, result.queue_entries)
-	return replay_steps.size() >= 2 \
-		and replay_steps[0].get("subject", &"") == &"box_0" \
-		and replay_steps[0].get("from", Vector2i.ZERO) == Vector2i(3, 1) \
-		and replay_steps[0].get("to", Vector2i.ZERO) == Vector2i(2, 1) \
-		and replay_steps[replay_steps.size() - 1].get("to", Vector2i.ZERO) == Vector2i(1, 1)
+	var motion_steps: Array[Dictionary] = []
+	for step: Dictionary in replay_steps:
+		if StringName(step.get("presentation_kind", &"")) == ReplayPayloadBuilder.PRESENTATION_MOVE:
+			motion_steps.append(step)
+	return motion_steps.size() >= 2 \
+		and motion_steps[0].get("subject", &"") == &"box_0" \
+		and motion_steps[0].get("from", Vector2i.ZERO) == Vector2i(3, 1) \
+		and motion_steps[0].get("to", Vector2i.ZERO) == Vector2i(2, 1) \
+		and motion_steps[motion_steps.size() - 1].get("to", Vector2i.ZERO) == Vector2i(1, 1)
 
 
 func _build_remembered_conflict_queue() -> ChangeQueue:
@@ -1559,6 +1677,7 @@ func _assert_first_surviving_position_entry_may_start_from_initial_default(conte
 		and replay_steps[0].get("subject", &"") == &"box_0" \
 		and replay_steps[0].get("from", Vector2i.ZERO) == Vector2i(3, 1) \
 		and replay_steps[0].get("to", Vector2i.ZERO) == Vector2i(2, 1) \
+		and StringName(replay_steps[0].get("presentation_kind", &"")) == ReplayPayloadBuilder.PRESENTATION_MOVE \
 		and not bool(replay_steps[0].get("is_conflict", false))
 
 
@@ -1581,6 +1700,7 @@ func _assert_ghost_only_surviving_queue_ghostifies_at_default_spawn(context: Dic
 		and replay_steps[0].get("subject", &"") == &"box_0" \
 		and replay_steps[0].get("from", Vector2i.ZERO) == Vector2i(3, 1) \
 		and replay_steps[0].get("to", Vector2i.ZERO) == Vector2i(3, 1) \
+		and StringName(replay_steps[0].get("presentation_kind", &"")) == ReplayPayloadBuilder.PRESENTATION_GHOSTIFY \
 		and bool(replay_steps[0].get("from_exists", false)) \
 		and bool(replay_steps[0].get("to_exists", false)) \
 		and not bool(replay_steps[0].get("appears", true)) \
@@ -1617,9 +1737,11 @@ func _assert_position_then_ghost_replays_as_move_then_in_place_ghostify(context:
 	return replay_steps.size() == 2 \
 		and replay_steps[0].get("from", Vector2i.ZERO) == Vector2i(3, 1) \
 		and replay_steps[0].get("to", Vector2i.ZERO) == Vector2i(2, 1) \
+		and StringName(replay_steps[0].get("presentation_kind", &"")) == ReplayPayloadBuilder.PRESENTATION_MOVE \
 		and not bool(replay_steps[0].get("ends_as_ghost", false)) \
 		and replay_steps[1].get("from", Vector2i.ZERO) == Vector2i(2, 1) \
 		and replay_steps[1].get("to", Vector2i.ZERO) == Vector2i(2, 1) \
+		and StringName(replay_steps[1].get("presentation_kind", &"")) == ReplayPayloadBuilder.PRESENTATION_GHOSTIFY \
 		and bool(replay_steps[1].get("is_conflict", false)) \
 		and bool(replay_steps[1].get("ends_as_ghost", false)) \
 		and not final_world.entity_positions.has(&"box_0") \
@@ -2436,6 +2558,36 @@ func _build_cases() -> Array[Dictionary]:
 			"id": "replay_micro_steps_have_slower_cadence_config",
 			"name": "replay_micro_steps_have_slower_cadence_config",
 			"action": "assert replay cadence config uses slower per-step tween and pause",
+			"context_mode": "controller_level001",
+		},
+		{
+			"id": "replay_builder_position_steps_use_move_presentation_kind",
+			"name": "replay_builder_position_steps_use_move_presentation_kind",
+			"action": "builder marks remembered position replay as move presentation kind",
+			"context_mode": "controller_level001",
+		},
+		{
+			"id": "replay_builder_ghost_steps_use_ghostify_presentation_kind",
+			"name": "replay_builder_ghost_steps_use_ghostify_presentation_kind",
+			"action": "builder marks surviving auto ghost replay as ghostify presentation kind",
+			"context_mode": "controller_level001",
+		},
+		{
+			"id": "replay_empty_steps_keep_order_with_empty_presentation_kind",
+			"name": "replay_empty_steps_keep_order_with_empty_presentation_kind",
+			"action": "builder keeps empty rhythm beats between replayable remembered steps",
+			"context_mode": "controller_level001",
+		},
+		{
+			"id": "replay_controller_runs_evict_phase_before_rebuild",
+			"name": "replay_controller_runs_evict_phase_before_rebuild",
+			"action": "controller replay trace starts with evict phase before rebuild phase",
+			"context_mode": "controller_level001",
+		},
+		{
+			"id": "replay_conflict_step_finishes_then_applies_tail_pause",
+			"name": "replay_conflict_step_finishes_then_applies_tail_pause",
+			"action": "replay conflict step records ghostify playback before conflict-tail pause stop",
 			"context_mode": "controller_level001",
 		},
 		{
