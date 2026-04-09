@@ -1,6 +1,10 @@
 class_name ReplayPayloadBuilder
 extends RefCounted
 
+const PRESENTATION_MOVE: StringName = &"move"
+const PRESENTATION_GHOSTIFY: StringName = &"ghostify"
+const PRESENTATION_EMPTY: StringName = &"empty"
+
 var _interpreter: ChangeInterpreter = ChangeInterpreter.new()
 
 
@@ -12,39 +16,54 @@ func build_steps(
 	if defaults == null:
 		return []
 	var steps: Array[Dictionary] = []
-	var replayable_entries: Array[ChangeRecord] = []
-	for entry: ChangeRecord in surviving_queue_entries:
-		if _is_replayable_position_affecting_entry(entry):
-			replayable_entries.append(entry)
-	if replayable_entries.is_empty():
-		return []
-
 	var state := SimulationState.new()
 	state.setup_from_defaults(defaults, live_player_position)
-	var context := CompileContext.new()
-	var events: Array[Dictionary] = []
-	_interpreter.interpret(replayable_entries, state, context, events)
-	for event: Dictionary in events:
-		var change: ChangeRecord = event.get("change")
-		if change == null:
+	for entry: ChangeRecord in surviving_queue_entries:
+		if entry == null:
 			continue
-		var from_pos: Vector2i = event.get("from", Vector2i.ZERO)
-		var to_pos: Vector2i = event.get("to", from_pos)
-		if change.type == ChangeRecord.ChangeType.POSITION:
-			for step: Dictionary in PositionPathHelper.expand_without_conflict(change.subject_id, from_pos, to_pos, true):
-				steps.append(step)
-		elif change.type == ChangeRecord.ChangeType.GHOST:
+		if entry.type == ChangeRecord.ChangeType.EMPTY:
 			steps.append({
-				"type": ChangeRecord.ChangeType.POSITION,
-				"from": from_pos,
-				"to": from_pos,
-				"subject": change.subject_id,
-				"from_exists": true,
-				"to_exists": true,
-				"appears": false,
-				"is_conflict": true,
-				"ends_as_ghost": true,
+				"type": ChangeRecord.ChangeType.EMPTY,
+				"presentation_kind": PRESENTATION_EMPTY,
 			})
+			continue
+		if not _is_replayable_position_affecting_entry(entry):
+			continue
+		var context := CompileContext.new()
+		var events: Array[Dictionary] = []
+		_interpreter.interpret([entry], state, context, events)
+		for event: Dictionary in events:
+			var change: ChangeRecord = event.get("change")
+			if change == null:
+				continue
+			var from_pos: Vector2i = event.get("from", Vector2i.ZERO)
+			var to_pos: Vector2i = event.get("to", from_pos)
+			if change.type == ChangeRecord.ChangeType.POSITION:
+				for step: Dictionary in PositionPathHelper.expand_without_conflict(change.subject_id, from_pos, to_pos, true):
+					step["presentation_kind"] = PRESENTATION_MOVE
+					steps.append(step)
+			elif change.type == ChangeRecord.ChangeType.GHOST:
+				steps.append({
+					"type": ChangeRecord.ChangeType.POSITION,
+					"from": from_pos,
+					"to": from_pos,
+					"subject": change.subject_id,
+					"from_exists": true,
+					"to_exists": true,
+					"appears": false,
+					"is_conflict": true,
+					"ends_as_ghost": true,
+					"presentation_kind": PRESENTATION_GHOSTIFY,
+				})
+	if steps.is_empty():
+		return []
+	var has_replayable_visual_step: bool = false
+	for step: Dictionary in steps:
+		if StringName(step.get("presentation_kind", PRESENTATION_EMPTY)) != PRESENTATION_EMPTY:
+			has_replayable_visual_step = true
+			break
+	if not has_replayable_visual_step:
+		return []
 	return steps
 
 

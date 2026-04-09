@@ -84,7 +84,7 @@
 4. `Ghost[AUTO_GHOST]` 是状态事件：只把“当前 remembered 位置”的箱子改为幽灵，不定义新位置；`target_position` 仅允许作为调试元数据。
 5. 默认箱子在记忆归零后必须先恢复 remembered 实体；若当前玩家正占默认格，live 投影显示幽灵，不可直接消失。
 6. `game` 层 replay 必须基于 `WorldDefaults + CompileResult.queue_entries`（即 surviving queue）生成，表示“剩余记忆如何从默认世界重建 remembered world”；禁止使用 `world_before_compile` / `world_after_compile` 可见差分生成 replay。
-7. replay 必须从 `WorldDefaults` 初始状态出发，按 surviving queue 的时间顺序逐条重访 remembered change；`Empty` 不产生 step，但会保留顺序位置。
+7. replay 必须从 `WorldDefaults` 初始状态出发，按 surviving queue 的时间顺序逐条重访 remembered change；`Empty` 不改变 remembered 语义，但可产出极短 `empty` 表现 step 以保留节奏顺序。
 8. replay payload 的 from-state 必须来自 replay-time state 的前序结果（entity/ghost），禁止按 subject 做最终态 canonical 归约。
 9. replay gate 只基于：存在 replayable pushed_out、surviving queue 仍有 replayable remembered entry、且 builder 产出非空 steps。
 10. replay 微步与 remembered world 解释必须共用同一语义：先 X 后 Y；`Ghost[AUTO_GHOST]` replay step 必须是原地状态变化（`from == to`），禁止单独制造位移。
