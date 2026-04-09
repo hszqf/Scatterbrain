@@ -47,6 +47,7 @@ var _last_generated_ghost_summaries: Array[String] = []
 var _last_queue_after_compile_summaries: Array[String] = []
 var _last_replay_gate_allowed: bool = false
 var _last_replay_gate_reason: String = "none"
+var _last_presentation_trace: Array[String] = []
 var _feedback_clear_at_msec: int = 0
 
 
@@ -236,8 +237,10 @@ func _recompile_world(reason: String) -> void:
 	_last_replay_used_live_box_views = false
 	_last_replay_completed = false
 	_last_replay_stop_reason = "none"
+	_last_presentation_trace = []
 	print("[Recompile] begin reason=%s" % reason)
 	var current_player_position: Vector2i = _world.player_position
+	var previous_queue_entries: Array[ChangeRecord] = _queue.entries()
 	var result: CompileResult = _compiler.compile(_defaults, _queue, current_player_position)
 	var world_after_compile: CompiledWorld = result.world
 	var replay_steps: Array[Dictionary] = []
@@ -259,6 +262,17 @@ func _recompile_world(reason: String) -> void:
 		can_build_replay_steps
 	)
 	if replay_gate_allowed:
+		await _queue_view.play_queue_transition(
+			previous_queue_entries,
+			result.queue_entries,
+			_defaults.memory_capacity,
+			_defaults.obsession_capacity,
+			result.pushed_out_changes
+		)
+		_last_presentation_trace = _queue_view.get_last_animation_trace()
+	else:
+		_queue_view.render_queue(result.queue_entries, _defaults.memory_capacity, _defaults.obsession_capacity)
+	if replay_gate_allowed:
 		_last_replay_steps = replay_steps
 		_last_replay_display_steps = _duplicate_replay_steps(replay_steps)
 		_last_replay_presenting_subjects = _collect_replay_subjects(replay_steps)
@@ -270,8 +284,9 @@ func _recompile_world(reason: String) -> void:
 					break
 			_last_replay_stop_reason = "player_conflict" if has_player_conflict_step else "completed"
 
-		if _replay_controller.has_steps(replay_steps, result.pushed_out_changes):
-			await _replay_controller.play_steps(replay_steps, result.pushed_out_changes)
+		if _replay_controller.has_steps(replay_steps):
+			_last_presentation_trace.append("board:rebuild")
+			await _replay_controller.play_steps(replay_steps)
 			_last_replay_used_live_box_views = _replay_controller.used_live_box_views()
 			_last_replay_completed = true
 		elif not replay_steps.is_empty():
@@ -351,6 +366,7 @@ func _reset_level() -> void:
 	_last_queue_after_compile_summaries = []
 	_last_replay_gate_allowed = false
 	_last_replay_gate_reason = "none"
+	_last_presentation_trace = []
 	_defaults = _build_defaults()
 	_world = CompiledWorld.new()
 	_world.board_size = _defaults.board_size

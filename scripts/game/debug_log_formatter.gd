@@ -89,6 +89,9 @@ func _replay_summary(steps: Array[Dictionary]) -> String:
 		return "none"
 	var labels: Array[String] = []
 	for step: Dictionary in steps:
+		if int(step.get("type", -1)) == ChangeRecord.ChangeType.EMPTY:
+			labels.append("beat")
+			continue
 		labels.append("%s:%s->%s" % [step.get("subject", &""), step.get("from", Vector2i.ZERO), step.get("to", Vector2i.ZERO)])
 	return str(labels)
 
@@ -98,6 +101,9 @@ func _replay_display_summary(steps: Array[Dictionary]) -> String:
 		return "[]"
 	var labels: Array[String] = []
 	for step: Dictionary in steps:
+		if int(step.get("type", -1)) == ChangeRecord.ChangeType.EMPTY:
+			labels.append("beat")
+			continue
 		labels.append("%s:%s->%s conflict=%s" % [
 			step.get("subject", &""),
 			step.get("from", Vector2i.ZERO),

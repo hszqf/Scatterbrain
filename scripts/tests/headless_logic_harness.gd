@@ -103,10 +103,20 @@ func _run_case(case_data: Dictionary) -> bool:
 			passed = _assert_replay_builder_ghost_steps_use_ghostify_presentation_kind(context)
 		"replay_empty_steps_keep_order_with_empty_presentation_kind":
 			passed = _assert_replay_empty_steps_keep_order_with_empty_presentation_kind(context)
+		"empty_beats_do_not_create_board_actor_steps":
+			passed = _assert_empty_beats_do_not_create_board_actor_steps(context)
+		"board_replay_rebuilds_only_from_surviving_queue":
+			passed = _assert_board_replay_rebuilds_only_from_surviving_queue(context)
 		"replay_controller_runs_evict_phase_before_rebuild":
 			passed = await _assert_replay_controller_runs_evict_phase_before_rebuild(context)
+		"evicted_changes_are_presented_in_queue_not_board":
+			passed = await _assert_evicted_changes_are_presented_in_queue_not_board(context)
 		"replay_conflict_step_finishes_then_applies_tail_pause":
 			passed = await _assert_replay_conflict_step_finishes_then_applies_tail_pause(context)
+		"ghostify_step_is_played_as_full_in_place_change":
+			passed = await _assert_ghostify_step_is_played_as_full_in_place_change(context)
+		"replay_sequence_orders_queue_feedback_before_board_rebuild":
+			passed = await _assert_replay_sequence_orders_queue_feedback_before_board_rebuild(context)
 		"replay_uses_detached_replay_actor_not_live_box_view":
 			passed = await _assert_replay_uses_detached_replay_actor_not_live_box_view(context)
 		"ghost_spawn_ghostify_replay_does_not_move_live_final_world_box":
@@ -771,14 +781,36 @@ func _assert_replay_empty_steps_keep_order_with_empty_presentation_kind(context:
 	var replay_steps: Array[Dictionary] = builder.build_steps(defaults, queue.entries(), Vector2i(9, 9))
 	return replay_steps.size() == 3 \
 		and StringName(replay_steps[0].get("presentation_kind", &"")) == ReplayPayloadBuilder.PRESENTATION_MOVE \
-		and StringName(replay_steps[1].get("presentation_kind", &"")) == ReplayPayloadBuilder.PRESENTATION_EMPTY \
+		and StringName(replay_steps[1].get("presentation_kind", &"")) == ReplayPayloadBuilder.PRESENTATION_BEAT \
 		and int(replay_steps[1].get("type", -1)) == ChangeRecord.ChangeType.EMPTY \
 		and StringName(replay_steps[2].get("presentation_kind", &"")) == ReplayPayloadBuilder.PRESENTATION_GHOSTIFY
 
 
+func _assert_empty_beats_do_not_create_board_actor_steps(context: Dictionary) -> bool:
+	var defaults: WorldDefaults = context["defaults"]
+	var builder := ReplayPayloadBuilder.new()
+	var queue := ChangeQueue.new()
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "empty_only_a", ChangeRecord.SourceKind.LIVE_INPUT))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "empty_only_b", ChangeRecord.SourceKind.LIVE_INPUT))
+	var replay_steps: Array[Dictionary] = builder.build_steps(defaults, queue.entries(), Vector2i(9, 9))
+	return replay_steps.is_empty()
+
+
+func _assert_board_replay_rebuilds_only_from_surviving_queue(context: Dictionary) -> bool:
+	var defaults: WorldDefaults = context["defaults"]
+	var surviving_queue_entries: Array[ChangeRecord] = [
+		ChangeRecord.new(ChangeRecord.ChangeType.POSITION, &"box_0", Vector2i(1, 1), false, "surviving", ChangeRecord.SourceKind.REMEMBERED_REBUILD)
+	]
+	var replay_steps: Array[Dictionary] = ReplayPayloadBuilder.new().build_steps(defaults, surviving_queue_entries, defaults.player_start)
+	if replay_steps.is_empty():
+		return false
+	var last_step: Dictionary = replay_steps[replay_steps.size() - 1]
+	return last_step.get("subject", &"") == &"box_0" \
+		and last_step.get("to", Vector2i.ZERO) == Vector2i(1, 1)
+
+
 func _assert_replay_controller_runs_evict_phase_before_rebuild(context: Dictionary) -> bool:
 	var controller: GameController = context["controller"]
-	var replay_controller: ReplayController = controller.get_node(controller.replay_controller_path)
 	controller.request_move(Vector2i.LEFT)
 	controller.request_move(Vector2i.LEFT)
 	controller.request_move(Vector2i.LEFT)
@@ -789,9 +821,33 @@ func _assert_replay_controller_runs_evict_phase_before_rebuild(context: Dictiona
 		if not controller.get("_input_locked"):
 			break
 		await process_frame
-	var trace: Array[String] = replay_controller.get_last_phase_trace()
-	return trace.find("phase:evict") >= 0 \
-		and trace.find("phase:rebuild") > trace.find("phase:evict")
+	var presentation_trace: Array[String] = controller.get("_last_presentation_trace")
+	var queue_evict_index: int = presentation_trace.find("queue:evict")
+	var board_rebuild_index: int = presentation_trace.find("board:rebuild")
+	return queue_evict_index >= 0 and board_rebuild_index > queue_evict_index
+
+
+func _assert_evicted_changes_are_presented_in_queue_not_board(context: Dictionary) -> bool:
+	var controller: GameController = context["controller"]
+	controller.request_move(Vector2i.LEFT)
+	controller.request_move(Vector2i.LEFT)
+	controller.request_move(Vector2i.LEFT)
+	controller.request_empty_change()
+	controller.request_empty_change()
+	controller.request_empty_change()
+	for i: int in range(600):
+		if not controller.get("_input_locked"):
+			break
+		await process_frame
+	var replay_steps: Array[Dictionary] = controller.get("_last_replay_steps")
+	var has_evicted_move: bool = false
+	for step: Dictionary in replay_steps:
+		if step.get("from", Vector2i.ZERO) == Vector2i(2, 1) and step.get("to", Vector2i.ZERO) == Vector2i(1, 1):
+			has_evicted_move = true
+			break
+	var presentation_trace: Array[String] = controller.get("_last_presentation_trace")
+	return presentation_trace.find("queue:evict") >= 0 \
+		and not has_evicted_move
 
 
 func _assert_replay_conflict_step_finishes_then_applies_tail_pause(context: Dictionary) -> bool:
@@ -809,11 +865,52 @@ func _assert_replay_conflict_step_finishes_then_applies_tail_pause(context: Dict
 		"ends_as_ghost": true,
 		"presentation_kind": ReplayPayloadBuilder.PRESENTATION_GHOSTIFY,
 	}]
-	await replay_controller.play_steps(steps, [])
+	await replay_controller.play_steps(steps)
 	var trace: Array[String] = replay_controller.get_last_phase_trace()
 	var replay_step_index: int = trace.find("step:ghostify")
 	var tail_index: int = trace.find("phase:conflict_tail")
 	return replay_step_index >= 0 and tail_index > replay_step_index
+
+
+func _assert_ghostify_step_is_played_as_full_in_place_change(context: Dictionary) -> bool:
+	var controller: GameController = context["controller"]
+	var replay_controller: ReplayController = controller.get_node(controller.replay_controller_path)
+	replay_controller.step_duration = 0.05
+	replay_controller.step_pause = 0.02
+	replay_controller.conflict_tail_pause = 0.02
+	var steps: Array[Dictionary] = [{
+		"type": ChangeRecord.ChangeType.POSITION,
+		"subject": &"box_0",
+		"from": Vector2i(3, 1),
+		"to": Vector2i(3, 1),
+		"is_conflict": true,
+		"ends_as_ghost": true,
+		"presentation_kind": ReplayPayloadBuilder.PRESENTATION_GHOSTIFY,
+	}]
+	await replay_controller.play_steps(steps)
+	var actor: BoxView = replay_controller.get_replay_actor(&"box_0")
+	var trace: Array[String] = replay_controller.get_last_phase_trace()
+	return actor == null \
+		and trace.find("step:ghostify") >= 0 \
+		and trace.find("phase:conflict_tail") > trace.find("step:ghostify")
+
+
+func _assert_replay_sequence_orders_queue_feedback_before_board_rebuild(context: Dictionary) -> bool:
+	var controller: GameController = context["controller"]
+	controller.request_move(Vector2i.LEFT)
+	controller.request_move(Vector2i.LEFT)
+	controller.request_move(Vector2i.LEFT)
+	controller.request_empty_change()
+	controller.request_empty_change()
+	controller.request_empty_change()
+	for i: int in range(600):
+		if not controller.get("_input_locked"):
+			break
+		await process_frame
+	var presentation_trace: Array[String] = controller.get("_last_presentation_trace")
+	var queue_settle_index: int = presentation_trace.find("queue:settle")
+	var board_rebuild_index: int = presentation_trace.find("board:rebuild")
+	return queue_settle_index >= 0 and board_rebuild_index > queue_settle_index
 
 
 func _assert_replay_uses_detached_replay_actor_not_live_box_view(context: Dictionary) -> bool:
@@ -2579,15 +2676,45 @@ func _build_cases() -> Array[Dictionary]:
 			"context_mode": "controller_level001",
 		},
 		{
+			"id": "empty_beats_do_not_create_board_actor_steps",
+			"name": "empty_beats_do_not_create_board_actor_steps",
+			"action": "empty changes remain timing beats and never become subjectless board actor movement",
+			"context_mode": "controller_level001",
+		},
+		{
+			"id": "board_replay_rebuilds_only_from_surviving_queue",
+			"name": "board_replay_rebuilds_only_from_surviving_queue",
+			"action": "board replay payload only contains surviving remembered queue changes",
+			"context_mode": "controller_level001",
+		},
+		{
 			"id": "replay_controller_runs_evict_phase_before_rebuild",
 			"name": "replay_controller_runs_evict_phase_before_rebuild",
 			"action": "controller replay trace starts with evict phase before rebuild phase",
 			"context_mode": "controller_level001",
 		},
 		{
+			"id": "evicted_changes_are_presented_in_queue_not_board",
+			"name": "evicted_changes_are_presented_in_queue_not_board",
+			"action": "evicted memories are shown in queue feedback and do not appear as board replay movement",
+			"context_mode": "controller_level001",
+		},
+		{
 			"id": "replay_conflict_step_finishes_then_applies_tail_pause",
 			"name": "replay_conflict_step_finishes_then_applies_tail_pause",
 			"action": "replay conflict step records ghostify playback before conflict-tail pause stop",
+			"context_mode": "controller_level001",
+		},
+		{
+			"id": "ghostify_step_is_played_as_full_in_place_change",
+			"name": "ghostify_step_is_played_as_full_in_place_change",
+			"action": "ghostify replay step is fully played in place before replay end handling",
+			"context_mode": "controller_level001",
+		},
+		{
+			"id": "replay_sequence_orders_queue_feedback_before_board_rebuild",
+			"name": "replay_sequence_orders_queue_feedback_before_board_rebuild",
+			"action": "queue feedback animation runs before board rebuild replay in one recompile flow",
 			"context_mode": "controller_level001",
 		},
 		{
