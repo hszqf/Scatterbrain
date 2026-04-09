@@ -93,6 +93,14 @@ func board_pixel_size() -> Vector2:
 	return Vector2(world_size.x * cell_size, world_size.y * cell_size)
 
 
+func play_player_meditate_pulse(action_duration: float) -> void:
+	if _player_view == null:
+		if action_duration > 0.0:
+			await get_tree().create_timer(action_duration).timeout
+		return
+	await _player_view.play_meditate_pulse(action_duration)
+
+
 func _draw() -> void:
 	if _player_view == null:
 		return
