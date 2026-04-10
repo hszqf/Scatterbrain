@@ -79,7 +79,8 @@
 1. 新变化入列后检查容量。
 2. 超容时先挤出最老未钉住变化。
 3. 锁定输入并执行完整重编译（两阶段）：
-   - 阶段 A（remembered world）：从默认箱子状态出发，仅按 surviving queue 顺序解释 remembered change；此阶段禁止读取当前玩家位置。
+   - 阶段 A（remembered world）：从默认箱子状态出发，仅按 surviving queue 顺序解释 remembered change；此阶段禁止读取当前玩家最终位置。
+   - 阶段 A 的 player 时序：先用 live player 位置按 remembered `POSITION.move_delta` 倒序回推 replay 起点；解释每条 remembered `POSITION` 后，replay-time player 同步前进一步；`EMPTY/GHOST` 不推动 player。
    - 阶段 B（projected live world）：把阶段 A 的 remembered 结果投影到当前玩家位置；若 remembered 实体箱子与玩家/实体冲突则投影为 live ghost，不直接删除。
 4. `Ghost[AUTO_GHOST]` 是状态事件：只把“当前 remembered 位置”的箱子改为幽灵，不定义新位置；`target_position` 仅允许作为调试元数据。
 5. 默认箱子在记忆归零后必须先恢复 remembered 实体；若当前玩家正占默认格，live 投影显示幽灵，不可直接消失。

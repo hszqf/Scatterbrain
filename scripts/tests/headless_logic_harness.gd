@@ -295,6 +295,14 @@ func _run_case(case_data: Dictionary) -> bool:
 			passed = _assert_semantic_ghost_step_no_motion(context)
 		"semantic_left_right_same_rules":
 			passed = _assert_semantic_left_right_same_rules(context)
+		"derive_replay_player_start_rewinds_push_history":
+			passed = _assert_derive_replay_player_start_rewinds_push_history(context)
+		"remembered_pushes_use_replay_time_player_not_live_player":
+			passed = _assert_remembered_pushes_use_replay_time_player_not_live_player(context)
+		"two_left_pushes_do_not_auto_ghostify_when_only_live_player_overlaps_intermediate_cell":
+			passed = _assert_two_left_pushes_do_not_auto_ghostify_when_only_live_player_overlaps_intermediate_cell(context)
+		"final_projected_world_still_uses_live_player_position":
+			passed = _assert_final_projected_world_still_uses_live_player_position(context)
 		"semantic_evict_last_related_restores_default":
 			passed = _assert_semantic_evict_last_related_restores_default(context)
 		"memory_queue_symbols_are_ascii_safe":
@@ -2873,6 +2881,59 @@ func _assert_semantic_left_right_same_rules(context: Dictionary) -> bool:
 	return left_result.generated_ghost_changes.size() == right_result.generated_ghost_changes.size()
 
 
+func _assert_derive_replay_player_start_rewinds_push_history(_context: Dictionary) -> bool:
+	var compiler := WorldCompiler.new()
+	var queue_entries: Array[ChangeRecord] = [
+		ChangeRecord.new(ChangeRecord.ChangeType.POSITION, &"box_0", Vector2i(2, 1), false, "left_1", ChangeRecord.SourceKind.REMEMBERED_REBUILD, Vector2i.LEFT),
+		ChangeRecord.new(ChangeRecord.ChangeType.POSITION, &"box_0", Vector2i(1, 1), false, "left_2", ChangeRecord.SourceKind.REMEMBERED_REBUILD, Vector2i.LEFT),
+	]
+	var replay_player_start: Vector2i = compiler._derive_replay_player_start(Vector2i(2, 1), queue_entries)
+	return replay_player_start == Vector2i(4, 1)
+
+
+func _assert_remembered_pushes_use_replay_time_player_not_live_player(context: Dictionary) -> bool:
+	var defaults: WorldDefaults = context["defaults"]
+	var queue := ChangeQueue.new()
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.POSITION, &"box_0", Vector2i(2, 1), false, "left_1", ChangeRecord.SourceKind.REMEMBERED_REBUILD, Vector2i.LEFT))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.POSITION, &"box_0", Vector2i(1, 1), false, "left_2", ChangeRecord.SourceKind.REMEMBERED_REBUILD, Vector2i.LEFT))
+	var result: CompileResult = _compiler.compile(defaults, queue, Vector2i(2, 1))
+	var first_move_found: bool = false
+	for item: Dictionary in result.replay_trace:
+		if String(item.get("kind", "")) != "move":
+			continue
+		if int(item.get("queue_index", -1)) != 0:
+			continue
+		first_move_found = true
+		if item.get("player_from", Vector2i.ZERO) != Vector2i(4, 1):
+			return false
+		if item.get("player_to", Vector2i.ZERO) != Vector2i(3, 1):
+			return false
+		break
+	return first_move_found and result.generated_ghost_changes.is_empty()
+
+
+func _assert_two_left_pushes_do_not_auto_ghostify_when_only_live_player_overlaps_intermediate_cell(context: Dictionary) -> bool:
+	var defaults: WorldDefaults = context["defaults"]
+	var queue := ChangeQueue.new()
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.POSITION, &"box_0", Vector2i(2, 1), false, "left_1", ChangeRecord.SourceKind.REMEMBERED_REBUILD, Vector2i.LEFT))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.POSITION, &"box_0", Vector2i(1, 1), false, "left_2", ChangeRecord.SourceKind.REMEMBERED_REBUILD, Vector2i.LEFT))
+	var result: CompileResult = _compiler.compile(defaults, queue, Vector2i(2, 1))
+	return result.generated_ghost_changes.is_empty() \
+		and not _contains_ghost_change(result.queue_entries, &"box_0", Vector2i(2, 1)) \
+		and result.world.entity_positions.get(&"box_0", Vector2i(-1, -1)) == Vector2i(1, 1) \
+		and not result.world.ghost_entities.has(&"box_0")
+
+
+func _assert_final_projected_world_still_uses_live_player_position(context: Dictionary) -> bool:
+	var defaults: WorldDefaults = context["defaults"]
+	var queue := ChangeQueue.new()
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.POSITION, &"box_0", Vector2i(2, 1), false, "left_1", ChangeRecord.SourceKind.REMEMBERED_REBUILD, Vector2i.LEFT))
+	queue.append(ChangeRecord.new(ChangeRecord.ChangeType.POSITION, &"box_0", Vector2i(1, 1), false, "left_2", ChangeRecord.SourceKind.REMEMBERED_REBUILD, Vector2i.LEFT))
+	var live_player_position := Vector2i(2, 1)
+	var result: CompileResult = _compiler.compile(defaults, queue, live_player_position)
+	return result.world.player_position == live_player_position
+
+
 func _assert_semantic_evict_last_related_restores_default(context: Dictionary) -> bool:
 	var defaults: WorldDefaults = context["defaults"]
 	var queue := ChangeQueue.new()
@@ -3947,6 +4008,10 @@ func _build_cases() -> Array[Dictionary]:
 		{"id":"semantic_chain_converges","name":"semantic_chain_converges","action":"generated chain converges","blueprint":{"board_size":Vector2i(4,3),"player_start":Vector2i(1,1),"exit_position":Vector2i(3,2),"memory_capacity":3,"floors":[Vector3i(0,1,0),Vector3i(1,1,0),Vector3i(2,1,0),Vector3i(3,1,0)],"walls":[],"boxes":[Vector3i(1,1,0)]}},
 		{"id":"semantic_ghost_step_no_motion","name":"semantic_ghost_step_no_motion","action":"ghost step has no displacement","blueprint":{"board_size":Vector2i(4,3),"player_start":Vector2i(0,0),"exit_position":Vector2i(3,2),"memory_capacity":3,"floors":[Vector3i(0,1,0),Vector3i(1,1,0),Vector3i(2,1,0),Vector3i(3,1,0)],"walls":[],"boxes":[Vector3i(1,1,0)]}},
 		{"id":"semantic_left_right_same_rules","name":"semantic_left_right_same_rules","action":"left/right same conflict rules","blueprint":{"board_size":Vector2i(4,3),"player_start":Vector2i(0,0),"exit_position":Vector2i(3,2),"memory_capacity":3,"floors":[Vector3i(0,1,0),Vector3i(1,1,0),Vector3i(2,1,0),Vector3i(3,1,0)],"walls":[],"boxes":[Vector3i(1,1,0)]}},
+		{"id":"derive_replay_player_start_rewinds_push_history","name":"derive_replay_player_start_rewinds_push_history","action":"derive replay-time player start by rewinding remembered push deltas","blueprint":{"board_size":Vector2i(6,3),"player_start":Vector2i(4,1),"exit_position":Vector2i(5,1),"memory_capacity":4,"floors":[Vector3i(0,1,0),Vector3i(1,1,0),Vector3i(2,1,0),Vector3i(3,1,0),Vector3i(4,1,0),Vector3i(5,1,0)],"walls":[],"boxes":[Vector3i(3,1,0)]}},
+		{"id":"remembered_pushes_use_replay_time_player_not_live_player","name":"remembered_pushes_use_replay_time_player_not_live_player","action":"remembered pushes update replay-time player instead of using live final position","blueprint":{"board_size":Vector2i(6,3),"player_start":Vector2i(4,1),"exit_position":Vector2i(5,1),"memory_capacity":4,"floors":[Vector3i(0,1,0),Vector3i(1,1,0),Vector3i(2,1,0),Vector3i(3,1,0),Vector3i(4,1,0),Vector3i(5,1,0)],"walls":[],"boxes":[Vector3i(3,1,0)]}},
+		{"id":"two_left_pushes_do_not_auto_ghostify_when_only_live_player_overlaps_intermediate_cell","name":"two_left_pushes_do_not_auto_ghostify_when_only_live_player_overlaps_intermediate_cell","action":"two remembered left pushes do not auto ghostify when only live player overlaps intermediate cell","blueprint":{"board_size":Vector2i(6,3),"player_start":Vector2i(4,1),"exit_position":Vector2i(5,1),"memory_capacity":4,"floors":[Vector3i(0,1,0),Vector3i(1,1,0),Vector3i(2,1,0),Vector3i(3,1,0),Vector3i(4,1,0),Vector3i(5,1,0)],"walls":[],"boxes":[Vector3i(3,1,0)]}},
+		{"id":"final_projected_world_still_uses_live_player_position","name":"final_projected_world_still_uses_live_player_position","action":"compile uses replay-time player but projected world keeps live player position","blueprint":{"board_size":Vector2i(6,3),"player_start":Vector2i(4,1),"exit_position":Vector2i(5,1),"memory_capacity":4,"floors":[Vector3i(0,1,0),Vector3i(1,1,0),Vector3i(2,1,0),Vector3i(3,1,0),Vector3i(4,1,0),Vector3i(5,1,0)],"walls":[],"boxes":[Vector3i(3,1,0)]}},
 		{"id":"semantic_evict_last_related_restores_default","name":"semantic_evict_last_related_restores_default","action":"evicting final related change restores default","blueprint":{"board_size":Vector2i(4,3),"player_start":Vector2i(0,0),"exit_position":Vector2i(3,2),"memory_capacity":3,"floors":[Vector3i(0,1,0),Vector3i(1,1,0),Vector3i(2,1,0),Vector3i(3,1,0)],"walls":[],"boxes":[Vector3i(1,1,0)]}}
 	])
 	var disabled_legacy_ids := {

@@ -32,8 +32,9 @@ func compile(defaults: WorldDefaults, queue: ChangeQueue, player_position: Vecto
 		})
 
 		context.clear_generated()
+		var replay_player_start: Vector2i = _derive_replay_player_start(player_position, queue_entries)
 		var state := SimulationState.new()
-		state.setup_from_defaults(defaults, player_position)
+		state.setup_from_defaults(defaults, replay_player_start)
 		var generated_this_pass: Array[ChangeRecord] = []
 		var pass_interrupted: bool = false
 		for queue_index: int in range(queue_entries.size()):
@@ -51,10 +52,14 @@ func compile(defaults: WorldDefaults, queue: ChangeQueue, player_position: Vecto
 					"kind": "beat_empty",
 					"pass_index": pass_index,
 					"queue_index": queue_index,
+					"player_at": state.player_position,
 				})
 				continue
 			var events: Array[Dictionary] = []
 			_interpreter.interpret([entry], state, context, events)
+			var player_before_entry: Vector2i = state.player_position
+			if entry.type == ChangeRecord.ChangeType.POSITION:
+				state.player_position += entry.move_delta
 			for event: Dictionary in events:
 				var change: ChangeRecord = event.get("change")
 				if change == null:
@@ -69,6 +74,8 @@ func compile(defaults: WorldDefaults, queue: ChangeQueue, player_position: Vecto
 						"to": event.get("to", Vector2i.ZERO),
 						"is_conflict": bool(event.get("is_conflict", false)),
 						"ends_as_ghost": bool(event.get("ends_as_ghost", false)),
+						"player_from": player_before_entry,
+						"player_to": state.player_position,
 					})
 				elif change.type == ChangeRecord.ChangeType.GHOST:
 					replay_trace.append({
@@ -78,6 +85,7 @@ func compile(defaults: WorldDefaults, queue: ChangeQueue, player_position: Vecto
 						"subject": change.subject_id,
 						"at": event.get("from", Vector2i.ZERO),
 						"is_conflict": true,
+						"player_at": state.player_position,
 					})
 
 			var generated_after_entry: Array[ChangeRecord] = _detect_generated_changes_after_entry(state, queue_entries, context, queue_index)
@@ -125,7 +133,7 @@ func compile(defaults: WorldDefaults, queue: ChangeQueue, player_position: Vecto
 			break
 
 		if not pass_interrupted:
-			result.world = _build_projected_world(state)
+			result.world = _build_projected_world(state, player_position)
 			break
 
 	result.iterations = iteration
@@ -133,7 +141,7 @@ func compile(defaults: WorldDefaults, queue: ChangeQueue, player_position: Vecto
 		var fallback_state := SimulationState.new()
 		fallback_state.setup_from_defaults(defaults, player_position)
 		_interpreter.interpret(queue_entries, fallback_state, CompileContext.new())
-		result.world = _build_projected_world(fallback_state)
+		result.world = _build_projected_world(fallback_state, player_position)
 	if iteration >= MAX_ITERATIONS and not context.generated_changes.is_empty():
 		result.reached_safety_limit = true
 	var final_queue := ChangeQueue.new()
@@ -179,8 +187,21 @@ func _detect_generated_changes_after_entry(
 	return context.generated_changes.duplicate()
 
 
-func _build_projected_world(state: SimulationState) -> CompiledWorld:
+func _derive_replay_player_start(live_player_position: Vector2i, queue_entries: Array[ChangeRecord]) -> Vector2i:
+	var replay_player_position: Vector2i = live_player_position
+	for index: int in range(queue_entries.size() - 1, -1, -1):
+		var entry: ChangeRecord = queue_entries[index]
+		if entry == null:
+			continue
+		if entry.type != ChangeRecord.ChangeType.POSITION:
+			continue
+		replay_player_position -= entry.move_delta
+	return replay_player_position
+
+
+func _build_projected_world(state: SimulationState, live_player_position: Vector2i) -> CompiledWorld:
 	var world: CompiledWorld = state.build_world()
+	world.player_position = live_player_position
 	var to_ghostify: Array[StringName] = []
 	for subject_id: StringName in world.entity_positions.keys():
 		var position: Vector2i = world.entity_positions[subject_id]
