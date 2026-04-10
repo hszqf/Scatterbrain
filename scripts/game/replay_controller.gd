@@ -1,6 +1,10 @@
 class_name ReplayController
 extends Node
 
+const PRESENTATION_MOVE: StringName = &"move"
+const PRESENTATION_GHOSTIFY: StringName = &"ghostify"
+const PRESENTATION_BEAT: StringName = &"beat"
+
 @export var board_view_path: NodePath
 @export var replay_layer_path: NodePath
 @export var memory_beat_duration: float = 1.0
@@ -28,6 +32,66 @@ func _ready() -> void:
 
 func has_steps(steps: Array) -> bool:
 	return not steps.is_empty()
+
+
+func has_trace_items(trace: Array[Dictionary]) -> bool:
+	for item: Dictionary in trace:
+		var kind: String = String(item.get("kind", ""))
+		if kind == "beat_empty" or kind == "move" or kind == "ghostify":
+			return true
+	return false
+
+
+func begin_trace_playback(trace: Array[Dictionary]) -> void:
+	_sync_replay_layer_transform()
+	var replay_subjects: Array[StringName] = _collect_trace_subjects(trace)
+	_last_used_live_box_views = false
+	_last_phase_trace = []
+	_replay_presenting_subjects.clear()
+	_board_view.begin_replay_presentation(replay_subjects)
+	_clear_replay_actors()
+	for subject_id: StringName in replay_subjects:
+		_replay_presenting_subjects[subject_id] = true
+		_ensure_replay_actor(subject_id)
+
+
+func end_trace_playback() -> void:
+	var replay_subjects: Array[StringName] = get_replay_actor_subjects()
+	_restore_live_subjects(replay_subjects)
+	_clear_replay_actors()
+	_replay_presenting_subjects.clear()
+	_board_view.end_replay_presentation()
+
+
+func play_trace_item(item: Dictionary, beat_duration: float = memory_beat_duration) -> void:
+	var kind: String = String(item.get("kind", ""))
+	match kind:
+		"beat_empty":
+			await play_memory_beat([{"presentation_kind": PRESENTATION_BEAT, "type": ChangeRecord.ChangeType.EMPTY}], beat_duration)
+		"move":
+			await play_memory_beat([{
+				"presentation_kind": PRESENTATION_MOVE,
+				"type": ChangeRecord.ChangeType.POSITION,
+				"subject": item.get("subject", &""),
+				"from": item.get("from", Vector2i.ZERO),
+				"to": item.get("to", Vector2i.ZERO),
+			}], beat_duration)
+		"ghostify":
+			var at: Vector2i = item.get("at", Vector2i.ZERO)
+			await play_memory_beat([{
+				"presentation_kind": PRESENTATION_GHOSTIFY,
+				"type": ChangeRecord.ChangeType.GHOST,
+				"subject": item.get("subject", &""),
+				"from": at,
+				"to": at,
+				"is_conflict": true,
+				"ends_as_ghost": true,
+			}], beat_duration)
+		"queue_restart":
+			var pause_duration: float = maxf(beat_duration * 0.2, 0.05)
+			await get_tree().create_timer(pause_duration).timeout
+		_:
+			return
 
 
 func play_steps(steps: Array) -> void:
@@ -77,7 +141,7 @@ func play_memory_beat_action(beat_steps: Array, action_duration: float) -> void:
 	var has_beat_step: bool = false
 	for step: Dictionary in beat_steps:
 		var presentation_kind: StringName = StringName(step.get("presentation_kind", _resolve_presentation_kind(step)))
-		if presentation_kind == ReplayPayloadBuilder.PRESENTATION_BEAT:
+		if presentation_kind == PRESENTATION_BEAT:
 			has_beat_step = true
 			continue
 		board_steps.append(step)
@@ -93,7 +157,7 @@ func play_memory_beat_action(beat_steps: Array, action_duration: float) -> void:
 	for step: Dictionary in board_steps:
 		var presentation_kind: StringName = StringName(step.get("presentation_kind", _resolve_presentation_kind(step)))
 		match presentation_kind:
-			ReplayPayloadBuilder.PRESENTATION_GHOSTIFY:
+			PRESENTATION_GHOSTIFY:
 				_last_phase_trace.append("step:ghostify")
 				await play_board_replay(step, step_duration)
 			_:
@@ -108,9 +172,9 @@ func play_memory_step(step: Dictionary, beat_duration: float = memory_beat_durat
 func play_board_replay(step: Dictionary, action_duration: float) -> void:
 	var presentation_kind: StringName = StringName(step.get("presentation_kind", _resolve_presentation_kind(step)))
 	match presentation_kind:
-		ReplayPayloadBuilder.PRESENTATION_GHOSTIFY:
+		PRESENTATION_GHOSTIFY:
 			await _play_ghostify_step(step, action_duration)
-		ReplayPayloadBuilder.PRESENTATION_MOVE:
+		PRESENTATION_MOVE:
 			await _play_move_step(step, action_duration)
 
 
@@ -190,10 +254,10 @@ func _prepare_step_actor(step: Dictionary) -> BoxView:
 
 func _resolve_presentation_kind(step: Dictionary) -> StringName:
 	if int(step.get("type", -1)) == ChangeRecord.ChangeType.EMPTY:
-		return ReplayPayloadBuilder.PRESENTATION_BEAT
+		return PRESENTATION_BEAT
 	if bool(step.get("ends_as_ghost", false)):
-		return ReplayPayloadBuilder.PRESENTATION_GHOSTIFY
-	return ReplayPayloadBuilder.PRESENTATION_MOVE
+		return PRESENTATION_GHOSTIFY
+	return PRESENTATION_MOVE
 
 
 func _sync_replay_layer_transform() -> void:
@@ -293,6 +357,25 @@ func _group_steps_by_queue_index(steps: Array) -> Array[Dictionary]:
 			"steps": grouped[queue_index],
 		})
 	return beats
+
+
+func _collect_trace_subjects(trace: Array[Dictionary]) -> Array[StringName]:
+	var seen: Dictionary[StringName, bool] = {}
+	for item: Dictionary in trace:
+		var kind: String = String(item.get("kind", ""))
+		if kind != "move" and kind != "ghostify":
+			continue
+		var subject_id: StringName = item.get("subject", &"")
+		if subject_id == &"":
+			continue
+		seen[subject_id] = true
+	var subjects: Array[StringName] = []
+	for subject_id: StringName in seen.keys():
+		subjects.append(subject_id)
+	subjects.sort_custom(func(a: StringName, b: StringName) -> bool:
+		return String(a) < String(b)
+	)
+	return subjects
 
 
 func _restore_live_subjects(subject_ids: Array[StringName]) -> void:

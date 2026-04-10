@@ -25,7 +25,6 @@ var _queue: ChangeQueue = ChangeQueue.new()
 var _world: CompiledWorld
 var _input_router: InputRouter = InputRouter.new()
 var _move_resolver: PlayerMoveResolver = PlayerMoveResolver.new()
-var _replay_payload_builder: ReplayPayloadBuilder = ReplayPayloadBuilder.new()
 var _debug_log_formatter: DebugLogFormatter = DebugLogFormatter.new()
 var _input_locked: bool = false
 var _is_complete: bool = false
@@ -243,21 +242,18 @@ func _recompile_world(reason: String) -> void:
 	var previous_queue_entries: Array[ChangeRecord] = _queue.entries()
 	var result: CompileResult = _compiler.compile(_defaults, _queue, current_player_position)
 	var world_after_compile: CompiledWorld = result.world
-	var rebuild_steps: Array[Dictionary] = []
+	var replay_trace: Array[Dictionary] = result.replay_trace
 	_last_pushed_out_summaries = _change_summaries(result.pushed_out_changes)
 	_last_generated_ghost_summaries = _change_summaries(result.generated_ghost_changes)
 	_last_queue_after_compile_summaries = _change_summaries(result.queue_entries)
 	var has_replayable_pushed_out: bool = _has_replayable_pushed_out_changes(result.pushed_out_changes)
-	var has_surviving_replayable_memory: bool = _has_surviving_replayable_memory(result.queue_entries)
-	if has_surviving_replayable_memory:
-		rebuild_steps = _replay_payload_builder.build_steps(_defaults, result.queue_entries, current_player_position)
-	var can_build_replay_steps: bool = not rebuild_steps.is_empty()
+	var can_build_replay_steps: bool = _replay_controller.has_trace_items(replay_trace)
 	var replay_gate_allowed: bool = has_replayable_pushed_out and can_build_replay_steps
 	_last_replay_gate_allowed = replay_gate_allowed
 	_last_replay_gate_reason = _resolve_replay_gate_reason(
 		result.pushed_out_changes,
 		has_replayable_pushed_out,
-		has_surviving_replayable_memory,
+		can_build_replay_steps,
 		can_build_replay_steps
 	)
 	if replay_gate_allowed:
@@ -272,23 +268,16 @@ func _recompile_world(reason: String) -> void:
 	else:
 		_queue_view.render_queue(result.queue_entries, _defaults.memory_capacity, _defaults.obsession_capacity)
 	if replay_gate_allowed:
-		_last_replay_steps = rebuild_steps
-		_last_replay_display_steps = _duplicate_replay_steps(rebuild_steps)
-		_last_replay_presenting_subjects = _collect_replay_subjects(rebuild_steps)
-		if not rebuild_steps.is_empty():
-			var has_player_conflict_step: bool = false
-			for replay_step: Dictionary in rebuild_steps:
-				if bool(replay_step.get("is_conflict", false)):
-					has_player_conflict_step = true
-					break
-			_last_replay_stop_reason = "player_conflict" if has_player_conflict_step else "completed"
-
-		if _replay_controller.has_steps(rebuild_steps):
+		_last_replay_steps = _duplicate_replay_steps(replay_trace)
+		_last_replay_display_steps = _trace_to_display_steps(replay_trace)
+		_last_replay_presenting_subjects = _collect_trace_subjects(replay_trace)
+		_last_replay_stop_reason = "completed"
+		if _replay_controller.has_trace_items(replay_trace):
 			_last_presentation_trace.append("board:rebuild")
-			await _play_memory_synchronized_replay(rebuild_steps)
+			await _play_compile_trace(replay_trace)
 			_last_replay_used_live_box_views = _replay_controller.used_live_box_views()
 			_last_replay_completed = true
-		elif not rebuild_steps.is_empty():
+		elif not replay_trace.is_empty():
 			_last_replay_stop_reason = "none"
 	else:
 		_last_replay_steps = []
@@ -313,41 +302,32 @@ func _recompile_world(reason: String) -> void:
 	_input_locked = false
 
 
-func _play_memory_synchronized_replay(replay_steps: Array[Dictionary]) -> void:
-	var replay_beats: Array[Dictionary] = _group_replay_steps_by_queue_index(replay_steps)
-	for beat: Dictionary in replay_beats:
-		var queue_index: int = int(beat.get("queue_index", -1))
-		var beat_steps: Array = beat.get("steps", [])
-		if queue_index >= 0:
-			_last_presentation_trace.append("queue:focus:%d" % queue_index)
-			_last_presentation_trace.append("queue:beat:start:%d" % queue_index)
-			_queue_view.begin_focus_on_slot(queue_index)
-		_last_presentation_trace.append("board:beat:start:%d" % queue_index)
-		await _replay_controller.play_memory_beat(beat_steps, _replay_controller.memory_beat_duration)
-		if queue_index >= 0:
-			_queue_view.end_focus_on_slot(queue_index)
-		_last_presentation_trace.append("board:beat:end:%d" % queue_index)
-
-
-func _group_replay_steps_by_queue_index(replay_steps: Array[Dictionary]) -> Array[Dictionary]:
-	var grouped_by_index: Dictionary = {}
-	for step: Dictionary in replay_steps:
-		var queue_index: int = int(step.get("queue_index", -1))
-		if not grouped_by_index.has(queue_index):
-			grouped_by_index[queue_index] = []
-		var beat_steps: Array = grouped_by_index[queue_index]
-		beat_steps.append(step)
-	var ordered_indexes: Array[int] = []
-	for queue_index: int in grouped_by_index.keys():
-		ordered_indexes.append(queue_index)
-	ordered_indexes.sort()
-	var groups: Array[Dictionary] = []
-	for queue_index: int in ordered_indexes:
-		groups.append({
-			"queue_index": queue_index,
-			"steps": grouped_by_index[queue_index],
-		})
-	return groups
+func _play_compile_trace(trace: Array[Dictionary]) -> void:
+	if trace.is_empty():
+		return
+	_replay_controller.begin_trace_playback(trace)
+	var focused_queue_index: int = -1
+	for item: Dictionary in trace:
+		var kind: String = String(item.get("kind", ""))
+		if kind == "queue_focus":
+			if focused_queue_index >= 0:
+				_queue_view.end_focus_on_slot(focused_queue_index)
+			focused_queue_index = int(item.get("queue_index", -1))
+			if focused_queue_index >= 0:
+				_last_presentation_trace.append("queue:focus:%d" % focused_queue_index)
+				_queue_view.begin_focus_on_slot(focused_queue_index)
+			continue
+		if kind == "queue_restart":
+			if focused_queue_index >= 0:
+				_queue_view.end_focus_on_slot(focused_queue_index)
+				focused_queue_index = -1
+			_last_presentation_trace.append("queue:restart")
+		if kind == "move" or kind == "ghostify" or kind == "beat_empty" or kind == "queue_restart":
+			_last_presentation_trace.append("board:trace:%s" % kind)
+			await _replay_controller.play_trace_item(item, _replay_controller.memory_beat_duration)
+	if focused_queue_index >= 0:
+		_queue_view.end_focus_on_slot(focused_queue_index)
+	_replay_controller.end_trace_playback()
 
 
 func _update_status() -> void:
@@ -455,25 +435,6 @@ func _has_replayable_pushed_out_changes(pushed_out_changes: Array[ChangeRecord])
 	return false
 
 
-func _has_surviving_replayable_memory(queue_entries: Array[ChangeRecord]) -> bool:
-	for entry: ChangeRecord in queue_entries:
-		if _is_replayable_memory_change(entry):
-			return true
-	return false
-
-
-func _is_replayable_memory_change(entry: ChangeRecord) -> bool:
-	if entry == null:
-		return false
-	if entry.subject_id == &"":
-		return false
-	var is_replayable_position: bool = entry.type == ChangeRecord.ChangeType.POSITION \
-		and entry.source_kind == ChangeRecord.SourceKind.REMEMBERED_REBUILD
-	var is_replayable_ghost: bool = entry.type == ChangeRecord.ChangeType.GHOST \
-		and entry.source_kind == ChangeRecord.SourceKind.AUTO_GHOST
-	return is_replayable_position or is_replayable_ghost
-
-
 func _duplicate_replay_steps(steps: Array[Dictionary]) -> Array[Dictionary]:
 	var copied: Array[Dictionary] = []
 	for step: Dictionary in steps:
@@ -481,12 +442,13 @@ func _duplicate_replay_steps(steps: Array[Dictionary]) -> Array[Dictionary]:
 	return copied
 
 
-func _collect_replay_subjects(steps: Array[Dictionary]) -> Array[StringName]:
+func _collect_trace_subjects(trace: Array[Dictionary]) -> Array[StringName]:
 	var seen: Dictionary[StringName, bool] = {}
-	for step: Dictionary in steps:
-		if int(step.get("type", -1)) == ChangeRecord.ChangeType.EMPTY:
+	for item: Dictionary in trace:
+		var kind: String = String(item.get("kind", ""))
+		if kind != "move" and kind != "ghostify":
 			continue
-		var subject_id: StringName = step.get("subject", &"")
+		var subject_id: StringName = item.get("subject", &"")
 		if subject_id == &"":
 			continue
 		seen[subject_id] = true
@@ -497,6 +459,41 @@ func _collect_replay_subjects(steps: Array[Dictionary]) -> Array[StringName]:
 		return String(a) < String(b)
 	)
 	return subjects
+
+
+func _trace_to_display_steps(trace: Array[Dictionary]) -> Array[Dictionary]:
+	var display_steps: Array[Dictionary] = []
+	for item: Dictionary in trace:
+		var kind: String = String(item.get("kind", ""))
+		match kind:
+			"beat_empty":
+				display_steps.append({
+					"type": ChangeRecord.ChangeType.EMPTY,
+					"queue_index": int(item.get("queue_index", -1)),
+					"presentation_kind": ReplayController.PRESENTATION_BEAT,
+				})
+			"move":
+				display_steps.append({
+					"type": ChangeRecord.ChangeType.POSITION,
+					"queue_index": int(item.get("queue_index", -1)),
+					"subject": item.get("subject", &""),
+					"from": item.get("from", Vector2i.ZERO),
+					"to": item.get("to", Vector2i.ZERO),
+					"presentation_kind": ReplayController.PRESENTATION_MOVE,
+				})
+			"ghostify":
+				var at: Vector2i = item.get("at", Vector2i.ZERO)
+				display_steps.append({
+					"type": ChangeRecord.ChangeType.GHOST,
+					"queue_index": int(item.get("queue_index", -1)),
+					"subject": item.get("subject", &""),
+					"from": at,
+					"to": at,
+					"presentation_kind": ReplayController.PRESENTATION_GHOSTIFY,
+					"is_conflict": true,
+					"ends_as_ghost": true,
+				})
+	return display_steps
 
 
 func _set_last_input_debug(source: String, intent: String, direction: Vector2i) -> void:
@@ -539,16 +536,16 @@ func _change_summaries(changes: Array[ChangeRecord]) -> Array[String]:
 func _resolve_replay_gate_reason(
 	pushed_out_changes: Array[ChangeRecord],
 	has_replayable_pushed_out: bool,
-	has_surviving_replayable_memory: bool,
+	has_trace_items: bool,
 	can_build_replay_steps: bool
 ) -> String:
-	if has_replayable_pushed_out and has_surviving_replayable_memory and can_build_replay_steps:
+	if has_replayable_pushed_out and has_trace_items and can_build_replay_steps:
 		return "allowed_non_empty_pushed_out"
 	if not has_replayable_pushed_out and pushed_out_changes.is_empty():
 		return "no_pushed_out"
-	if has_replayable_pushed_out and not has_surviving_replayable_memory:
-		return "no_surviving_replayable_memory"
-	if has_replayable_pushed_out and has_surviving_replayable_memory and not can_build_replay_steps:
+	if has_replayable_pushed_out and not has_trace_items:
+		return "no_replay_trace_items"
+	if has_replayable_pushed_out and has_trace_items and not can_build_replay_steps:
 		return "no_replay_steps_from_surviving_memory"
 	for change: ChangeRecord in pushed_out_changes:
 		if change == null:

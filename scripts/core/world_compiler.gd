@@ -12,6 +12,7 @@ func compile(defaults: WorldDefaults, queue: ChangeQueue, player_position: Vecto
 	var queue_entries: Array[ChangeRecord] = normalized_queue.duplicate()
 	var context := CompileContext.new()
 	var iteration: int = 0
+	var replay_trace: Array[Dictionary] = []
 
 	while iteration < MAX_ITERATIONS:
 		iteration += 1
@@ -23,21 +24,84 @@ func compile(defaults: WorldDefaults, queue: ChangeQueue, player_position: Vecto
 			result.pushed_out_changes.append_array(removed)
 		queue_entries = temp_queue.entries()
 
+		var pass_index: int = iteration - 1
+		replay_trace.append({
+			"kind": "pass_begin",
+			"pass_index": pass_index,
+			"queue_entries": _summarize_queue(queue_entries),
+		})
+
 		context.clear_generated()
 		var state := SimulationState.new()
 		state.setup_from_defaults(defaults, player_position)
-		_interpreter.interpret(queue_entries, state, context)
+		for queue_index: int in range(queue_entries.size()):
+			var entry: ChangeRecord = queue_entries[queue_index]
+			if entry == null:
+				continue
+			replay_trace.append({
+				"kind": "queue_focus",
+				"pass_index": pass_index,
+				"queue_index": queue_index,
+				"entry_summary": entry.summary(),
+			})
+			if entry.type == ChangeRecord.ChangeType.EMPTY:
+				replay_trace.append({
+					"kind": "beat_empty",
+					"pass_index": pass_index,
+					"queue_index": queue_index,
+				})
+				continue
+			var events: Array[Dictionary] = []
+			_interpreter.interpret([entry], state, context, events)
+			for event: Dictionary in events:
+				var change: ChangeRecord = event.get("change")
+				if change == null:
+					continue
+				if change.type == ChangeRecord.ChangeType.POSITION:
+					replay_trace.append({
+						"kind": "move",
+						"pass_index": pass_index,
+						"queue_index": queue_index,
+						"subject": change.subject_id,
+						"from": event.get("from", Vector2i.ZERO),
+						"to": event.get("to", Vector2i.ZERO),
+					})
+				elif change.type == ChangeRecord.ChangeType.GHOST:
+					replay_trace.append({
+						"kind": "ghostify",
+						"pass_index": pass_index,
+						"queue_index": queue_index,
+						"subject": change.subject_id,
+						"at": event.get("from", Vector2i.ZERO),
+					})
+
 		_collect_conflict_generated_changes(state, queue_entries, context)
 
 		if context.generated_changes.is_empty():
 			result.world = _build_projected_world(state)
 			break
+
+		var appended_any: bool = false
 		for generated: ChangeRecord in context.generated_changes:
 			if _has_same_change(queue_entries, generated):
 				continue
 			queue_entries.append(generated)
+			appended_any = true
+			replay_trace.append({
+				"kind": "generated_change",
+				"pass_index": pass_index,
+				"source_queue_index": -1,
+				"change_summary": generated.summary(),
+			})
 			if generated.type == ChangeRecord.ChangeType.GHOST and not _has_same_change(result.generated_ghost_changes, generated):
 				result.generated_ghost_changes.append(generated)
+
+		if appended_any:
+			replay_trace.append({
+				"kind": "queue_restart",
+				"next_pass_index": pass_index + 1,
+				"next_queue_entries": _summarize_queue(queue_entries),
+			})
 
 	result.iterations = iteration
 	if result.world == null:
@@ -52,6 +116,7 @@ func compile(defaults: WorldDefaults, queue: ChangeQueue, player_position: Vecto
 		final_queue.append(entry)
 	final_queue.normalize_to_capacity(defaults.memory_capacity)
 	result.queue_entries = final_queue.entries()
+	result.replay_trace = replay_trace
 	return result
 
 
@@ -105,3 +170,12 @@ func _has_same_change(changes: Array[ChangeRecord], candidate: ChangeRecord) -> 
 		if entry.type == candidate.type and entry.subject_id == candidate.subject_id and entry.target_position == candidate.target_position and entry.source_kind == candidate.source_kind:
 			return true
 	return false
+
+
+func _summarize_queue(entries: Array[ChangeRecord]) -> Array[String]:
+	var summaries: Array[String] = []
+	for entry: ChangeRecord in entries:
+		if entry == null:
+			continue
+		summaries.append(entry.summary())
+	return summaries
