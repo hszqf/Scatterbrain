@@ -143,9 +143,13 @@ func _run_case(case_data: Dictionary) -> bool:
 			passed = _assert_replay_restarts_from_defaults_after_each_pushout(context)
 		"ghost_generated_in_one_rebuild_appears_in_next_replay_after_next_pushout":
 			passed = _assert_ghost_generated_in_one_rebuild_appears_in_next_replay_after_next_pushout(context)
+		"ghost_generated_during_one_cycle_appears_in_next_replay_after_next_pushout":
+			passed = _assert_ghost_generated_in_one_rebuild_appears_in_next_replay_after_next_pushout(context)
 		"no_board_evict_phase_exists":
 			passed = await _assert_no_board_evict_phase_exists(context)
 		"empty_beats_still_use_player_pulse_in_rebuild_phase":
+			passed = await _assert_empty_beats_still_use_player_pulse_in_rebuild_phase(context)
+		"empty_beats_still_trigger_player_pulse":
 			passed = await _assert_empty_beats_still_use_player_pulse_in_rebuild_phase(context)
 		"replay_conflict_step_finishes_then_applies_tail_pause":
 			passed = await _assert_replay_conflict_step_finishes_then_applies_tail_pause(context)
@@ -1112,6 +1116,14 @@ func _assert_board_replay_rebuilds_only_from_surviving_queue(context: Dictionary
 
 func _assert_replay_uses_only_surviving_queue_after_pushout(context: Dictionary) -> bool:
 	var defaults: WorldDefaults = context["defaults"]
+	var pushed_out_change := ChangeRecord.new(
+		ChangeRecord.ChangeType.POSITION,
+		&"box_1",
+		Vector2i(3, 1),
+		false,
+		"evicted_older_move",
+		ChangeRecord.SourceKind.REMEMBERED_REBUILD
+	)
 	var surviving_queue_entries: Array[ChangeRecord] = [
 		ChangeRecord.new(ChangeRecord.ChangeType.POSITION, &"box_0", Vector2i(2, 1), false, "surviving_move", ChangeRecord.SourceKind.REMEMBERED_REBUILD),
 		ChangeRecord.new(ChangeRecord.ChangeType.GHOST, &"box_0", Vector2i(2, 1), false, "surviving_ghost", ChangeRecord.SourceKind.AUTO_GHOST),
@@ -1120,6 +1132,8 @@ func _assert_replay_uses_only_surviving_queue_after_pushout(context: Dictionary)
 	if replay_steps.size() != 2:
 		return false
 	for step: Dictionary in replay_steps:
+		if step.get("subject", &"") == pushed_out_change.subject_id:
+			return false
 		if StringName(step.get("presentation_kind", &"")) == &"evict_move":
 			return false
 	return replay_steps[0].get("to", Vector2i.ZERO) == Vector2i(2, 1) \
@@ -1175,6 +1189,11 @@ func _assert_ghost_generated_in_one_rebuild_appears_in_next_replay_after_next_pu
 
 func _assert_no_board_evict_phase_exists(context: Dictionary) -> bool:
 	var controller: GameController = context["controller"]
+	var game_controller_source: String = FileAccess.get_file_as_string("res://scripts/game/game_controller.gd")
+	if game_controller_source.find("evicted_steps") >= 0:
+		return false
+	if game_controller_source.find("board:evict") >= 0:
+		return false
 	controller.request_move(Vector2i.LEFT)
 	controller.request_move(Vector2i.LEFT)
 	controller.request_move(Vector2i.LEFT)
@@ -3154,6 +3173,12 @@ func _build_cases() -> Array[Dictionary]:
 			"context_mode": "controller_level001",
 		},
 		{
+			"id": "ghost_generated_during_one_cycle_appears_in_next_replay_after_next_pushout",
+			"name": "ghost_generated_during_one_cycle_appears_in_next_replay_after_next_pushout",
+			"action": "ghost generated in one rebuild cycle appears in next replay after next pushout",
+			"context_mode": "controller_level001",
+		},
+		{
 			"id": "no_board_evict_phase_exists",
 			"name": "no_board_evict_phase_exists",
 			"action": "presentation trace has queue evict feedback but no board evict phase",
@@ -3163,6 +3188,12 @@ func _build_cases() -> Array[Dictionary]:
 			"id": "empty_beats_still_use_player_pulse_in_rebuild_phase",
 			"name": "empty_beats_still_use_player_pulse_in_rebuild_phase",
 			"action": "empty rebuild beats still trigger player meditate pulse after evict phase",
+			"context_mode": "controller_level001",
+		},
+		{
+			"id": "empty_beats_still_trigger_player_pulse",
+			"name": "empty_beats_still_trigger_player_pulse",
+			"action": "empty rebuild beats continue to trigger player pulse",
 			"context_mode": "controller_level001",
 		},
 		{

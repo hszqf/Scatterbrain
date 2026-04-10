@@ -251,7 +251,6 @@ func _recompile_world(reason: String) -> void:
 	var has_surviving_replayable_memory: bool = _has_surviving_replayable_memory(result.queue_entries)
 	if has_surviving_replayable_memory:
 		rebuild_steps = _replay_payload_builder.build_steps(_defaults, result.queue_entries, current_player_position)
-	var replay_steps: Array[Dictionary] = rebuild_steps.duplicate()
 	var can_build_replay_steps: bool = not rebuild_steps.is_empty()
 	var replay_gate_allowed: bool = has_replayable_pushed_out and can_build_replay_steps
 	_last_replay_gate_allowed = replay_gate_allowed
@@ -273,12 +272,12 @@ func _recompile_world(reason: String) -> void:
 	else:
 		_queue_view.render_queue(result.queue_entries, _defaults.memory_capacity, _defaults.obsession_capacity)
 	if replay_gate_allowed:
-		_last_replay_steps = replay_steps
-		_last_replay_display_steps = _duplicate_replay_steps(replay_steps)
-		_last_replay_presenting_subjects = _collect_replay_subjects(replay_steps)
-		if not replay_steps.is_empty():
+		_last_replay_steps = rebuild_steps
+		_last_replay_display_steps = _duplicate_replay_steps(rebuild_steps)
+		_last_replay_presenting_subjects = _collect_replay_subjects(rebuild_steps)
+		if not rebuild_steps.is_empty():
 			var has_player_conflict_step: bool = false
-			for replay_step: Dictionary in replay_steps:
+			for replay_step: Dictionary in rebuild_steps:
 				if bool(replay_step.get("is_conflict", false)):
 					has_player_conflict_step = true
 					break
@@ -289,7 +288,7 @@ func _recompile_world(reason: String) -> void:
 			await _play_memory_synchronized_replay(rebuild_steps)
 			_last_replay_used_live_box_views = _replay_controller.used_live_box_views()
 			_last_replay_completed = true
-		elif not replay_steps.is_empty():
+		elif not rebuild_steps.is_empty():
 			_last_replay_stop_reason = "none"
 	else:
 		_last_replay_steps = []
