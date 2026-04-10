@@ -75,6 +75,8 @@ func play_trace_item(item: Dictionary, beat_duration: float = memory_beat_durati
 				"subject": item.get("subject", &""),
 				"from": item.get("from", Vector2i.ZERO),
 				"to": item.get("to", Vector2i.ZERO),
+				"is_conflict": bool(item.get("is_conflict", false)),
+				"ends_as_ghost": bool(item.get("ends_as_ghost", false)),
 			}], beat_duration)
 		"ghostify":
 			var at: Vector2i = item.get("at", Vector2i.ZERO)
