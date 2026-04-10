@@ -1,7 +1,8 @@
 class_name ReplayPayloadBuilder
 extends RefCounted
 
-## Legacy compatibility helper. Main replay source is CompileResult.replay_trace.
+## Legacy/debug compatibility helper only.
+## Main replay source is CompileResult.replay_trace consumed by GameController._play_compile_trace().
 const PRESENTATION_MOVE: StringName = &"move"
 const PRESENTATION_GHOSTIFY: StringName = &"ghostify"
 const PRESENTATION_BEAT: StringName = &"beat"

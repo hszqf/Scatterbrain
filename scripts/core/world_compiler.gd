@@ -34,6 +34,8 @@ func compile(defaults: WorldDefaults, queue: ChangeQueue, player_position: Vecto
 		context.clear_generated()
 		var state := SimulationState.new()
 		state.setup_from_defaults(defaults, player_position)
+		var generated_this_pass: Array[ChangeRecord] = []
+		var pass_interrupted: bool = false
 		for queue_index: int in range(queue_entries.size()):
 			var entry: ChangeRecord = queue_entries[queue_index]
 			if entry == null:
@@ -78,34 +80,53 @@ func compile(defaults: WorldDefaults, queue: ChangeQueue, player_position: Vecto
 						"is_conflict": true,
 					})
 
-		_collect_conflict_generated_changes(state, queue_entries, context)
-
-		if context.generated_changes.is_empty():
-			result.world = _build_projected_world(state)
-			break
-
-		var appended_any: bool = false
-		for generated: ChangeRecord in context.generated_changes:
-			if _has_same_change(queue_entries, generated):
+			var generated_after_entry: Array[ChangeRecord] = _detect_generated_changes_after_entry(state, queue_entries, context, queue_index)
+			if generated_after_entry.is_empty():
 				continue
-			queue_entries.append(generated)
-			appended_any = true
-			replay_trace.append({
-				"kind": "generated_change",
-				"pass_index": pass_index,
-				"source_queue_index": -1,
-				"change": generated,
-			})
-			if generated.type == ChangeRecord.ChangeType.GHOST and not _has_same_change(result.generated_ghost_changes, generated):
-				result.generated_ghost_changes.append(generated)
 
-		if appended_any:
+			for generated: ChangeRecord in generated_after_entry:
+				if _has_same_change(queue_entries, generated):
+					continue
+				generated_this_pass.append(generated)
+				queue_entries.append(generated)
+				replay_trace.append({
+					"kind": "generated_change",
+					"pass_index": pass_index,
+					"source_queue_index": queue_index,
+					"change": generated,
+				})
+				if generated.type == ChangeRecord.ChangeType.GHOST and not _has_same_change(result.generated_ghost_changes, generated):
+					result.generated_ghost_changes.append(generated)
+
+			if generated_this_pass.is_empty():
+				continue
+			var before_normalize_queue_entries: Array[ChangeRecord] = queue_entries.duplicate()
+			var normalize_queue := ChangeQueue.new()
+			for q_entry: ChangeRecord in queue_entries:
+				normalize_queue.append(q_entry)
+			var evicted_changes: Array[ChangeRecord] = normalize_queue.normalize_to_capacity(defaults.memory_capacity)
+			var after_normalize_queue_entries: Array[ChangeRecord] = normalize_queue.entries()
+			queue_entries = after_normalize_queue_entries.duplicate()
+			replay_trace.append({
+				"kind": "queue_update",
+				"pass_index": pass_index,
+				"generated_changes": generated_this_pass.duplicate(),
+				"evicted_changes": evicted_changes.duplicate(),
+				"before_queue_entries": before_normalize_queue_entries,
+				"after_queue_entries": after_normalize_queue_entries,
+			})
 			replay_trace.append({
 				"kind": "queue_restart",
 				"pass_index": pass_index,
 				"next_pass_index": pass_index + 1,
 				"next_queue_entries": queue_entries.duplicate(),
 			})
+			pass_interrupted = true
+			break
+
+		if not pass_interrupted:
+			result.world = _build_projected_world(state)
+			break
 
 	result.iterations = iteration
 	if result.world == null:
@@ -136,11 +157,13 @@ func _normalize_queue_for_rebuild_context(entries: Array[ChangeRecord]) -> Array
 	return normalized
 
 
-func _collect_conflict_generated_changes(
+func _detect_generated_changes_after_entry(
 	state: SimulationState,
 	queue_entries: Array[ChangeRecord],
-	context: CompileContext
-) -> void:
+	context: CompileContext,
+	_source_queue_index: int
+) -> Array[ChangeRecord]:
+	context.clear_generated()
 	for subject_id: StringName in state.position_by_subject.keys():
 		if not state.subject_exists(subject_id):
 			continue
@@ -153,6 +176,7 @@ func _collect_conflict_generated_changes(
 		if _has_same_change(queue_entries, ghost_change):
 			continue
 		context.add_generated_change(ghost_change)
+	return context.generated_changes.duplicate()
 
 
 func _build_projected_world(state: SimulationState) -> CompiledWorld:
@@ -174,4 +198,3 @@ func _has_same_change(changes: Array[ChangeRecord], candidate: ChangeRecord) -> 
 		if entry.type == candidate.type and entry.subject_id == candidate.subject_id and entry.target_position == candidate.target_position and entry.source_kind == candidate.source_kind:
 			return true
 	return false
-

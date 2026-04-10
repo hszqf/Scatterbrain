@@ -123,6 +123,30 @@ func play_generated_change_insert(change: ChangeRecord, new_queue_entries: Array
 	await animate_queue_settle()
 
 
+func play_queue_update(
+	before_entries: Array[ChangeRecord],
+	after_entries: Array[ChangeRecord],
+	capacity: int,
+	obsession_capacity: int,
+	evicted_changes: Array[ChangeRecord],
+	appended_changes: Array[ChangeRecord]
+) -> void:
+	_last_animation_trace.append("queue:update")
+	render_queue(before_entries, capacity, obsession_capacity)
+	if not evicted_changes.is_empty():
+		_last_animation_trace.append("queue:evict")
+		await animate_evicted_changes(evicted_changes)
+	render_queue(after_entries, capacity, obsession_capacity)
+	var appended: Array[ChangeRecord] = appended_changes.duplicate()
+	if appended.is_empty():
+		appended = _compute_appended_changes(before_entries, after_entries, evicted_changes.size())
+	if not appended.is_empty():
+		_last_animation_trace.append("queue:append")
+		await animate_appended_changes(appended)
+	_last_animation_trace.append("queue:settle")
+	await animate_queue_settle()
+
+
 func play_focus_on_slot(slot_index: int, beat_duration: float = 1.0) -> void:
 	var slot: Panel = _slot_at(slot_index)
 	if slot == null:
