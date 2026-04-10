@@ -8,3 +8,5 @@ var pushed_out_changes: Array[ChangeRecord] = []
 var generated_ghost_changes: Array[ChangeRecord] = []
 var iterations: int = 0
 var reached_safety_limit: bool = false
+
+var replay_trace: Array[Dictionary] = []

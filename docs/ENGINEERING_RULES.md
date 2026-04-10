@@ -83,13 +83,13 @@
    - 阶段 B（projected live world）：把阶段 A 的 remembered 结果投影到当前玩家位置；若 remembered 实体箱子与玩家/实体冲突则投影为 live ghost，不直接删除。
 4. `Ghost[AUTO_GHOST]` 是状态事件：只把“当前 remembered 位置”的箱子改为幽灵，不定义新位置；`target_position` 仅允许作为调试元数据。
 5. 默认箱子在记忆归零后必须先恢复 remembered 实体；若当前玩家正占默认格，live 投影显示幽灵，不可直接消失。
-6. `game` 层 replay 必须基于 `WorldDefaults + CompileResult.queue_entries`（即 surviving queue）生成，表示“剩余记忆如何从默认世界重建 remembered world”；禁止使用 `world_before_compile` / `world_after_compile` 可见差分生成 replay。
-7. replay 必须从 `WorldDefaults` 初始状态出发，按 surviving queue 的时间顺序逐条重访 remembered change；`Empty` 不改变 remembered 语义，但可产出极短 `beat` 节拍以保留顺序，且该节拍不得生成棋盘 actor 动作。
+6. `core` 层编译必须产出 `CompileResult.replay_trace`，该 trace 是 compile/stabilize 的正式过程历史（含 pass_begin / queue_focus / move / ghostify / generated_change / queue_restart），禁止在 `game` 层从最终 surviving queue 反推完整 replay。
+7. replay 必须消费 `CompileResult.replay_trace` 顺序播放，确保玩家看到的是“本轮编译实际经历的每一步”；`Empty` 仍可作为独立 beat 并触发玩家 pulse。
 8. replay payload 的 from-state 必须来自 replay-time state 的前序结果（entity/ghost），禁止按 subject 做最终态 canonical 归约。
-9. replay gate 只基于：存在 replayable pushed_out、surviving queue 仍有 replayable remembered entry、且 builder 产出非空 steps。
+9. replay gate 只基于：存在 replayable pushed_out 且 compile trace 含可播放事件（move / ghostify / beat_empty）。
 10. replay 微步与 remembered world 解释必须共用同一语义：先 X 后 Y；`Ghost[AUTO_GHOST]` replay step 必须是原地状态变化（`from == to`），禁止单独制造位移。
 11. recompile 表现层必须分层：先做 `MemoryQueueView`（evict/append/settle）反馈，再做棋盘 `Board replay` 重建；棋盘层禁止承担 evict 离场表现。
-12. `MemoryQueueView` 与 `Board replay` 必须按 surviving queue 的**同一记忆节拍**同步：每拍先高亮当前 slot，再在同拍内完成对应棋盘变化。
+12. `MemoryQueueView` 与 `Board replay` 必须按 compile trace 的同一节拍同步：trace 到 `queue_focus` 时先高亮 slot，再在对应 `move/ghostify/beat_empty` 拍内完成棋盘变化；`queue_restart` 必须可见地进入下一轮 pass。
 13. 默认回放节拍为每记忆约 1 秒（prepare/action/tail），优先保证可读性；禁止恢复“上方先播完、下方再整体快放”的解耦节奏。
 14. remembered queue 应用（compile/replay）必须维护每个 subject 的“当前 remembered 位置 + 是否幽灵”：
    - `Position`：从当前 remembered 位置位移并更新位置，状态重置为非幽灵；
@@ -185,5 +185,5 @@
 - 重编译统一流程：`defaults -> surviving queue interpret -> generated changes append -> stabilize`。
 - 初始化落位失败与运行中落位失败都走统一冲突规则：`ConflictRules -> 产出 GHOST change`，禁止静默消失。
 - `WorldCompiler` 只负责编排；变化语义在 `ChangeInterpreter + handlers + rules`。
-- `ReplayPayloadBuilder` 复用同一解释语义：从 defaults 出发按 surviving queue 顺序解释，再转为可视 steps。
+- replay 主数据源为 `CompileResult.replay_trace`；`ReplayPayloadBuilder` 仅允许作为兼容层，不得再作为正式 replay 真相来源。
 - 允许连锁变化：handler 可通过 `CompileContext.add_generated_change()` 产出后续变化；编译器负责多轮收敛与安全上限。
