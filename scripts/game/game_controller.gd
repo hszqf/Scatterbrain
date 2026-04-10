@@ -243,26 +243,16 @@ func _recompile_world(reason: String) -> void:
 	var previous_queue_entries: Array[ChangeRecord] = _queue.entries()
 	var result: CompileResult = _compiler.compile(_defaults, _queue, current_player_position)
 	var world_after_compile: CompiledWorld = result.world
-	var evicted_steps: Array[Dictionary] = []
 	var rebuild_steps: Array[Dictionary] = []
-	var replay_steps: Array[Dictionary] = []
 	_last_pushed_out_summaries = _change_summaries(result.pushed_out_changes)
 	_last_generated_ghost_summaries = _change_summaries(result.generated_ghost_changes)
 	_last_queue_after_compile_summaries = _change_summaries(result.queue_entries)
 	var has_replayable_pushed_out: bool = _has_replayable_pushed_out_changes(result.pushed_out_changes)
 	var has_surviving_replayable_memory: bool = _has_surviving_replayable_memory(result.queue_entries)
-	evicted_steps = _replay_payload_builder.build_evicted_steps(
-		_defaults,
-		previous_queue_entries,
-		result.pushed_out_changes,
-		result.queue_entries,
-		current_player_position
-	)
 	if has_surviving_replayable_memory:
 		rebuild_steps = _replay_payload_builder.build_steps(_defaults, result.queue_entries, current_player_position)
-	replay_steps = evicted_steps.duplicate()
-	replay_steps.append_array(rebuild_steps)
-	var can_build_replay_steps: bool = not replay_steps.is_empty()
+	var replay_steps: Array[Dictionary] = rebuild_steps.duplicate()
+	var can_build_replay_steps: bool = not rebuild_steps.is_empty()
 	var replay_gate_allowed: bool = has_replayable_pushed_out and can_build_replay_steps
 	_last_replay_gate_allowed = replay_gate_allowed
 	_last_replay_gate_reason = _resolve_replay_gate_reason(
@@ -294,16 +284,9 @@ func _recompile_world(reason: String) -> void:
 					break
 			_last_replay_stop_reason = "player_conflict" if has_player_conflict_step else "completed"
 
-		var has_any_replay_phase: bool = false
-		if _replay_controller.has_steps(evicted_steps):
-			has_any_replay_phase = true
-			_last_presentation_trace.append("board:evict")
-			await _play_memory_synchronized_replay(evicted_steps, "evict")
 		if _replay_controller.has_steps(rebuild_steps):
-			has_any_replay_phase = true
 			_last_presentation_trace.append("board:rebuild")
-			await _play_memory_synchronized_replay(rebuild_steps, "rebuild")
-		if has_any_replay_phase:
+			await _play_memory_synchronized_replay(rebuild_steps)
 			_last_replay_used_live_box_views = _replay_controller.used_live_box_views()
 			_last_replay_completed = true
 		elif not replay_steps.is_empty():
@@ -331,24 +314,20 @@ func _recompile_world(reason: String) -> void:
 	_input_locked = false
 
 
-func _play_memory_synchronized_replay(replay_steps: Array[Dictionary], phase_name: String = "rebuild") -> void:
+func _play_memory_synchronized_replay(replay_steps: Array[Dictionary]) -> void:
 	var replay_beats: Array[Dictionary] = _group_replay_steps_by_queue_index(replay_steps)
 	for beat: Dictionary in replay_beats:
 		var queue_index: int = int(beat.get("queue_index", -1))
 		var beat_steps: Array = beat.get("steps", [])
 		if queue_index >= 0:
 			_last_presentation_trace.append("queue:focus:%d" % queue_index)
-			_last_presentation_trace.append("queue:focus:%s:%d" % [phase_name, queue_index])
 			_last_presentation_trace.append("queue:beat:start:%d" % queue_index)
-			_last_presentation_trace.append("queue:beat:start:%s:%d" % [phase_name, queue_index])
 			_queue_view.begin_focus_on_slot(queue_index)
 		_last_presentation_trace.append("board:beat:start:%d" % queue_index)
-		_last_presentation_trace.append("board:beat:start:%s:%d" % [phase_name, queue_index])
 		await _replay_controller.play_memory_beat(beat_steps, _replay_controller.memory_beat_duration)
 		if queue_index >= 0:
 			_queue_view.end_focus_on_slot(queue_index)
 		_last_presentation_trace.append("board:beat:end:%d" % queue_index)
-		_last_presentation_trace.append("board:beat:end:%s:%d" % [phase_name, queue_index])
 
 
 func _group_replay_steps_by_queue_index(replay_steps: Array[Dictionary]) -> Array[Dictionary]:
