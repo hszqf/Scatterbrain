@@ -141,6 +141,14 @@ func _run_case(case_data: Dictionary) -> bool:
 			passed = await _assert_replay_controller_runs_evict_phase_before_rebuild(context)
 		"evicted_changes_are_presented_in_queue_not_board":
 			passed = await _assert_evicted_changes_are_presented_in_queue_not_board(context)
+		"evicted_position_change_produces_board_replay":
+			passed = _assert_evicted_position_change_produces_board_replay(context)
+		"replay_has_evict_phase_before_rebuild_phase":
+			passed = await _assert_replay_has_evict_phase_before_rebuild_phase(context)
+		"evicted_move_uses_state_diff_not_guessing":
+			passed = _assert_evicted_move_uses_state_diff_not_guessing(context)
+		"empty_beats_still_use_player_pulse_in_rebuild_phase":
+			passed = await _assert_empty_beats_still_use_player_pulse_in_rebuild_phase(context)
 		"replay_conflict_step_finishes_then_applies_tail_pause":
 			passed = await _assert_replay_conflict_step_finishes_then_applies_tail_pause(context)
 		"ghostify_step_is_played_as_full_in_place_change":
@@ -905,15 +913,13 @@ func _assert_one_memory_one_beat_presentation(context: Dictionary) -> bool:
 		await process_frame
 	var presentation_trace: Array[String] = controller.get("_last_presentation_trace")
 	var beat_focus_count: int = 0
+	var rebuild_board_beats: int = 0
 	for marker: String in presentation_trace:
-		if marker.begins_with("queue:focus:"):
+		if marker.begins_with("queue:focus:rebuild:"):
 			beat_focus_count += 1
-	var phase_trace: Array[String] = replay_controller.get_last_phase_trace()
-	var action_markers: int = 0
-	for marker: String in phase_trace:
-		if marker.begins_with("step:"):
-			action_markers += 1
-	return beat_focus_count > 0 and beat_focus_count == action_markers
+		if marker.begins_with("board:beat:start:rebuild:"):
+			rebuild_board_beats += 1
+	return beat_focus_count > 0 and beat_focus_count == rebuild_board_beats
 
 
 func _assert_one_queue_entry_one_visible_beat(context: Dictionary) -> bool:
@@ -941,9 +947,9 @@ func _assert_one_queue_entry_one_visible_beat(context: Dictionary) -> bool:
 	var focus_count: int = 0
 	var beat_start_count: int = 0
 	for marker: String in presentation_trace:
-		if marker.begins_with("queue:focus:"):
+		if marker.begins_with("queue:focus:rebuild:"):
 			focus_count += 1
-		if marker.begins_with("board:beat:start:"):
+		if marker.begins_with("board:beat:start:rebuild:"):
 			beat_start_count += 1
 	return unique_queue_indexes.size() == focus_count and focus_count == beat_start_count and focus_count > 0
 
@@ -1014,6 +1020,8 @@ func _assert_evicted_memory_is_presented_in_queue_before_rebuild(context: Dictio
 	var trace: Array[String] = controller.get("_last_presentation_trace")
 	var evict_index: int = trace.find("queue:evict")
 	var first_focus_index: int = trace.find("queue:focus:0")
+	if first_focus_index < 0:
+		first_focus_index = trace.find("queue:focus:rebuild:0")
 	return evict_index >= 0 and first_focus_index > evict_index
 
 
@@ -1032,16 +1040,14 @@ func _assert_memory_focus_and_board_step_are_synchronized(context: Dictionary) -
 			break
 		await process_frame
 	var presentation_trace: Array[String] = controller.get("_last_presentation_trace")
-	var phase_trace: Array[String] = replay_controller.get_last_phase_trace()
 	var focus_count: int = 0
-	var step_count: int = 0
+	var board_beat_count: int = 0
 	for marker: String in presentation_trace:
-		if marker.begins_with("queue:focus:"):
+		if marker.begins_with("queue:focus:rebuild:"):
 			focus_count += 1
-	for marker: String in phase_trace:
-		if marker.begins_with("step:"):
-			step_count += 1
-	return focus_count == step_count and focus_count > 0
+		if marker.begins_with("board:beat:start:rebuild:"):
+			board_beat_count += 1
+	return focus_count == board_beat_count and focus_count > 0
 
 
 func _assert_queue_focus_and_board_action_start_in_same_beat(context: Dictionary) -> bool:
@@ -1066,11 +1072,15 @@ func _assert_queue_focus_and_board_beat_start_together(context: Dictionary) -> b
 	var checked_beats: int = 0
 	for i: int in range(presentation_trace.size() - 1):
 		var marker: String = presentation_trace[i]
-		if not marker.begins_with("queue:beat:start:"):
+		if not marker.begins_with("queue:beat:start:rebuild:"):
 			continue
-		var queue_index: String = marker.trim_prefix("queue:beat:start:")
-		var next_marker: String = presentation_trace[i + 1]
-		if next_marker != "board:beat:start:%s" % queue_index:
+		var queue_index: String = marker.trim_prefix("queue:beat:start:rebuild:")
+		var matched: bool = false
+		for j: int in range(i + 1, mini(i + 4, presentation_trace.size())):
+			if presentation_trace[j] == "board:beat:start:rebuild:%s" % queue_index:
+				matched = true
+				break
+		if not matched:
 			return false
 		checked_beats += 1
 	return checked_beats > 0
@@ -1135,12 +1145,104 @@ func _assert_evicted_changes_are_presented_in_queue_not_board(context: Dictionar
 	var replay_steps: Array[Dictionary] = controller.get("_last_replay_steps")
 	var has_evicted_move: bool = false
 	for step: Dictionary in replay_steps:
-		if step.get("from", Vector2i.ZERO) == Vector2i(2, 1) and step.get("to", Vector2i.ZERO) == Vector2i(1, 1):
+		if StringName(step.get("presentation_kind", &"")) == ReplayPayloadBuilder.PRESENTATION_EVICT_MOVE:
 			has_evicted_move = true
 			break
 	var presentation_trace: Array[String] = controller.get("_last_presentation_trace")
 	return presentation_trace.find("queue:evict") >= 0 \
-		and not has_evicted_move
+		and has_evicted_move
+
+
+func _assert_evicted_position_change_produces_board_replay(context: Dictionary) -> bool:
+	var defaults: WorldDefaults = context["defaults"]
+	var builder := ReplayPayloadBuilder.new()
+	var previous_queue_entries: Array[ChangeRecord] = [
+		ChangeRecord.new(ChangeRecord.ChangeType.POSITION, &"box_0", Vector2i(3, 1), false, "p0", ChangeRecord.SourceKind.REMEMBERED_REBUILD, Vector2i.LEFT),
+		ChangeRecord.new(ChangeRecord.ChangeType.POSITION, &"box_0", Vector2i(2, 1), false, "p1", ChangeRecord.SourceKind.REMEMBERED_REBUILD, Vector2i.LEFT),
+		ChangeRecord.new(ChangeRecord.ChangeType.EMPTY, &"", Vector2i.ZERO, false, "empty", ChangeRecord.SourceKind.LIVE_INPUT),
+	]
+	var pushed_out_changes: Array[ChangeRecord] = [previous_queue_entries[0]]
+	var resulting_queue_entries: Array[ChangeRecord] = [previous_queue_entries[1], previous_queue_entries[2]]
+	var evicted_steps: Array[Dictionary] = builder.build_evicted_steps(
+		defaults,
+		previous_queue_entries,
+		pushed_out_changes,
+		resulting_queue_entries,
+		defaults.player_start
+	)
+	if evicted_steps.is_empty():
+		return false
+	var first_step: Dictionary = evicted_steps[0]
+	return StringName(first_step.get("presentation_kind", &"")) == ReplayPayloadBuilder.PRESENTATION_EVICT_MOVE \
+		and first_step.get("subject", &"") == &"box_0" \
+		and first_step.get("from", Vector2i.ZERO) == Vector2i(1, 1) \
+		and first_step.get("to", Vector2i.ZERO) == Vector2i(2, 1)
+
+
+func _assert_replay_has_evict_phase_before_rebuild_phase(context: Dictionary) -> bool:
+	var controller: GameController = context["controller"]
+	controller.request_move(Vector2i.LEFT)
+	controller.request_move(Vector2i.LEFT)
+	controller.request_move(Vector2i.LEFT)
+	controller.request_empty_change()
+	controller.request_empty_change()
+	controller.request_empty_change()
+	for i: int in range(600):
+		if not controller.get("_input_locked"):
+			break
+		await process_frame
+	var presentation_trace: Array[String] = controller.get("_last_presentation_trace")
+	var evict_index: int = presentation_trace.find("board:evict")
+	var rebuild_index: int = presentation_trace.find("board:rebuild")
+	return evict_index >= 0 and rebuild_index > evict_index
+
+
+func _assert_evicted_move_uses_state_diff_not_guessing(context: Dictionary) -> bool:
+	var defaults: WorldDefaults = context["defaults"]
+	var builder := ReplayPayloadBuilder.new()
+	var previous_queue_entries: Array[ChangeRecord] = [
+		ChangeRecord.new(ChangeRecord.ChangeType.POSITION, &"box_0", Vector2i(3, 1), false, "p0", ChangeRecord.SourceKind.REMEMBERED_REBUILD, Vector2i.LEFT),
+		ChangeRecord.new(ChangeRecord.ChangeType.POSITION, &"box_0", Vector2i(2, 1), false, "p1", ChangeRecord.SourceKind.REMEMBERED_REBUILD, Vector2i.LEFT),
+	]
+	var pushed_out_changes: Array[ChangeRecord] = [previous_queue_entries[0]]
+	var resulting_queue_entries: Array[ChangeRecord] = [previous_queue_entries[1]]
+	var evicted_steps: Array[Dictionary] = builder.build_evicted_steps(
+		defaults,
+		previous_queue_entries,
+		pushed_out_changes,
+		resulting_queue_entries,
+		defaults.player_start
+	)
+	if evicted_steps.size() != 1:
+		return false
+	var step: Dictionary = evicted_steps[0]
+	if step.get("from", Vector2i.ZERO) != Vector2i(1, 1):
+		return false
+	if step.get("to", Vector2i.ZERO) != Vector2i(2, 1):
+		return false
+	return step.get("to", Vector2i.ZERO) != pushed_out_changes[0].target_position
+
+
+func _assert_empty_beats_still_use_player_pulse_in_rebuild_phase(context: Dictionary) -> bool:
+	var controller: GameController = context["controller"]
+	var replay_controller: ReplayController = controller.get_node(controller.replay_controller_path)
+	replay_controller.memory_beat_duration = 0.12
+	controller.request_move(Vector2i.LEFT)
+	controller.request_move(Vector2i.LEFT)
+	controller.request_move(Vector2i.LEFT)
+	controller.request_empty_change()
+	controller.request_empty_change()
+	controller.request_empty_change()
+	for i: int in range(600):
+		if not controller.get("_input_locked"):
+			break
+		await process_frame
+	var trace: Array[String] = replay_controller.get_last_phase_trace()
+	var pulse_count: int = 0
+	for marker: String in trace:
+		if marker == "step:meditate_pulse":
+			pulse_count += 1
+	return pulse_count >= 2
 
 
 func _assert_replay_conflict_step_finishes_then_applies_tail_pause(context: Dictionary) -> bool:
@@ -3073,7 +3175,31 @@ func _build_cases() -> Array[Dictionary]:
 		{
 			"id": "evicted_changes_are_presented_in_queue_not_board",
 			"name": "evicted_changes_are_presented_in_queue_not_board",
-			"action": "evicted memories are shown in queue feedback and do not appear as board replay movement",
+			"action": "evicted memories are shown in queue feedback and also appear as board evict replay movement",
+			"context_mode": "controller_level001",
+		},
+		{
+			"id": "evicted_position_change_produces_board_replay",
+			"name": "evicted_position_change_produces_board_replay",
+			"action": "pushed-out remembered position change produces evict_move board replay step",
+			"context_mode": "controller_level001",
+		},
+		{
+			"id": "replay_has_evict_phase_before_rebuild_phase",
+			"name": "replay_has_evict_phase_before_rebuild_phase",
+			"action": "board replay runs evict phase before rebuild phase",
+			"context_mode": "controller_level001",
+		},
+		{
+			"id": "evicted_move_uses_state_diff_not_guessing",
+			"name": "evicted_move_uses_state_diff_not_guessing",
+			"action": "evicted move is derived from remembered-state diff between previous and resulting queues",
+			"context_mode": "controller_level001",
+		},
+		{
+			"id": "empty_beats_still_use_player_pulse_in_rebuild_phase",
+			"name": "empty_beats_still_use_player_pulse_in_rebuild_phase",
+			"action": "empty rebuild beats still trigger player meditate pulse after evict phase",
 			"context_mode": "controller_level001",
 		},
 		{

@@ -96,6 +96,9 @@ func play_memory_beat_action(beat_steps: Array, action_duration: float) -> void:
 			ReplayPayloadBuilder.PRESENTATION_GHOSTIFY:
 				_last_phase_trace.append("step:ghostify")
 				await play_board_replay(step, step_duration)
+			ReplayPayloadBuilder.PRESENTATION_EVICT_MOVE:
+				_last_phase_trace.append("step:evict_move")
+				await play_board_replay(step, step_duration)
 			_:
 				_last_phase_trace.append("step:move")
 				await play_board_replay(step, step_duration)
@@ -110,6 +113,8 @@ func play_board_replay(step: Dictionary, action_duration: float) -> void:
 	match presentation_kind:
 		ReplayPayloadBuilder.PRESENTATION_GHOSTIFY:
 			await _play_ghostify_step(step, action_duration)
+		ReplayPayloadBuilder.PRESENTATION_EVICT_MOVE:
+			await _play_evict_move_step(step, action_duration)
 		ReplayPayloadBuilder.PRESENTATION_MOVE:
 			await _play_move_step(step, action_duration)
 
@@ -170,6 +175,29 @@ func _play_ghostify_step(step: Dictionary, action_duration: float) -> void:
 
 	var settle: Tween = create_tween()
 	settle.tween_property(node, "scale", Vector2.ONE, action_duration * 0.2)
+	await settle.finished
+
+
+func _play_evict_move_step(step: Dictionary, action_duration: float) -> void:
+	var node: BoxView = _prepare_step_actor(step)
+	if node == null:
+		if action_duration > 0.0:
+			await get_tree().create_timer(action_duration).timeout
+		return
+	var from_pos: Vector2i = step.get("from", Vector2i.ZERO)
+	var to_pos: Vector2i = step.get("to", from_pos)
+	node.set_board_position(from_pos, _board_view.cell_size)
+	node.scale = Vector2.ONE
+	node.modulate = Color.WHITE
+	node.set_is_ghost(false)
+	node.set_is_conflict(false)
+	var slide: Tween = create_tween()
+	slide.set_parallel(true)
+	slide.tween_property(node, "position", _board_view.board_to_pixel_center(to_pos), action_duration * 0.82)
+	slide.tween_property(node, "scale", Vector2(1.04, 0.96), action_duration * 0.82)
+	await slide.finished
+	var settle: Tween = create_tween()
+	settle.tween_property(node, "scale", Vector2.ONE, action_duration * 0.18)
 	await settle.finished
 
 
