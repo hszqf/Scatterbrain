@@ -243,23 +243,23 @@ func _recompile_world(reason: String) -> void:
 	var result: CompileResult = _compiler.compile(_defaults, _queue, current_player_position)
 	var world_after_compile: CompiledWorld = result.world
 	var replay_trace: Array[Dictionary] = result.replay_trace
+	var first_pass_queue_entries: Array[ChangeRecord] = _queue_entries_for_first_pass(replay_trace, result.queue_entries)
 	_last_pushed_out_summaries = _change_summaries(result.pushed_out_changes)
 	_last_generated_ghost_summaries = _change_summaries(result.generated_ghost_changes)
 	_last_queue_after_compile_summaries = _change_summaries(result.queue_entries)
 	var has_replayable_pushed_out: bool = _has_replayable_pushed_out_changes(result.pushed_out_changes)
-	var can_build_replay_steps: bool = _replay_controller.has_trace_items(replay_trace)
-	var replay_gate_allowed: bool = has_replayable_pushed_out and can_build_replay_steps
+	var can_play_trace: bool = _replay_controller.has_trace_items(replay_trace)
+	var replay_gate_allowed: bool = has_replayable_pushed_out and can_play_trace
 	_last_replay_gate_allowed = replay_gate_allowed
 	_last_replay_gate_reason = _resolve_replay_gate_reason(
 		result.pushed_out_changes,
 		has_replayable_pushed_out,
-		can_build_replay_steps,
-		can_build_replay_steps
+		can_play_trace
 	)
 	if replay_gate_allowed:
 		await _queue_view.play_queue_transition(
 			previous_queue_entries,
-			result.queue_entries,
+			first_pass_queue_entries,
 			_defaults.memory_capacity,
 			_defaults.obsession_capacity,
 			result.pushed_out_changes
@@ -307,7 +307,6 @@ func _play_compile_trace(trace: Array[Dictionary]) -> void:
 		return
 	_replay_controller.begin_trace_playback(trace)
 	var focused_queue_index: int = -1
-	var pending_generated_changes: Array[ChangeRecord] = []
 	for item: Dictionary in trace:
 		var kind: String = String(item.get("kind", ""))
 		if kind == "queue_focus":
@@ -318,24 +317,32 @@ func _play_compile_trace(trace: Array[Dictionary]) -> void:
 				_last_presentation_trace.append("queue:focus:%d" % focused_queue_index)
 				_queue_view.begin_focus_on_slot(focused_queue_index)
 			continue
-		if kind == "generated_change":
-			var generated: ChangeRecord = item.get("change")
-			if generated != null:
-				pending_generated_changes.append(generated)
+		if kind == "queue_update":
+			var before_entries: Array[ChangeRecord] = item.get("before_queue_entries", [])
+			var after_entries: Array[ChangeRecord] = item.get("after_queue_entries", [])
+			var evicted_changes: Array[ChangeRecord] = item.get("evicted_changes", [])
+			var generated_changes: Array[ChangeRecord] = item.get("generated_changes", [])
+			_last_presentation_trace.append("queue:update")
+			await _queue_view.play_queue_update(
+				before_entries,
+				after_entries,
+				_defaults.memory_capacity,
+				_defaults.obsession_capacity,
+				evicted_changes,
+				generated_changes
+			)
 			continue
 		if kind == "queue_restart":
 			if focused_queue_index >= 0:
 				_queue_view.end_focus_on_slot(focused_queue_index)
 				focused_queue_index = -1
-			var next_queue_entries: Array[ChangeRecord] = item.get("next_queue_entries", [])
-			for generated: ChangeRecord in pending_generated_changes:
-				_last_presentation_trace.append("queue:generated_change:%s" % generated.summary())
-				await _queue_view.play_generated_change_insert(generated, next_queue_entries)
-			pending_generated_changes.clear()
 			_last_presentation_trace.append("queue:restart")
 		if kind == "move" or kind == "ghostify" or kind == "beat_empty" or kind == "queue_restart":
 			_last_presentation_trace.append("board:trace:%s" % kind)
 			await _replay_controller.play_trace_item(item, _replay_controller.memory_beat_duration)
+			if (kind == "move" or kind == "ghostify" or kind == "beat_empty") and focused_queue_index >= 0:
+				_queue_view.end_focus_on_slot(focused_queue_index)
+				focused_queue_index = -1
 	if focused_queue_index >= 0:
 		_queue_view.end_focus_on_slot(focused_queue_index)
 	_replay_controller.end_trace_playback()
@@ -434,6 +441,13 @@ func _build_defaults() -> WorldDefaults:
 
 
 
+func _duplicate_replay_steps(steps: Array[Dictionary]) -> Array[Dictionary]:
+	var copied: Array[Dictionary] = []
+	for step: Dictionary in steps:
+		copied.append(step.duplicate(true))
+	return copied
+
+
 func _has_replayable_pushed_out_changes(pushed_out_changes: Array[ChangeRecord]) -> bool:
 	for change: ChangeRecord in pushed_out_changes:
 		if change == null:
@@ -444,13 +458,6 @@ func _has_replayable_pushed_out_changes(pushed_out_changes: Array[ChangeRecord])
 			continue
 		return true
 	return false
-
-
-func _duplicate_replay_steps(steps: Array[Dictionary]) -> Array[Dictionary]:
-	var copied: Array[Dictionary] = []
-	for step: Dictionary in steps:
-		copied.append(step.duplicate(true))
-	return copied
 
 
 func _collect_trace_subjects(trace: Array[Dictionary]) -> Array[StringName]:
@@ -547,20 +554,25 @@ func _change_summaries(changes: Array[ChangeRecord]) -> Array[String]:
 func _resolve_replay_gate_reason(
 	pushed_out_changes: Array[ChangeRecord],
 	has_replayable_pushed_out: bool,
-	has_trace_items: bool,
-	can_build_replay_steps: bool
+	can_play_trace: bool
 ) -> String:
-	if has_replayable_pushed_out and has_trace_items and can_build_replay_steps:
-		return "allowed_non_empty_pushed_out"
+	if has_replayable_pushed_out and can_play_trace:
+		return "allowed_trace_items"
 	if not has_replayable_pushed_out and pushed_out_changes.is_empty():
 		return "no_pushed_out"
-	if has_replayable_pushed_out and not has_trace_items:
+	if has_replayable_pushed_out and not can_play_trace:
 		return "no_replay_trace_items"
-	if has_replayable_pushed_out and has_trace_items and not can_build_replay_steps:
-		return "no_replay_steps_from_surviving_memory"
 	for change: ChangeRecord in pushed_out_changes:
 		if change == null:
 			continue
 		if change.type != ChangeRecord.ChangeType.EMPTY and change.subject_id != &"":
 			return "unknown"
 	return "pushed_out_only_empty"
+
+
+func _queue_entries_for_first_pass(trace: Array[Dictionary], fallback_entries: Array[ChangeRecord]) -> Array[ChangeRecord]:
+	for item: Dictionary in trace:
+		if String(item.get("kind", "")) != "pass_begin":
+			continue
+		return item.get("queue_entries", fallback_entries)
+	return fallback_entries
