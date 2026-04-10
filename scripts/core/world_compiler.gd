@@ -28,7 +28,7 @@ func compile(defaults: WorldDefaults, queue: ChangeQueue, player_position: Vecto
 		replay_trace.append({
 			"kind": "pass_begin",
 			"pass_index": pass_index,
-			"queue_entries": _summarize_queue(queue_entries),
+			"queue_entries": queue_entries.duplicate(),
 		})
 
 		context.clear_generated()
@@ -42,7 +42,7 @@ func compile(defaults: WorldDefaults, queue: ChangeQueue, player_position: Vecto
 				"kind": "queue_focus",
 				"pass_index": pass_index,
 				"queue_index": queue_index,
-				"entry_summary": entry.summary(),
+				"entry": entry,
 			})
 			if entry.type == ChangeRecord.ChangeType.EMPTY:
 				replay_trace.append({
@@ -65,6 +65,8 @@ func compile(defaults: WorldDefaults, queue: ChangeQueue, player_position: Vecto
 						"subject": change.subject_id,
 						"from": event.get("from", Vector2i.ZERO),
 						"to": event.get("to", Vector2i.ZERO),
+						"is_conflict": bool(event.get("is_conflict", false)),
+						"ends_as_ghost": bool(event.get("ends_as_ghost", false)),
 					})
 				elif change.type == ChangeRecord.ChangeType.GHOST:
 					replay_trace.append({
@@ -73,6 +75,7 @@ func compile(defaults: WorldDefaults, queue: ChangeQueue, player_position: Vecto
 						"queue_index": queue_index,
 						"subject": change.subject_id,
 						"at": event.get("from", Vector2i.ZERO),
+						"is_conflict": true,
 					})
 
 		_collect_conflict_generated_changes(state, queue_entries, context)
@@ -91,7 +94,7 @@ func compile(defaults: WorldDefaults, queue: ChangeQueue, player_position: Vecto
 				"kind": "generated_change",
 				"pass_index": pass_index,
 				"source_queue_index": -1,
-				"change_summary": generated.summary(),
+				"change": generated,
 			})
 			if generated.type == ChangeRecord.ChangeType.GHOST and not _has_same_change(result.generated_ghost_changes, generated):
 				result.generated_ghost_changes.append(generated)
@@ -99,8 +102,9 @@ func compile(defaults: WorldDefaults, queue: ChangeQueue, player_position: Vecto
 		if appended_any:
 			replay_trace.append({
 				"kind": "queue_restart",
+				"pass_index": pass_index,
 				"next_pass_index": pass_index + 1,
-				"next_queue_entries": _summarize_queue(queue_entries),
+				"next_queue_entries": queue_entries.duplicate(),
 			})
 
 	result.iterations = iteration
@@ -171,11 +175,3 @@ func _has_same_change(changes: Array[ChangeRecord], candidate: ChangeRecord) -> 
 			return true
 	return false
 
-
-func _summarize_queue(entries: Array[ChangeRecord]) -> Array[String]:
-	var summaries: Array[String] = []
-	for entry: ChangeRecord in entries:
-		if entry == null:
-			continue
-		summaries.append(entry.summary())
-	return summaries

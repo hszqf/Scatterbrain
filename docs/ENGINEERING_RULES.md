@@ -90,11 +90,12 @@
 10. replay 微步与 remembered world 解释必须共用同一语义：先 X 后 Y；`Ghost[AUTO_GHOST]` replay step 必须是原地状态变化（`from == to`），禁止单独制造位移。
 11. recompile 表现层必须分层：先做 `MemoryQueueView`（evict/append/settle）反馈，再做棋盘 `Board replay` 重建；棋盘层禁止承担 evict 离场表现。
 12. `MemoryQueueView` 与 `Board replay` 必须按 compile trace 的同一节拍同步：trace 到 `queue_focus` 时先高亮 slot，再在对应 `move/ghostify/beat_empty` 拍内完成棋盘变化；`queue_restart` 必须可见地进入下一轮 pass。
-13. 默认回放节拍为每记忆约 1 秒（prepare/action/tail），优先保证可读性；禁止恢复“上方先播完、下方再整体快放”的解耦节奏。
-14. remembered queue 应用（compile/replay）必须维护每个 subject 的“当前 remembered 位置 + 是否幽灵”：
+13. 当 trace 出现 `generated_change` 时，`MemoryQueueView` 必须先播放“新记忆进入队列”的插入反馈，再进入 `queue_restart` 的下一轮重放；禁止只在最终 render 时静态刷新。
+14. 默认回放节拍为每记忆约 1 秒（prepare/action/tail），优先保证可读性；禁止恢复“上方先播完、下方再整体快放”的解耦节奏。
+15. remembered queue 应用（compile/replay）必须维护每个 subject 的“当前 remembered 位置 + 是否幽灵”：
    - `Position`：从当前 remembered 位置位移并更新位置，状态重置为非幽灵；
    - `Ghost`：仅在当前 remembered 位置原地幽灵化（from==to），不得单独制造位移；若前序 surviving 位移已被挤出，则当前位置回落为默认初始位置。
-15. 单次输入最多触发 4 轮编译，超限报错并保留最后稳定结果。
+16. 单次输入最多触发 4 轮编译，超限报错并保留最后稳定结果。
 
 ## 10) 变化队列规则
 - 队列保存变化事实，不保存推箱动画过程。

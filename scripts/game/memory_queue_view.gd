@@ -21,6 +21,9 @@ var _slot_nodes: Array[Panel] = []
 var _slot_base_modulates: Array[Color] = []
 var _last_animation_trace: Array[String] = []
 var _slot_focus_tweens: Dictionary[int, Tween] = {}
+var _displayed_entries: Array[ChangeRecord] = []
+var _displayed_capacity: int = 0
+var _displayed_obsession_capacity: int = 0
 
 
 func _ready() -> void:
@@ -29,6 +32,9 @@ func _ready() -> void:
 
 
 func render_queue(entries: Array[ChangeRecord], capacity: int, obsession_capacity: int) -> void:
+	_displayed_entries = entries.duplicate()
+	_displayed_capacity = capacity
+	_displayed_obsession_capacity = obsession_capacity
 	_rebuild_slots(entries, capacity)
 	_obsession_label.text = "PIN %d" % obsession_capacity
 
@@ -101,6 +107,20 @@ func animate_queue_settle() -> void:
 		tween.tween_property(slot, "scale", Vector2.ONE, settle_duration)
 		tween.tween_property(slot, "modulate", _base_modulate_for_slot(slot), settle_duration)
 	await tween.finished
+
+
+func play_generated_change_insert(change: ChangeRecord, new_queue_entries: Array[ChangeRecord]) -> void:
+	_last_animation_trace.append("queue:generated_change")
+	var previous_entries: Array[ChangeRecord] = _displayed_entries.duplicate()
+	var capacity: int = _displayed_capacity if _displayed_capacity > 0 else max(new_queue_entries.size(), previous_entries.size())
+	render_queue(new_queue_entries, capacity, _displayed_obsession_capacity)
+	var appended_changes: Array[ChangeRecord] = _compute_appended_changes(previous_entries, new_queue_entries, 0)
+	if appended_changes.is_empty() and change != null:
+		appended_changes.append(change)
+	if not appended_changes.is_empty():
+		await animate_appended_changes(appended_changes)
+	_last_animation_trace.append("queue:settle")
+	await animate_queue_settle()
 
 
 func play_focus_on_slot(slot_index: int, beat_duration: float = 1.0) -> void:

@@ -1,6 +1,7 @@
 class_name ReplayPayloadBuilder
 extends RefCounted
 
+## Legacy compatibility helper. Main replay source is CompileResult.replay_trace.
 const PRESENTATION_MOVE: StringName = &"move"
 const PRESENTATION_GHOSTIFY: StringName = &"ghostify"
 const PRESENTATION_BEAT: StringName = &"beat"
@@ -94,4 +95,3 @@ static func _is_replayable_position_affecting_entry(entry: ChangeRecord) -> bool
 		and entry.source_kind == ChangeRecord.SourceKind.AUTO_GHOST
 	)
 	return is_replayable_position or is_replayable_ghost
-

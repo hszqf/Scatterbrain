@@ -307,6 +307,7 @@ func _play_compile_trace(trace: Array[Dictionary]) -> void:
 		return
 	_replay_controller.begin_trace_playback(trace)
 	var focused_queue_index: int = -1
+	var pending_generated_changes: Array[ChangeRecord] = []
 	for item: Dictionary in trace:
 		var kind: String = String(item.get("kind", ""))
 		if kind == "queue_focus":
@@ -317,10 +318,20 @@ func _play_compile_trace(trace: Array[Dictionary]) -> void:
 				_last_presentation_trace.append("queue:focus:%d" % focused_queue_index)
 				_queue_view.begin_focus_on_slot(focused_queue_index)
 			continue
+		if kind == "generated_change":
+			var generated: ChangeRecord = item.get("change")
+			if generated != null:
+				pending_generated_changes.append(generated)
+			continue
 		if kind == "queue_restart":
 			if focused_queue_index >= 0:
 				_queue_view.end_focus_on_slot(focused_queue_index)
 				focused_queue_index = -1
+			var next_queue_entries: Array[ChangeRecord] = item.get("next_queue_entries", [])
+			for generated: ChangeRecord in pending_generated_changes:
+				_last_presentation_trace.append("queue:generated_change:%s" % generated.summary())
+				await _queue_view.play_generated_change_insert(generated, next_queue_entries)
+			pending_generated_changes.clear()
 			_last_presentation_trace.append("queue:restart")
 		if kind == "move" or kind == "ghostify" or kind == "beat_empty" or kind == "queue_restart":
 			_last_presentation_trace.append("board:trace:%s" % kind)

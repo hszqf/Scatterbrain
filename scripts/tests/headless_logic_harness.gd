@@ -259,12 +259,20 @@ func _run_case(case_data: Dictionary) -> bool:
 			passed = _assert_compile_result_contains_replay_trace(context)
 		"replay_trace_records_generated_change_and_restart":
 			passed = _assert_replay_trace_records_generated_change_and_restart(context)
+		"replay_trace_records_generated_change_and_queue_restart":
+			passed = _assert_replay_trace_records_generated_change_and_restart(context)
 		"game_controller_replay_uses_compile_trace_not_surviving_queue_only":
+			passed = await _assert_game_controller_replay_uses_compile_trace_not_surviving_queue_only(context)
+		"game_controller_consumes_compile_trace_for_replay":
 			passed = await _assert_game_controller_replay_uses_compile_trace_not_surviving_queue_only(context)
 		"trace_can_replay_two_passes_when_ghost_is_generated_mid_compile":
 			passed = _assert_trace_can_replay_two_passes_when_ghost_is_generated_mid_compile(context)
+		"trace_supports_multi_pass_replay":
+			passed = _assert_trace_can_replay_two_passes_when_ghost_is_generated_mid_compile(context)
 		"empty_trace_item_still_triggers_player_pulse":
 			passed = await _assert_empty_trace_item_still_triggers_player_pulse(context)
+		"generated_change_updates_memory_queue_presentation":
+			passed = await _assert_generated_change_updates_memory_queue_presentation(context)
 		"semantic_evicted_move_not_replayed":
 			passed = _assert_semantic_evicted_move_not_replayed(context)
 		"semantic_replay_matches_compile_semantics":
@@ -754,6 +762,7 @@ func _assert_replay_layer_transform_matches_board_view(context: Dictionary) -> b
 	controller.request_empty_change()
 	controller.request_empty_change()
 	controller.request_empty_change()
+	controller.request_empty_change()
 	for i: int in range(120):
 		var replay_layer: Node2D = replay_controller.get_node(replay_controller.replay_layer_path)
 		var board_view: BoardView = replay_controller.get_node(replay_controller.board_view_path)
@@ -871,6 +880,7 @@ func _assert_queue_focus_advances_one_memory_per_beat(context: Dictionary) -> bo
 	controller.request_move(Vector2i.LEFT)
 	controller.request_move(Vector2i.LEFT)
 	controller.request_move(Vector2i.LEFT)
+	controller.request_empty_change()
 	controller.request_empty_change()
 	controller.request_empty_change()
 	controller.request_empty_change()
@@ -2697,6 +2707,25 @@ func _assert_empty_trace_item_still_triggers_player_pulse(context: Dictionary) -
 	return has_empty_display_step and phase_trace.has("step:meditate_pulse")
 
 
+func _assert_generated_change_updates_memory_queue_presentation(context: Dictionary) -> bool:
+	var controller: GameController = context["controller"]
+	controller.request_move(Vector2i.LEFT)
+	controller.request_move(Vector2i.LEFT)
+	controller.request_move(Vector2i.LEFT)
+	controller.request_empty_change()
+	controller.request_empty_change()
+	controller.request_empty_change()
+	for i: int in range(280):
+		if not controller.get("_input_locked"):
+			break
+		await process_frame
+	var presentation_trace: Array[String] = controller.get("_last_presentation_trace")
+	for marker: String in presentation_trace:
+		if marker.begins_with("queue:generated_change:"):
+			return true
+	return false
+
+
 func _assert_semantic_evicted_move_not_replayed(context: Dictionary) -> bool:
 	var defaults: WorldDefaults = context["defaults"]
 	var queue: ChangeQueue = ChangeQueue.new()
@@ -3805,9 +3834,13 @@ func _build_cases() -> Array[Dictionary]:
 		{"id":"semantic_projection_conflict_generates_ghost","name":"semantic_projection_conflict_generates_ghost","action":"projection conflict creates ghost","blueprint":{"board_size":Vector2i(4,3),"player_start":Vector2i(1,1),"exit_position":Vector2i(3,2),"memory_capacity":3,"floors":[Vector3i(0,1,0),Vector3i(1,1,0),Vector3i(2,1,0),Vector3i(3,1,0)],"walls":[],"boxes":[Vector3i(1,1,0)]}},
 		{"id":"compile_result_contains_replay_trace","name":"compile_result_contains_replay_trace","action":"compile produces process trace not just final queue","blueprint":{"board_size":Vector2i(4,3),"player_start":Vector2i(0,0),"exit_position":Vector2i(3,2),"memory_capacity":3,"floors":[Vector3i(0,1,0),Vector3i(1,1,0),Vector3i(2,1,0),Vector3i(3,1,0)],"walls":[],"boxes":[Vector3i(1,1,0)]}},
 		{"id":"replay_trace_records_generated_change_and_restart","name":"replay_trace_records_generated_change_and_restart","action":"trace includes generated_change and queue_restart when ghost appears mid-compile","blueprint":{"board_size":Vector2i(4,3),"player_start":Vector2i(1,1),"exit_position":Vector2i(3,2),"memory_capacity":3,"floors":[Vector3i(0,1,0),Vector3i(1,1,0),Vector3i(2,1,0),Vector3i(3,1,0)],"walls":[],"boxes":[Vector3i(1,1,0)]}},
+		{"id":"replay_trace_records_generated_change_and_queue_restart","name":"replay_trace_records_generated_change_and_queue_restart","action":"trace includes generated_change and queue_restart when ghost appears mid-compile","blueprint":{"board_size":Vector2i(4,3),"player_start":Vector2i(1,1),"exit_position":Vector2i(3,2),"memory_capacity":3,"floors":[Vector3i(0,1,0),Vector3i(1,1,0),Vector3i(2,1,0),Vector3i(3,1,0)],"walls":[],"boxes":[Vector3i(1,1,0)]}},
 		{"id":"trace_can_replay_two_passes_when_ghost_is_generated_mid_compile","name":"trace_can_replay_two_passes_when_ghost_is_generated_mid_compile","action":"trace includes two passes when generated ghost forces restart","blueprint":{"board_size":Vector2i(4,3),"player_start":Vector2i(1,1),"exit_position":Vector2i(3,2),"memory_capacity":3,"floors":[Vector3i(0,1,0),Vector3i(1,1,0),Vector3i(2,1,0),Vector3i(3,1,0)],"walls":[],"boxes":[Vector3i(1,1,0)]}},
+		{"id":"trace_supports_multi_pass_replay","name":"trace_supports_multi_pass_replay","action":"trace includes two passes when generated ghost forces restart","blueprint":{"board_size":Vector2i(4,3),"player_start":Vector2i(1,1),"exit_position":Vector2i(3,2),"memory_capacity":3,"floors":[Vector3i(0,1,0),Vector3i(1,1,0),Vector3i(2,1,0),Vector3i(3,1,0)],"walls":[],"boxes":[Vector3i(1,1,0)]}},
 		{"id":"game_controller_replay_uses_compile_trace_not_surviving_queue_only","name":"game_controller_replay_uses_compile_trace_not_surviving_queue_only","action":"controller replay source is compile trace", "context_mode":"controller_level001"},
+		{"id":"game_controller_consumes_compile_trace_for_replay","name":"game_controller_consumes_compile_trace_for_replay","action":"controller replay source is compile trace", "context_mode":"controller_level001"},
 		{"id":"empty_trace_item_still_triggers_player_pulse","name":"empty_trace_item_still_triggers_player_pulse","action":"empty trace beat still pulses player", "context_mode":"controller_level001"},
+		{"id":"generated_change_updates_memory_queue_presentation","name":"generated_change_updates_memory_queue_presentation","action":"generated change triggers queue insert presentation", "context_mode":"controller_level001"},
 		{"id":"semantic_evicted_move_not_replayed","name":"semantic_evicted_move_not_replayed","action":"evicted move is not replayed","blueprint":{"board_size":Vector2i(4,3),"player_start":Vector2i(0,0),"exit_position":Vector2i(3,2),"memory_capacity":3,"floors":[Vector3i(0,1,0),Vector3i(1,1,0),Vector3i(2,1,0),Vector3i(3,1,0)],"walls":[],"boxes":[Vector3i(1,1,0)]}},
 		{"id":"semantic_replay_matches_compile_semantics","name":"semantic_replay_matches_compile_semantics","action":"replay and compile share semantics","blueprint":{"board_size":Vector2i(4,3),"player_start":Vector2i(0,0),"exit_position":Vector2i(3,2),"memory_capacity":3,"floors":[Vector3i(0,1,0),Vector3i(1,1,0),Vector3i(2,1,0),Vector3i(3,1,0)],"walls":[],"boxes":[Vector3i(1,1,0)]}},
 		{"id":"semantic_chain_converges","name":"semantic_chain_converges","action":"generated chain converges","blueprint":{"board_size":Vector2i(4,3),"player_start":Vector2i(1,1),"exit_position":Vector2i(3,2),"memory_capacity":3,"floors":[Vector3i(0,1,0),Vector3i(1,1,0),Vector3i(2,1,0),Vector3i(3,1,0)],"walls":[],"boxes":[Vector3i(1,1,0)]}},
