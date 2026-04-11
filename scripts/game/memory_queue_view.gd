@@ -199,7 +199,6 @@ func play_incoming_change_fx(change: ChangeRecord, source_global_pos: Vector2, c
 	if change == null or capacity <= 0:
 		return
 	render_queue(current_entries, capacity, obsession_capacity)
-	await get_tree().process_frame
 	var target_index: int = resolve_incoming_slot_index(current_entries, capacity)
 	var target_slot: Panel = _slot_at(target_index)
 	if target_slot == null:
@@ -213,7 +212,7 @@ func play_incoming_change_fx(change: ChangeRecord, source_global_pos: Vector2, c
 	particle.position = _to_local_canvas(source_global_pos) - particle.pivot_offset
 	add_child(particle)
 	_incoming_fx_nodes.append(particle)
-	var travel_time: float = maxf(incoming_fx_duration, 0.14)
+	var travel_time: float = maxf(append_duration * 0.9, 0.14)
 	var tween: Tween = create_tween()
 	tween.set_parallel(true)
 	tween.tween_property(particle, "position", _to_local_canvas(target_global) - particle.pivot_offset, travel_time).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
