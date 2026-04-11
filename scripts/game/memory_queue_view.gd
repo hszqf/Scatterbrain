@@ -199,6 +199,7 @@ func play_incoming_change_fx(change: ChangeRecord, source_global_pos: Vector2, c
 	if change == null or capacity <= 0:
 		return
 	render_queue(current_entries, capacity, obsession_capacity)
+	await get_tree().process_frame
 	var target_index: int = resolve_incoming_slot_index(current_entries, capacity)
 	var target_slot: Panel = _slot_at(target_index)
 	if target_slot == null:
