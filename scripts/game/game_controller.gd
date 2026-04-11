@@ -7,14 +7,17 @@ extends Node
 @export var replay_controller_path: NodePath
 @export var queue_view_path: NodePath
 @export var status_label_path: NodePath
+@export var level_label_path: NodePath
 @export var debug_feedback_label_path: NodePath
 @export var board_center_anchor_path: NodePath
 @export var build_info_label_path: NodePath
+@export var level_scenes: Array[PackedScene] = []
 
 var _board_view: BoardView
 var _replay_controller: ReplayController
 var _queue_view: MemoryQueueView
 var _status_label: Label
+var _level_label: Label
 var _debug_feedback_label: Label
 var _board_center_anchor: Control
 var _build_info_label: Label
@@ -48,6 +51,7 @@ var _last_replay_gate_allowed: bool = false
 var _last_replay_gate_reason: String = "none"
 var _last_presentation_trace: Array[String] = []
 var _feedback_clear_at_msec: int = 0
+var _current_level_index: int = 0
 
 
 func _ready() -> void:
@@ -55,10 +59,12 @@ func _ready() -> void:
 	_replay_controller = get_node(replay_controller_path)
 	_queue_view = get_node(queue_view_path)
 	_status_label = get_node(status_label_path)
+	_level_label = get_node(level_label_path)
 	_debug_feedback_label = get_node(debug_feedback_label_path)
 	_board_center_anchor = get_node(board_center_anchor_path)
 	_build_info_label = get_node(build_info_label_path)
 	_build_info_label.text = BuildInfo.display_text()
+	_resolve_initial_level_index()
 	_reset_level()
 
 
@@ -234,7 +240,26 @@ func _post_player_move() -> void:
 func _check_win() -> void:
 	if _world.player_position == _world.exit_position:
 		_is_complete = true
-		_status_label.text = "CLEAR • R/RST"
+		_status_label.text = "CLEAR"
+		_begin_level_complete_transition()
+
+
+func _begin_level_complete_transition() -> void:
+	if _input_locked:
+		return
+	_input_locked = true
+	await _fade_board_to(0.0, 0.38)
+	_advance_level_index()
+	_reset_level()
+	_board_view.modulate.a = 0.0
+	await _fade_board_to(1.0, 0.34)
+	_input_locked = false
+
+
+func _fade_board_to(target_alpha: float, duration: float) -> void:
+	var tween: Tween = create_tween()
+	tween.tween_property(_board_view, "modulate:a", target_alpha, duration).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	await tween.finished
 
 
 func _recompile_world(reason: String) -> void:
@@ -366,6 +391,7 @@ func _update_status() -> void:
 	if _is_complete:
 		return
 	_status_label.text = "MOVE WASD/ARROWS • REST SPACE"
+	_level_label.text = _format_level_label()
 
 
 func _layout_board() -> void:
@@ -429,17 +455,19 @@ func _reset_level() -> void:
 	_board_view.sync_world(_world)
 	_queue_view.render_queue(_queue.entries(), _defaults.memory_capacity, _defaults.obsession_capacity)
 	_debug_feedback_label.text = ""
+	_level_label.text = _format_level_label()
 	_update_status()
 	_layout_board()
 
 
 func _build_defaults() -> WorldDefaults:
-	if level_scene == null:
+	var active_scene: PackedScene = _get_active_level_scene()
+	if active_scene == null:
 		push_error("GameController.level_scene is required and cannot be null.")
 		assert(false, "GameController requires level_scene")
 		return null
 
-	var root: Node = level_scene.instantiate()
+	var root: Node = active_scene.instantiate()
 	if root is not LevelRoot:
 		root.queue_free()
 		push_error("level_scene must instantiate LevelRoot")
@@ -451,6 +479,33 @@ func _build_defaults() -> WorldDefaults:
 	remove_child(root)
 	root.queue_free()
 	return WorldDefaults.from_runtime_data(runtime_data)
+
+
+func _get_active_level_scene() -> PackedScene:
+	if not level_scenes.is_empty():
+		var clamped_index: int = clampi(_current_level_index, 0, level_scenes.size() - 1)
+		return level_scenes[clamped_index]
+	return level_scene
+
+
+func _resolve_initial_level_index() -> void:
+	_current_level_index = 0
+	if level_scenes.is_empty() or level_scene == null:
+		return
+	for idx: int in range(level_scenes.size()):
+		if level_scenes[idx] == level_scene:
+			_current_level_index = idx
+			return
+
+
+func _advance_level_index() -> void:
+	if level_scenes.is_empty():
+		return
+	_current_level_index = (_current_level_index + 1) % level_scenes.size()
+
+
+func _format_level_label() -> String:
+	return "LEVEL %d" % (_current_level_index + 1)
 
 
 
