@@ -13,7 +13,7 @@ level_scene = ExtResource("4")
 board_view_path = NodePath("CanvasLayer/BoardView")
 replay_controller_path = NodePath("CanvasLayer/ReplayController")
 queue_view_path = NodePath("CanvasLayer/UIRoot/MainVBox/TopPanel/MemoryQueueView")
-status_label_path = NodePath("CanvasLayer/UIRoot/MainVBox/TopPanel/StatusLabel")
+status_label_path = NodePath("CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomVBox/StatusLabel")
 level_label_path = NodePath("CanvasLayer/UIRoot/MainVBox/TopPanel/LevelLabel")
 debug_feedback_label_path = NodePath("CanvasLayer/UIRoot/CopyLogFeedback")
 board_center_anchor_path = NodePath("CanvasLayer/UIRoot/MainVBox/BoardAnchor")
@@ -58,17 +58,6 @@ theme_override_constants/separation = 6
 custom_minimum_size = Vector2(0, 88)
 layout_mode = 2
 
-[node name="StatusLabel" type="Label" parent="CanvasLayer/UIRoot/MainVBox/TopPanel"]
-layout_mode = 1
-anchors_preset = 10
-anchor_right = 1.0
-offset_left = 8.0
-offset_top = 26.0
-offset_right = -40.0
-offset_bottom = 44.0
-horizontal_alignment = 1
-theme_override_font_sizes/font_size = 14
-
 [node name="LevelLabel" type="Label" parent="CanvasLayer/UIRoot/MainVBox/TopPanel"]
 layout_mode = 1
 anchors_preset = 10
@@ -100,7 +89,7 @@ size_flags_vertical = 3
 custom_minimum_size = Vector2(0, 176)
 layout_mode = 2
 
-[node name="BottomRow" type="HBoxContainer" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel"]
+[node name="BottomVBox" type="VBoxContainer" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel"]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -111,67 +100,76 @@ offset_right = -8.0
 offset_bottom = -8.0
 grow_horizontal = 2
 grow_vertical = 2
+theme_override_constants/separation = 8
+
+[node name="StatusLabel" type="Label" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomVBox"]
+layout_mode = 2
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 14
+
+[node name="BottomRow" type="HBoxContainer" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomVBox"]
+layout_mode = 2
 theme_override_constants/separation = 12
 
-[node name="MovePad" type="GridContainer" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomRow"]
+[node name="MovePad" type="GridContainer" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomVBox/BottomRow"]
 layout_mode = 2
 size_flags_horizontal = 3
 columns = 3
 theme_override_constants/h_separation = 10
 theme_override_constants/v_separation = 10
 
-[node name="PadBlankA" type="Control" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomRow/MovePad"]
+[node name="PadBlankA" type="Control" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomVBox/BottomRow/MovePad"]
 custom_minimum_size = Vector2(56, 56)
 layout_mode = 2
 
-[node name="UpButton" type="Button" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomRow/MovePad"]
+[node name="UpButton" type="Button" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomVBox/BottomRow/MovePad"]
 custom_minimum_size = Vector2(56, 56)
 layout_mode = 2
 text = "UP"
 
-[node name="PadBlankB" type="Control" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomRow/MovePad"]
+[node name="PadBlankB" type="Control" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomVBox/BottomRow/MovePad"]
 custom_minimum_size = Vector2(56, 56)
 layout_mode = 2
 
-[node name="LeftButton" type="Button" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomRow/MovePad"]
+[node name="LeftButton" type="Button" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomVBox/BottomRow/MovePad"]
 custom_minimum_size = Vector2(56, 56)
 layout_mode = 2
 text = "LT"
 
-[node name="PadBlankC" type="Control" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomRow/MovePad"]
+[node name="PadBlankC" type="Control" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomVBox/BottomRow/MovePad"]
 custom_minimum_size = Vector2(56, 56)
 layout_mode = 2
 
-[node name="RightButton" type="Button" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomRow/MovePad"]
+[node name="RightButton" type="Button" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomVBox/BottomRow/MovePad"]
 custom_minimum_size = Vector2(56, 56)
 layout_mode = 2
 text = "RT"
 
-[node name="PadBlankD" type="Control" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomRow/MovePad"]
+[node name="PadBlankD" type="Control" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomVBox/BottomRow/MovePad"]
 custom_minimum_size = Vector2(56, 56)
 layout_mode = 2
 
-[node name="DownButton" type="Button" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomRow/MovePad"]
+[node name="DownButton" type="Button" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomVBox/BottomRow/MovePad"]
 custom_minimum_size = Vector2(56, 56)
 layout_mode = 2
 text = "DN"
 
-[node name="PadBlankE" type="Control" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomRow/MovePad"]
+[node name="PadBlankE" type="Control" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomVBox/BottomRow/MovePad"]
 custom_minimum_size = Vector2(56, 56)
 layout_mode = 2
 
-[node name="ActionColumn" type="VBoxContainer" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomRow"]
+[node name="ActionColumn" type="VBoxContainer" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomVBox/BottomRow"]
 layout_mode = 2
 size_flags_horizontal = 1
 alignment = 1
 theme_override_constants/separation = 10
 
-[node name="MeditateButton" type="Button" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomRow/ActionColumn"]
+[node name="MeditateButton" type="Button" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomVBox/BottomRow/ActionColumn"]
 custom_minimum_size = Vector2(104, 56)
 layout_mode = 2
 text = "REST"
 
-[node name="RestartButton" type="Button" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomRow/ActionColumn"]
+[node name="RestartButton" type="Button" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomVBox/BottomRow/ActionColumn"]
 custom_minimum_size = Vector2(104, 56)
 layout_mode = 2
 text = "RST"
@@ -215,10 +213,10 @@ offset_right = -8.0
 offset_bottom = 54.0
 horizontal_alignment = 2
 
-[connection signal="pressed" from="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomRow/MovePad/UpButton" to="." method="on_move_up_pressed"]
-[connection signal="pressed" from="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomRow/MovePad/LeftButton" to="." method="on_move_left_pressed"]
-[connection signal="pressed" from="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomRow/ActionColumn/MeditateButton" to="." method="on_meditate_pressed"]
-[connection signal="pressed" from="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomRow/MovePad/RightButton" to="." method="on_move_right_pressed"]
-[connection signal="pressed" from="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomRow/MovePad/DownButton" to="." method="on_move_down_pressed"]
-[connection signal="pressed" from="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomRow/ActionColumn/RestartButton" to="." method="on_restart_pressed"]
+[connection signal="pressed" from="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomVBox/BottomRow/MovePad/UpButton" to="." method="on_move_up_pressed"]
+[connection signal="pressed" from="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomVBox/BottomRow/MovePad/LeftButton" to="." method="on_move_left_pressed"]
+[connection signal="pressed" from="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomVBox/BottomRow/ActionColumn/MeditateButton" to="." method="on_meditate_pressed"]
+[connection signal="pressed" from="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomVBox/BottomRow/MovePad/RightButton" to="." method="on_move_right_pressed"]
+[connection signal="pressed" from="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomVBox/BottomRow/MovePad/DownButton" to="." method="on_move_down_pressed"]
+[connection signal="pressed" from="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomVBox/BottomRow/ActionColumn/RestartButton" to="." method="on_restart_pressed"]
 [connection signal="pressed" from="CanvasLayer/UIRoot/CopyLogButton" to="." method="on_copy_log_pressed"]
