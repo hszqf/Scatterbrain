@@ -24,6 +24,7 @@ var _slot_focus_tweens: Dictionary[int, Tween] = {}
 var _displayed_entries: Array[ChangeRecord] = []
 var _displayed_capacity: int = 0
 var _displayed_obsession_capacity: int = 0
+var _incoming_fx_nodes: Array[ColorRect] = []
 
 
 func _ready() -> void:
@@ -193,6 +194,41 @@ func get_last_animation_trace() -> Array[String]:
 	return _last_animation_trace.duplicate()
 
 
+func play_incoming_change_fx(change: ChangeRecord, source_global_pos: Vector2, current_entries: Array[ChangeRecord], capacity: int, obsession_capacity: int) -> void:
+	if change == null or capacity <= 0:
+		return
+	render_queue(current_entries, capacity, obsession_capacity)
+	var target_index: int = resolve_incoming_slot_index(current_entries, capacity)
+	var target_slot: Panel = _slot_at(target_index)
+	if target_slot == null:
+		return
+	var target_global: Vector2 = target_slot.get_global_rect().get_center()
+	var particle: ColorRect = ColorRect.new()
+	particle.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	particle.size = Vector2(10, 10)
+	particle.pivot_offset = particle.size * 0.5
+	particle.color = _slot_color(change)
+	particle.position = _to_local_canvas(source_global_pos) - particle.pivot_offset
+	add_child(particle)
+	_incoming_fx_nodes.append(particle)
+	var travel_time: float = maxf(append_duration * 0.9, 0.14)
+	var tween: Tween = create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(particle, "position", _to_local_canvas(target_global) - particle.pivot_offset, travel_time).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tween.tween_property(particle, "scale", Vector2(0.55, 0.55), travel_time)
+	await tween.finished
+	particle.queue_free()
+	_incoming_fx_nodes.erase(particle)
+
+
+func resolve_incoming_slot_index(current_entries: Array[ChangeRecord], capacity: int) -> int:
+	if capacity <= 0:
+		return -1
+	if current_entries.size() < capacity:
+		return current_entries.size()
+	return capacity - 1
+
+
 func _rebuild_slots(entries: Array[ChangeRecord], capacity: int) -> void:
 	for child: Node in _slots_container.get_children():
 		child.queue_free()
@@ -315,3 +351,7 @@ func _slot_focus_tween_kill(slot_index: int) -> void:
 	if tween != null:
 		tween.kill()
 	_slot_focus_tweens.erase(slot_index)
+
+
+func _to_local_canvas(global_point: Vector2) -> Vector2:
+	return get_global_transform_with_canvas().affine_inverse() * global_point
