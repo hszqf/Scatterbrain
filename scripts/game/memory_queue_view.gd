@@ -10,6 +10,8 @@ extends Control
 @export var append_pop_scale: float = 1.2
 @export var append_duration: float = 0.3
 @export var incoming_fx_duration: float = 0.5
+@export var incoming_fx_size: float = 14.0
+@export var incoming_fx_end_scale: float = 0.72
 @export var settle_duration: float = 0.16
 @export var focus_scale: float = 1.3
 @export var focus_in_duration: float = 0.15
@@ -207,17 +209,17 @@ func play_incoming_change_fx(change: ChangeRecord, source_global_pos: Vector2, c
 	var target_global: Vector2 = target_slot.get_global_rect().get_center()
 	var particle: ColorRect = ColorRect.new()
 	particle.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	particle.size = Vector2(10, 10)
+	particle.size = Vector2.ONE * maxf(incoming_fx_size, 1.0)
 	particle.pivot_offset = particle.size * 0.5
 	particle.color = _slot_color(change)
 	particle.position = _to_local_canvas(source_global_pos) - particle.pivot_offset
 	add_child(particle)
 	_incoming_fx_nodes.append(particle)
-	var travel_time: float = maxf(append_duration * 0.9, 0.14)
+	var travel_time: float = maxf(incoming_fx_duration, 0.14)
 	var tween: Tween = create_tween()
 	tween.set_parallel(true)
 	tween.tween_property(particle, "position", _to_local_canvas(target_global) - particle.pivot_offset, travel_time).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	tween.tween_property(particle, "scale", Vector2(0.55, 0.55), travel_time)
+	tween.tween_property(particle, "scale", Vector2.ONE * incoming_fx_end_scale, travel_time)
 	await tween.finished
 	particle.queue_free()
 	_incoming_fx_nodes.erase(particle)
