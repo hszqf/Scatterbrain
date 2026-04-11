@@ -3,7 +3,7 @@ extends SceneTree
 const EXIT_OK: int = 0
 const EXIT_FAIL: int = 1
 const LEVEL_ROOT_SCENE: PackedScene = preload("res://scenes/levels/LevelRoot.tscn")
-const LEVEL001_SCENE: PackedScene = preload("res://scenes/levels/Level001.tscn")
+const LEVEL001_SCENE: PackedScene = preload("res://scenes/levels/Level002.tscn")
 const GAME_ROOT_SCENE: PackedScene = preload("res://scenes/game/GameRoot.tscn")
 
 var _compiler: WorldCompiler = WorldCompiler.new()
