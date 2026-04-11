@@ -101,6 +101,24 @@ func play_player_meditate_pulse(action_duration: float) -> void:
 	await _player_view.play_meditate_pulse(action_duration)
 
 
+func get_change_source_global_position(change: ChangeRecord) -> Vector2:
+	var source_node: Node2D = _resolve_change_source_node(change)
+	if source_node != null:
+		return source_node.global_position
+	return global_position
+
+
+func play_change_source_highlight(change: ChangeRecord, duration: float = 0.22) -> void:
+	var source_node: Node2D = _resolve_change_source_node(change)
+	if source_node == null:
+		return
+	var half_duration: float = maxf(duration * 0.5, 0.04)
+	var tween: Tween = create_tween()
+	tween.tween_property(source_node, "scale", Vector2(1.15, 1.15), half_duration).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	tween.tween_property(source_node, "scale", Vector2.ONE, half_duration).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	await tween.finished
+
+
 func get_player_view() -> PlayerView:
 	return _player_view
 
@@ -149,3 +167,13 @@ func _ensure_box(entity_id: StringName) -> BoxView:
 
 func get_box_view(entity_id: StringName) -> BoxView:
 	return _ensure_box(entity_id)
+
+
+func _resolve_change_source_node(change: ChangeRecord) -> Node2D:
+	if change == null:
+		return null
+	if change.type == ChangeRecord.ChangeType.EMPTY or change.subject_id == &"":
+		return _player_view
+	if _boxes.has(change.subject_id):
+		return _boxes[change.subject_id]
+	return _player_view

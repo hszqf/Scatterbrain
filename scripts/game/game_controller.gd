@@ -208,6 +208,18 @@ func _handle_move(direction: Vector2i) -> void:
 
 
 func append_change(change: ChangeRecord) -> void:
+	if change == null:
+		return
+	var queue_before_append: Array[ChangeRecord] = _queue.entries()
+	var source_global_pos: Vector2 = _board_view.get_change_source_global_position(change)
+	_board_view.play_change_source_highlight(change)
+	_queue_view.play_incoming_change_fx(
+		change,
+		source_global_pos,
+		queue_before_append,
+		_defaults.memory_capacity,
+		_defaults.obsession_capacity
+	)
 	_last_appended_change_summary = _change_summary_or_none(change)
 	_queue.append(change)
 	_recompile_world("append: %s" % change.summary())
@@ -247,7 +259,7 @@ func _recompile_world(reason: String) -> void:
 	_last_pushed_out_summaries = _change_summaries(result.pushed_out_changes)
 	_last_generated_ghost_summaries = _change_summaries(result.generated_ghost_changes)
 	_last_queue_after_compile_summaries = _change_summaries(result.queue_entries)
-	var has_replayable_pushed_out: bool = _has_replayable_pushed_out_changes(result.pushed_out_changes)
+	var has_replayable_pushed_out: bool = not result.pushed_out_changes.is_empty()
 	var can_play_trace: bool = _replay_controller.has_trace_items(replay_trace)
 	var replay_gate_allowed: bool = has_replayable_pushed_out and can_play_trace
 	_last_replay_gate_allowed = replay_gate_allowed
@@ -307,7 +319,8 @@ func _play_compile_trace(trace: Array[Dictionary]) -> void:
 		return
 	_replay_controller.begin_trace_playback(trace)
 	var focused_queue_index: int = -1
-	for item: Dictionary in trace:
+	for trace_index: int in range(trace.size()):
+		var item: Dictionary = trace[trace_index]
 		var kind: String = String(item.get("kind", ""))
 		if kind == "queue_focus":
 			if focused_queue_index >= 0:
@@ -336,6 +349,7 @@ func _play_compile_trace(trace: Array[Dictionary]) -> void:
 			if focused_queue_index >= 0:
 				_queue_view.end_focus_on_slot(focused_queue_index)
 				focused_queue_index = -1
+			_replay_controller.reset_subjects_for_next_pass(trace, trace_index + 1)
 			_last_presentation_trace.append("queue:restart")
 		if kind == "move" or kind == "ghostify" or kind == "beat_empty" or kind == "queue_restart":
 			_last_presentation_trace.append("board:trace:%s" % kind)
@@ -448,18 +462,6 @@ func _duplicate_replay_steps(steps: Array[Dictionary]) -> Array[Dictionary]:
 	return copied
 
 
-func _has_replayable_pushed_out_changes(pushed_out_changes: Array[ChangeRecord]) -> bool:
-	for change: ChangeRecord in pushed_out_changes:
-		if change == null:
-			continue
-		if change.type == ChangeRecord.ChangeType.EMPTY:
-			continue
-		if change.subject_id == &"":
-			continue
-		return true
-	return false
-
-
 func _collect_trace_subjects(trace: Array[Dictionary]) -> Array[StringName]:
 	var seen: Dictionary[StringName, bool] = {}
 	for item: Dictionary in trace:
@@ -562,12 +564,7 @@ func _resolve_replay_gate_reason(
 		return "no_pushed_out"
 	if has_replayable_pushed_out and not can_play_trace:
 		return "no_replay_trace_items"
-	for change: ChangeRecord in pushed_out_changes:
-		if change == null:
-			continue
-		if change.type != ChangeRecord.ChangeType.EMPTY and change.subject_id != &"":
-			return "unknown"
-	return "pushed_out_only_empty"
+	return "pushed_out_without_trace_items"
 
 
 func _queue_entries_for_first_pass(trace: Array[Dictionary], fallback_entries: Array[ChangeRecord]) -> Array[ChangeRecord]:
