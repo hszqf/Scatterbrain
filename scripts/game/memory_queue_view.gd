@@ -225,8 +225,11 @@ func play_incoming_change_fx(change: ChangeRecord, source_global_pos: Vector2, c
 func resolve_incoming_slot_index(current_entries: Array[ChangeRecord], capacity: int) -> int:
 	if capacity <= 0:
 		return -1
-	if current_entries.size() < capacity:
-		return current_entries.size()
+	for i: int in range(capacity):
+		if i >= current_entries.size():
+			return i
+		if current_entries[i] == null:
+			return i
 	return capacity - 1
 
 
