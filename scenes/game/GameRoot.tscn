@@ -5,6 +5,7 @@
 [ext_resource type="PackedScene" path="res://scenes/game/MemoryQueueView.tscn" id="3"]
 [ext_resource type="PackedScene" path="res://scenes/levels/Level001.tscn" id="4"]
 [ext_resource type="Script" path="res://scripts/game/replay_controller.gd" id="5"]
+[ext_resource type="PackedScene" path="res://scenes/levels/Level002.tscn" id="6"]
 
 [node name="GameRoot" type="Node"]
 script = ExtResource("1")
@@ -13,9 +14,11 @@ board_view_path = NodePath("CanvasLayer/BoardView")
 replay_controller_path = NodePath("CanvasLayer/ReplayController")
 queue_view_path = NodePath("CanvasLayer/UIRoot/MainVBox/TopPanel/MemoryQueueView")
 status_label_path = NodePath("CanvasLayer/UIRoot/MainVBox/TopPanel/StatusLabel")
+level_label_path = NodePath("CanvasLayer/UIRoot/MainVBox/TopPanel/LevelLabel")
 debug_feedback_label_path = NodePath("CanvasLayer/UIRoot/CopyLogFeedback")
 board_center_anchor_path = NodePath("CanvasLayer/UIRoot/MainVBox/BoardAnchor")
 build_info_label_path = NodePath("CanvasLayer/UIRoot/BuildInfoLabel")
+level_scenes = Array[PackedScene]([ExtResource("4"), ExtResource("6")])
 
 [node name="CanvasLayer" type="CanvasLayer" parent="."]
 
@@ -60,8 +63,19 @@ layout_mode = 1
 anchors_preset = 10
 anchor_right = 1.0
 offset_left = 8.0
-offset_top = 6.0
+offset_top = 26.0
 offset_right = -40.0
+offset_bottom = 44.0
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 14
+
+[node name="LevelLabel" type="Label" parent="CanvasLayer/UIRoot/MainVBox/TopPanel"]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_left = 8.0
+offset_top = 6.0
+offset_right = -8.0
 offset_bottom = 24.0
 horizontal_alignment = 1
 theme_override_font_sizes/font_size = 14
