@@ -319,7 +319,8 @@ func _play_compile_trace(trace: Array[Dictionary]) -> void:
 		return
 	_replay_controller.begin_trace_playback(trace)
 	var focused_queue_index: int = -1
-	for item: Dictionary in trace:
+	for trace_index: int in range(trace.size()):
+		var item: Dictionary = trace[trace_index]
 		var kind: String = String(item.get("kind", ""))
 		if kind == "queue_focus":
 			if focused_queue_index >= 0:
@@ -348,6 +349,7 @@ func _play_compile_trace(trace: Array[Dictionary]) -> void:
 			if focused_queue_index >= 0:
 				_queue_view.end_focus_on_slot(focused_queue_index)
 				focused_queue_index = -1
+			_replay_controller.reset_subjects_for_next_pass(trace, trace_index + 1)
 			_last_presentation_trace.append("queue:restart")
 		if kind == "move" or kind == "ghostify" or kind == "beat_empty" or kind == "queue_restart":
 			_last_presentation_trace.append("board:trace:%s" % kind)

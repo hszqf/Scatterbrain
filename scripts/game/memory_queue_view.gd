@@ -9,6 +9,7 @@ extends Control
 @export var evict_duration: float = 0.34
 @export var append_pop_scale: float = 1.2
 @export var append_duration: float = 0.3
+@export var incoming_fx_duration: float = 0.5
 @export var settle_duration: float = 0.16
 @export var focus_scale: float = 1.3
 @export var focus_in_duration: float = 0.15

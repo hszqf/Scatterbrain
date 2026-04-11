@@ -318,6 +318,38 @@ func get_last_phase_trace() -> Array[String]:
 	return _last_phase_trace.duplicate()
 
 
+func reset_subjects_for_next_pass(trace: Array[Dictionary], next_item_index: int) -> void:
+	if trace.is_empty() or next_item_index < 0:
+		return
+	var target_positions: Dictionary[StringName, Vector2i] = {}
+	for i: int in range(next_item_index, trace.size()):
+		var item: Dictionary = trace[i]
+		var kind: String = String(item.get("kind", ""))
+		if kind == "queue_restart":
+			break
+		if kind != "move" and kind != "ghostify":
+			continue
+		var subject_id: StringName = item.get("subject", &"")
+		if subject_id == &"" or target_positions.has(subject_id):
+			continue
+		if kind == "ghostify":
+			target_positions[subject_id] = item.get("at", Vector2i.ZERO)
+		else:
+			target_positions[subject_id] = item.get("from", Vector2i.ZERO)
+	if target_positions.is_empty():
+		return
+	for subject_id: StringName in target_positions.keys():
+		var actor: BoxView = get_replay_actor(subject_id)
+		if actor == null:
+			continue
+		actor.visible = true
+		actor.scale = Vector2.ONE
+		actor.modulate = Color.WHITE
+		actor.set_is_conflict(false)
+		actor.set_is_ghost(false)
+		actor.set_board_position(target_positions[subject_id], _board_view.cell_size)
+
+
 func get_phase_timing(beat_duration: float = memory_beat_duration) -> Dictionary:
 	return _resolve_phase_timing(beat_duration)
 
