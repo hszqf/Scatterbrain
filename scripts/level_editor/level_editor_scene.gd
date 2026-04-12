@@ -21,8 +21,8 @@ enum PaintTool {
 
 @export var default_level_size: Vector2i = Vector2i(5, 5)
 
-@onready var _list_container: VBoxContainer = $MainHBox/ListPanel/ListScroll/LevelList
-@onready var _add_level_button: Button = $MainHBox/ListPanel/AddLevelButton
+@onready var _list_container: VBoxContainer = $MainHBox/ListPanel/ListVBox/ListScroll/LevelList
+@onready var _add_level_button: Button = $MainHBox/ListPanel/ListVBox/AddLevelButton
 @onready var _editor_panel: Control = $MainHBox/EditorPanel
 @onready var _level_title_label: Label = $MainHBox/EditorPanel/TopVBox/TitleRow/LevelTitle
 @onready var _size_x_spin: SpinBox = $MainHBox/EditorPanel/TopVBox/SizeRow/SizeXSpin
