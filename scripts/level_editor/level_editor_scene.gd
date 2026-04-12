@@ -22,6 +22,7 @@ enum PaintTool {
 @export var default_level_size: Vector2i = Vector2i(5, 5)
 
 @onready var _list_container: VBoxContainer = $MainHBox/ListPanel/ListVBox/ListScroll/LevelList
+@onready var _list_panel: Panel = $MainHBox/ListPanel
 @onready var _add_level_button: Button = $MainHBox/ListPanel/ListVBox/AddLevelButton
 @onready var _editor_panel: Control = $MainHBox/EditorPanel
 @onready var _level_title_label: Label = $MainHBox/EditorPanel/TopVBox/TitleRow/LevelTitle
@@ -48,6 +49,13 @@ var _current_level_path: String = ""
 var _current_level_name: String = ""
 var _edit_mode: EditMode = EditMode.PLACE
 var _paint_tool: PaintTool = PaintTool.FLOOR
+var _is_panning_canvas: bool = false
+var _last_pan_mouse_position: Vector2 = Vector2.ZERO
+var _canvas_zoom: float = 1.0
+
+const MIN_CANVAS_ZOOM: float = 0.4
+const MAX_CANVAS_ZOOM: float = 2.4
+const CANVAS_ZOOM_STEP: float = 0.1
 
 
 func _ready() -> void:
@@ -140,6 +148,7 @@ func _open_level(level_path: String) -> void:
 	_current_level_root.rebuild_grid()
 	_align_level_root()
 	_sync_level_header()
+	_list_panel.visible = false
 	_editor_panel.visible = true
 
 
@@ -156,6 +165,8 @@ func _close_editor() -> void:
 	_close_level_root()
 	_current_level_path = ""
 	_current_level_name = ""
+	_is_panning_canvas = false
+	_list_panel.visible = true
 	_editor_panel.visible = false
 
 
@@ -222,20 +233,51 @@ func _sync_level_header() -> void:
 func _on_canvas_gui_input(event: InputEvent) -> void:
 	if _current_level_root == null:
 		return
-	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		var mouse_event: InputEventMouseButton = event
-		var coord: Vector3i = _mouse_to_coord(mouse_event.position)
-		if coord.x < 0:
-			return
-		_apply_tool_at(coord)
-		_save_current_level()
+	if event is InputEventMouseButton:
+		_handle_canvas_mouse_button(event)
+		return
+	if event is InputEventMouseMotion:
+		_handle_canvas_mouse_motion(event)
+		return
+
+
+func _handle_canvas_mouse_button(event: InputEventMouseButton) -> void:
+	if event.button_index == MOUSE_BUTTON_WHEEL_UP and event.pressed:
+		_set_canvas_zoom(_canvas_zoom + CANVAS_ZOOM_STEP)
 		accept_event()
+		return
+	if event.button_index == MOUSE_BUTTON_WHEEL_DOWN and event.pressed:
+		_set_canvas_zoom(_canvas_zoom - CANVAS_ZOOM_STEP)
+		accept_event()
+		return
+	if event.button_index != MOUSE_BUTTON_LEFT:
+		return
+	if event.pressed:
+		var coord: Vector3i = _mouse_to_coord(event.position)
+		if coord.x >= 0:
+			_apply_tool_at(coord)
+			_save_current_level()
+		else:
+			_is_panning_canvas = true
+			_last_pan_mouse_position = event.position
+		accept_event()
+		return
+	_is_panning_canvas = false
+
+
+func _handle_canvas_mouse_motion(event: InputEventMouseMotion) -> void:
+	if not _is_panning_canvas or not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+		return
+	var delta: Vector2 = event.position - _last_pan_mouse_position
+	_current_level_root.position += delta
+	_last_pan_mouse_position = event.position
+	accept_event()
 
 
 func _mouse_to_coord(local_mouse_pos: Vector2) -> Vector3i:
 	if _current_level_root == null:
 		return Vector3i(-1, -1, -1)
-	var local_to_level: Vector2 = local_mouse_pos - _current_level_root.position
+	var local_to_level: Vector2 = (local_mouse_pos - _current_level_root.position) / _current_level_root.scale
 	var cell_size: int = maxi(_current_level_root.cell_size, 1)
 	var x: int = int(floor(local_to_level.x / float(cell_size)))
 	var y: int = int(floor(local_to_level.y / float(cell_size)))
@@ -338,7 +380,16 @@ func _all_cells() -> Array[LevelCell]:
 func _align_level_root() -> void:
 	if _current_level_root == null:
 		return
+	_canvas_zoom = 1.0
+	_current_level_root.scale = Vector2.ONE * _canvas_zoom
 	_current_level_root.position = Vector2(12, 12)
+
+
+func _set_canvas_zoom(next_zoom: float) -> void:
+	if _current_level_root == null:
+		return
+	_canvas_zoom = clampf(next_zoom, MIN_CANVAS_ZOOM, MAX_CANVAS_ZOOM)
+	_current_level_root.scale = Vector2.ONE * _canvas_zoom
 
 
 func _set_mode(mode: EditMode) -> void:
