@@ -13,7 +13,7 @@ level_scene = ExtResource("4")
 board_view_path = NodePath("CanvasLayer/BoardView")
 replay_controller_path = NodePath("CanvasLayer/ReplayController")
 queue_view_path = NodePath("CanvasLayer/UIRoot/MainVBox/TopPanel/MemoryQueueView")
-status_label_path = NodePath("CanvasLayer/UIRoot/MainVBox/TopPanel/StatusLabel")
+status_label_path = NodePath("CanvasLayer/UIRoot/MainVBox/StatusLabel")
 level_label_path = NodePath("CanvasLayer/UIRoot/MainVBox/TopPanel/LevelLabel")
 debug_feedback_label_path = NodePath("CanvasLayer/UIRoot/CopyLogFeedback")
 board_center_anchor_path = NodePath("CanvasLayer/UIRoot/MainVBox/BoardAnchor")
@@ -58,17 +58,6 @@ theme_override_constants/separation = 6
 custom_minimum_size = Vector2(0, 88)
 layout_mode = 2
 
-[node name="StatusLabel" type="Label" parent="CanvasLayer/UIRoot/MainVBox/TopPanel"]
-layout_mode = 1
-anchors_preset = 10
-anchor_right = 1.0
-offset_left = 8.0
-offset_top = 26.0
-offset_right = -40.0
-offset_bottom = 44.0
-horizontal_alignment = 1
-theme_override_font_sizes/font_size = 14
-
 [node name="LevelLabel" type="Label" parent="CanvasLayer/UIRoot/MainVBox/TopPanel"]
 layout_mode = 1
 anchors_preset = 10
@@ -95,6 +84,12 @@ grow_vertical = 2
 [node name="BoardAnchor" type="Control" parent="CanvasLayer/UIRoot/MainVBox"]
 layout_mode = 2
 size_flags_vertical = 3
+
+[node name="StatusLabel" type="Label" parent="CanvasLayer/UIRoot/MainVBox"]
+custom_minimum_size = Vector2(0, 24)
+layout_mode = 2
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 14
 
 [node name="BottomPanel" type="Panel" parent="CanvasLayer/UIRoot/MainVBox"]
 custom_minimum_size = Vector2(0, 176)
