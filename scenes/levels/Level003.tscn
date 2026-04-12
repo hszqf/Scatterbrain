@@ -1,0 +1,11 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/level_editor/level_root.gd" id="1_sem21"]
+
+[node name="Level003" type="Node2D" unique_id=27062794]
+position = Vector2(12, 12)
+script = ExtResource("1_sem21")
+grid_size = Vector3i(7, 7, 1)
+auto_rebuild_in_editor = false
+
+[node name="Grid" type="Node2D" parent="." unique_id=452522352]
