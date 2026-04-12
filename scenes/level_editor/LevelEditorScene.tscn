@@ -1,0 +1,187 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/level_editor/level_editor_scene.gd" id="1"]
+
+[node name="LevelEditorScene" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1")
+
+[node name="MainHBox" type="HBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 10.0
+offset_top = 10.0
+offset_right = -10.0
+offset_bottom = -10.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 10
+
+[node name="ListPanel" type="Panel" parent="MainHBox"]
+custom_minimum_size = Vector2(320, 0)
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="ListVBox" type="VBoxContainer" parent="MainHBox/ListPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 8.0
+offset_top = 8.0
+offset_right = -8.0
+offset_bottom = -8.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 8
+
+[node name="ListTitle" type="Label" parent="MainHBox/ListPanel/ListVBox"]
+layout_mode = 2
+text = "关卡列表"
+
+[node name="ListScroll" type="ScrollContainer" parent="MainHBox/ListPanel/ListVBox"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="LevelList" type="VBoxContainer" parent="MainHBox/ListPanel/ListVBox/ListScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 6
+
+[node name="AddLevelButton" type="Button" parent="MainHBox/ListPanel/ListVBox"]
+layout_mode = 2
+text = "新增关卡"
+
+[node name="EditorPanel" type="Panel" parent="MainHBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="TopVBox" type="VBoxContainer" parent="MainHBox/EditorPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 8.0
+offset_top = 8.0
+offset_right = -8.0
+offset_bottom = -8.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 8
+
+[node name="TitleRow" type="HBoxContainer" parent="MainHBox/EditorPanel/TopVBox"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="LevelTitle" type="Label" parent="MainHBox/EditorPanel/TopVBox/TitleRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "level X · 关卡大小 5 * 5"
+
+[node name="SaveButton" type="Button" parent="MainHBox/EditorPanel/TopVBox/TitleRow"]
+layout_mode = 2
+text = "保存"
+
+[node name="BackButton" type="Button" parent="MainHBox/EditorPanel/TopVBox/TitleRow"]
+layout_mode = 2
+text = "返回列表"
+
+[node name="SizeRow" type="HBoxContainer" parent="MainHBox/EditorPanel/TopVBox"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="SizeLabel" type="Label" parent="MainHBox/EditorPanel/TopVBox/SizeRow"]
+layout_mode = 2
+text = "关卡大小"
+
+[node name="SizeXSpin" type="SpinBox" parent="MainHBox/EditorPanel/TopVBox/SizeRow"]
+custom_minimum_size = Vector2(90, 0)
+layout_mode = 2
+min_value = 1.0
+max_value = 64.0
+value = 5.0
+
+[node name="CrossLabel" type="Label" parent="MainHBox/EditorPanel/TopVBox/SizeRow"]
+layout_mode = 2
+text = "*"
+
+[node name="SizeYSpin" type="SpinBox" parent="MainHBox/EditorPanel/TopVBox/SizeRow"]
+custom_minimum_size = Vector2(90, 0)
+layout_mode = 2
+min_value = 1.0
+max_value = 64.0
+value = 5.0
+
+[node name="UpdateSizeButton" type="Button" parent="MainHBox/EditorPanel/TopVBox/SizeRow"]
+layout_mode = 2
+text = "更新"
+
+[node name="CanvasPanel" type="Panel" parent="MainHBox/EditorPanel/TopVBox"]
+custom_minimum_size = Vector2(0, 520)
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="LevelHost" type="Node2D" parent="MainHBox/EditorPanel/TopVBox/CanvasPanel"]
+
+[node name="ToolbarVBox" type="VBoxContainer" parent="MainHBox/EditorPanel/TopVBox"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="ModeRow" type="HBoxContainer" parent="MainHBox/EditorPanel/TopVBox/ToolbarVBox"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="ModeLabel" type="Label" parent="MainHBox/EditorPanel/TopVBox/ToolbarVBox/ModeRow"]
+layout_mode = 2
+text = "模式"
+
+[node name="PlaceModeButton" type="Button" parent="MainHBox/EditorPanel/TopVBox/ToolbarVBox/ModeRow"]
+layout_mode = 2
+text = "放置"
+
+[node name="DeleteModeButton" type="Button" parent="MainHBox/EditorPanel/TopVBox/ToolbarVBox/ModeRow"]
+layout_mode = 2
+text = "删除"
+
+[node name="ToolScroll" type="ScrollContainer" parent="MainHBox/EditorPanel/TopVBox/ToolbarVBox"]
+custom_minimum_size = Vector2(0, 56)
+layout_mode = 2
+horizontal_scroll_mode = 1
+vertical_scroll_mode = 0
+
+[node name="ToolRow" type="HBoxContainer" parent="MainHBox/EditorPanel/TopVBox/ToolbarVBox/ToolScroll"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="FloorToolButton" type="Button" parent="MainHBox/EditorPanel/TopVBox/ToolbarVBox/ToolScroll/ToolRow"]
+custom_minimum_size = Vector2(120, 44)
+layout_mode = 2
+text = "地块"
+
+[node name="WallToolButton" type="Button" parent="MainHBox/EditorPanel/TopVBox/ToolbarVBox/ToolScroll/ToolRow"]
+custom_minimum_size = Vector2(120, 44)
+layout_mode = 2
+text = "墙"
+
+[node name="BoxToolButton" type="Button" parent="MainHBox/EditorPanel/TopVBox/ToolbarVBox/ToolScroll/ToolRow"]
+custom_minimum_size = Vector2(120, 44)
+layout_mode = 2
+text = "箱子"
+
+[node name="PlayerToolButton" type="Button" parent="MainHBox/EditorPanel/TopVBox/ToolbarVBox/ToolScroll/ToolRow"]
+custom_minimum_size = Vector2(120, 44)
+layout_mode = 2
+text = "玩家(唯一)"
+
+[node name="ExitToolButton" type="Button" parent="MainHBox/EditorPanel/TopVBox/ToolbarVBox/ToolScroll/ToolRow"]
+custom_minimum_size = Vector2(120, 44)
+layout_mode = 2
+text = "过关点(唯一)"

@@ -190,3 +190,13 @@
 - `WorldCompiler` 只负责编排；变化语义在 `ChangeInterpreter + handlers + rules`。
 - replay 主数据源为 `CompileResult.replay_trace`；`ReplayPayloadBuilder` 仅允许作为兼容层，不得再作为正式 replay 真相来源。
 - 允许连锁变化：handler 可通过 `CompileContext.add_generated_change()` 产出后续变化；编译器负责多轮收敛与安全上限。
+
+
+## 21) 关卡编辑器工作流（2026-04）
+- 关卡文件统一保存在 `scenes/levels/LevelNNN.tscn`，由 `LevelRoot` 作为根节点。
+- 编辑入口场景为 `scenes/level_editor/LevelEditorScene.tscn`：左侧列出现有关卡并提供编辑/删除，底部提供新增关卡。
+- 新增关卡使用顺序编号策略：扫描现有 `LevelNNN`，创建 `max+1`（如 `Level003`）。
+- 关卡编辑区顶部显示当前关卡名与尺寸；尺寸通过 `X/Y + 更新` 按钮触发 `LevelRoot.rebuild_grid()`。
+- 编辑工具分为「放置/删除」模式与工具项（地块/墙/箱子/玩家唯一/过关点唯一）。
+- 玩家与过关点属于唯一对象：放置新对象时先清除旧对象，保持运行时语义与编辑器可视状态一致。
+- 编辑器所有改动直接保存回对应 `LevelNNN.tscn`，运行时仍仅通过 `PackedScene -> LevelRoot.build_runtime_data()` 加载。
