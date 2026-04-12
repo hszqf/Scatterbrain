@@ -2,7 +2,7 @@ class_name MoveChangeHandler
 extends RefCounted
 
 
-func apply(change: ChangeRecord, state: SimulationState, context: CompileContext) -> void:
+func apply(change: ChangeRecord, state: SimulationState, _context: CompileContext) -> void:
 	if change == null or change.subject_id == &"":
 		return
 	state.ensure_subject(change.subject_id)
