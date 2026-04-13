@@ -210,6 +210,9 @@ func _handle_move(direction: Vector2i) -> void:
 	if change == null:
 		_post_player_move()
 		return
+
+	# 先把本次玩家位移完整呈现（仅刷新棋盘），再进入记忆入队/重编译表现。
+	_present_live_player_move()
 	append_change(change)
 
 
@@ -229,6 +232,10 @@ func append_change(change: ChangeRecord) -> void:
 	_last_appended_change_summary = _change_summary_or_none(change)
 	_queue.append(change)
 	_recompile_world("append: %s" % change.summary())
+
+
+func _present_live_player_move() -> void:
+	_board_view.sync_world(_world)
 
 
 func _post_player_move() -> void:
