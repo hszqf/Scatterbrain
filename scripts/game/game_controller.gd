@@ -286,11 +286,13 @@ func _recompile_world(reason: String) -> void:
 	_last_queue_after_compile_summaries = _change_summaries(result.queue_entries)
 	var has_replayable_pushed_out: bool = not result.pushed_out_changes.is_empty()
 	var can_play_trace: bool = _replay_controller.has_trace_items(replay_trace)
-	var replay_gate_allowed: bool = has_replayable_pushed_out and can_play_trace
+	var has_queue_update_trace: bool = _trace_contains_kind(replay_trace, "queue_update")
+	var replay_gate_allowed: bool = can_play_trace and (has_replayable_pushed_out or has_queue_update_trace)
 	_last_replay_gate_allowed = replay_gate_allowed
 	_last_replay_gate_reason = _resolve_replay_gate_reason(
 		result.pushed_out_changes,
 		has_replayable_pushed_out,
+		has_queue_update_trace,
 		can_play_trace
 	)
 	if replay_gate_allowed:
@@ -608,18 +610,28 @@ func _change_summaries(changes: Array[ChangeRecord]) -> Array[String]:
 	return summaries
 
 
+
+
+func _trace_contains_kind(trace: Array[Dictionary], kind_name: String) -> bool:
+	for item: Dictionary in trace:
+		if String(item.get("kind", "")) == kind_name:
+			return true
+	return false
+
+
 func _resolve_replay_gate_reason(
 	pushed_out_changes: Array[ChangeRecord],
 	has_replayable_pushed_out: bool,
+	has_queue_update_trace: bool,
 	can_play_trace: bool
 ) -> String:
-	if has_replayable_pushed_out and can_play_trace:
+	if can_play_trace and (has_replayable_pushed_out or has_queue_update_trace):
 		return "allowed_trace_items"
+	if not can_play_trace:
+		return "no_trace_items"
 	if not has_replayable_pushed_out and pushed_out_changes.is_empty():
 		return "no_pushed_out"
-	if has_replayable_pushed_out and not can_play_trace:
-		return "no_replay_trace_items"
-	return "pushed_out_without_trace_items"
+	return "blocked"
 
 
 func _queue_entries_for_first_pass(trace: Array[Dictionary], fallback_entries: Array[ChangeRecord]) -> Array[ChangeRecord]:
