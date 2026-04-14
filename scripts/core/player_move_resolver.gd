@@ -45,6 +45,7 @@ func resolve_move(world: CompiledWorld, direction: Vector2i) -> Dictionary:
 	world.player_position = target
 	result["player_moved"] = true
 	if world.has_floor_at(push_target):
+		world.entity_positions[box_id] = push_target
 		result["change"] = ChangeRecord.new(
 			ChangeRecord.ChangeType.POSITION,
 			box_id,
