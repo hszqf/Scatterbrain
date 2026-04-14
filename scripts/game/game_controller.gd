@@ -379,17 +379,13 @@ func _play_compile_trace(trace: Array[Dictionary]) -> void:
 			var after_entries: Array[ChangeRecord] = item.get("after_queue_entries", [])
 			var evicted_changes: Array[ChangeRecord] = item.get("evicted_changes", [])
 			var generated_changes: Array[ChangeRecord] = item.get("generated_changes", [])
+			var incoming_change: ChangeRecord = null
+			var incoming_source_pos: Vector2 = Vector2.ZERO
 			for generated_change: ChangeRecord in generated_changes:
 				if generated_change == null:
 					continue
-				var generated_source_pos: Vector2 = _replay_controller.get_subject_global_position(generated_change.subject_id)
-				await _queue_view.play_incoming_change_fx(
-					generated_change,
-					generated_source_pos,
-					before_entries,
-					_memory_capacity(),
-					_defaults.obsession_capacity
-				)
+				incoming_change = generated_change
+				incoming_source_pos = _replay_controller.get_subject_global_position(generated_change.subject_id)
 			_replay_controller.reset_subjects_for_next_pass(trace, trace_index + 1)
 			_last_presentation_trace.append("queue:update")
 			await _queue_view.play_queue_update(
@@ -398,7 +394,9 @@ func _play_compile_trace(trace: Array[Dictionary]) -> void:
 				_memory_capacity(),
 				_defaults.obsession_capacity,
 				evicted_changes,
-				generated_changes
+				generated_changes,
+				incoming_change,
+				incoming_source_pos
 			)
 			continue
 		if kind == "queue_restart":
