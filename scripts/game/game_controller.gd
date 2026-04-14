@@ -369,9 +369,7 @@ func _play_compile_trace(trace: Array[Dictionary]) -> void:
 				_memory_capacity(),
 				_defaults.obsession_capacity,
 				evicted_changes,
-				generated_changes,
-				incoming_change,
-				incoming_source_pos
+				generated_changes
 			)
 			continue
 		if kind == "queue_restart":
