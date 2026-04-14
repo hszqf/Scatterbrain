@@ -320,11 +320,11 @@ func _slot_object_symbol(entry: ChangeRecord) -> String:
 		return ""
 	match entry.type:
 		ChangeRecord.ChangeType.POSITION:
-			return "📦"
+			return "BOX"
 		ChangeRecord.ChangeType.EMPTY:
-			return "·"
+			return "..."
 		ChangeRecord.ChangeType.GHOST:
-			return "👻"
+			return "GHO"
 		_:
 			return "?"
 
@@ -345,14 +345,14 @@ func _slot_action_symbol(entry: ChangeRecord) -> String:
 
 func _direction_arrow(delta: Vector2i) -> String:
 	if delta == Vector2i.UP:
-		return "⬆️"
+		return "UP"
 	if delta == Vector2i.DOWN:
-		return "⬇️"
+		return "DN"
 	if delta == Vector2i.LEFT:
-		return "⬅️"
+		return "LT"
 	if delta == Vector2i.RIGHT:
-		return "➡️"
-	return "•"
+		return "RT"
+	return "?"
 
 
 func _compute_appended_changes(

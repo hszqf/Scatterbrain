@@ -420,7 +420,7 @@ func _play_compile_trace(trace: Array[Dictionary]) -> void:
 func _update_status() -> void:
 	if _is_complete:
 		return
-	_status_label.text = "MOVE WASD/ARROWS • REST SPACE"
+	_status_label.text = "MOVE WASD/ARROWS - REST SPACE"
 	_level_label.text = _format_level_label()
 
 
