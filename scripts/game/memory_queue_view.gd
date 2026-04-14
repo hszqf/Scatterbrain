@@ -7,11 +7,18 @@ extends Control
 @export var evict_drop_pixels: float = 14.0
 @export var evict_scale: float = 1.24
 @export var evict_duration: float = 0.34
+@export var evict_hold_duration: float = 0.5
 @export var append_pop_scale: float = 1.2
 @export var append_duration: float = 0.3
 @export var incoming_fx_duration: float = 0.5
 @export var incoming_fx_size: float = 14.0
 @export var incoming_fx_end_scale: float = 0.72
+@export var incoming_pop_height: float = 34.0
+@export var incoming_pop_duration: float = 0.18
+@export var incoming_hold_before_launch: float = 0.5
+@export var incoming_hold_at_lane: float = 0.5
+@export var lane_left_padding: float = 34.0
+@export var lane_right_padding: float = 34.0
 @export var settle_duration: float = 0.16
 @export var focus_scale: float = 1.3
 @export var focus_in_duration: float = 0.15
@@ -27,7 +34,7 @@ var _slot_focus_tweens: Dictionary[int, Tween] = {}
 var _displayed_entries: Array[ChangeRecord] = []
 var _displayed_capacity: int = 0
 var _displayed_obsession_capacity: int = 0
-var _incoming_fx_nodes: Array[ColorRect] = []
+var _incoming_fx_nodes: Array[Control] = []
 
 
 func _ready() -> void:
@@ -68,14 +75,19 @@ func animate_evicted_changes(evicted_changes: Array[ChangeRecord]) -> void:
 	var evict_count: int = mini(evicted_changes.size(), _slot_nodes.size())
 	if evict_count == 0:
 		return
+	if evict_hold_duration > 0.0:
+		await get_tree().create_timer(evict_hold_duration).timeout
 	var tween: Tween = create_tween()
 	tween.set_parallel(true)
+	var right_lane: Vector2 = _incoming_lane_right_point()
 	for i: int in range(evict_count):
-		var slot: Panel = _slot_nodes[i]
+		var slot_index: int = _slot_nodes.size() - 1 - i
+		var slot: Panel = _slot_nodes[slot_index]
 		if slot == null:
 			continue
 		slot.pivot_offset = slot.size * 0.5
-		tween.tween_property(slot, "position:y", slot.position.y + evict_drop_pixels, evict_duration)
+		var lane_target_x: float = right_lane.x - slot.size.x * 0.5 + float(i) * 4.0
+		tween.tween_property(slot, "position:x", lane_target_x + evict_drop_pixels, evict_duration)
 		tween.tween_property(slot, "scale", Vector2(evict_scale, evict_scale), evict_duration)
 		tween.tween_property(slot, "modulate:a", 0.0, evict_duration)
 	await tween.finished
@@ -84,10 +96,10 @@ func animate_evicted_changes(evicted_changes: Array[ChangeRecord]) -> void:
 func animate_appended_changes(appended_changes: Array[ChangeRecord]) -> void:
 	if appended_changes.is_empty() or _slot_nodes.is_empty():
 		return
-	var start_index: int = maxi(0, _slot_nodes.size() - appended_changes.size())
+	var end_index: int = mini(appended_changes.size(), _slot_nodes.size())
 	var tween: Tween = create_tween()
 	tween.set_parallel(true)
-	for i: int in range(start_index, _slot_nodes.size()):
+	for i: int in range(0, end_index):
 		var slot: Panel = _slot_nodes[i]
 		if slot == null:
 			continue
@@ -152,7 +164,7 @@ func play_queue_update(
 
 
 func play_focus_on_slot(slot_index: int, beat_duration: float = 1.0) -> void:
-	var slot: Panel = _slot_at(slot_index)
+	var slot: Panel = _slot_for_queue_index(slot_index)
 	if slot == null:
 		if beat_duration > 0.0:
 			await get_tree().create_timer(beat_duration).timeout
@@ -167,7 +179,7 @@ func play_focus_on_slot(slot_index: int, beat_duration: float = 1.0) -> void:
 
 
 func begin_focus_on_slot(slot_index: int) -> void:
-	var slot: Panel = _slot_at(slot_index)
+	var slot: Panel = _slot_for_queue_index(slot_index)
 	if slot == null:
 		return
 	_last_animation_trace.append("queue:focus:%d:start" % slot_index)
@@ -181,7 +193,7 @@ func begin_focus_on_slot(slot_index: int) -> void:
 
 
 func end_focus_on_slot(slot_index: int) -> void:
-	var slot: Panel = _slot_at(slot_index)
+	var slot: Panel = _slot_for_queue_index(slot_index)
 	if slot == null:
 		return
 	_last_animation_trace.append("queue:focus:%d:end" % slot_index)
@@ -203,24 +215,37 @@ func play_incoming_change_fx(change: ChangeRecord, source_global_pos: Vector2, c
 	render_queue(current_entries, capacity, obsession_capacity)
 	await get_tree().process_frame
 	var target_index: int = resolve_incoming_slot_index(current_entries, capacity)
-	var target_slot: Panel = _slot_at(target_index)
+	var target_slot: Panel = _slot_at_display(target_index)
 	if target_slot == null:
 		return
 	var target_global: Vector2 = target_slot.get_global_rect().get_center()
-	var particle: ColorRect = ColorRect.new()
-	particle.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	particle.size = Vector2.ONE * maxf(incoming_fx_size, 1.0)
-	particle.pivot_offset = particle.size * 0.5
-	particle.color = _slot_color(change)
-	particle.position = _to_local_canvas(source_global_pos) - particle.pivot_offset
+	var left_lane: Vector2 = _incoming_lane_left_point()
+	var particle: Control = _build_incoming_badge(change)
+	particle.position = _to_local_canvas(source_global_pos) - particle.size * 0.5
 	add_child(particle)
 	_incoming_fx_nodes.append(particle)
+
+	var source_local: Vector2 = _to_local_canvas(source_global_pos)
+	var popped_local: Vector2 = source_local + Vector2(0.0, -maxf(incoming_pop_height, 0.0))
+	var pop_time: float = maxf(incoming_pop_duration, 0.01)
+	var pop_tween: Tween = create_tween()
+	pop_tween.tween_property(particle, "position", popped_local - particle.size * 0.5, pop_time).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	await pop_tween.finished
+	if incoming_hold_before_launch > 0.0:
+		await get_tree().create_timer(incoming_hold_before_launch).timeout
+
 	var travel_time: float = maxf(incoming_fx_duration, 0.14)
-	var tween: Tween = create_tween()
-	tween.set_parallel(true)
-	tween.tween_property(particle, "position", _to_local_canvas(target_global) - particle.pivot_offset, travel_time).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	tween.tween_property(particle, "scale", Vector2.ONE * incoming_fx_end_scale, travel_time)
-	await tween.finished
+	var lane_tween: Tween = create_tween()
+	lane_tween.tween_property(particle, "position", left_lane - particle.size * 0.5, travel_time).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	await lane_tween.finished
+	if incoming_hold_at_lane > 0.0:
+		await get_tree().create_timer(incoming_hold_at_lane).timeout
+
+	var target_tween: Tween = create_tween()
+	target_tween.set_parallel(true)
+	target_tween.tween_property(particle, "position", _to_local_canvas(target_global) - particle.size * 0.5, travel_time).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	target_tween.tween_property(particle, "scale", Vector2.ONE * incoming_fx_end_scale, travel_time)
+	await target_tween.finished
 	particle.queue_free()
 	_incoming_fx_nodes.erase(particle)
 
@@ -228,12 +253,7 @@ func play_incoming_change_fx(change: ChangeRecord, source_global_pos: Vector2, c
 func resolve_incoming_slot_index(current_entries: Array[ChangeRecord], capacity: int) -> int:
 	if capacity <= 0:
 		return -1
-	for i: int in range(capacity):
-		if i >= current_entries.size():
-			return i
-		if current_entries[i] == null:
-			return i
-	return capacity - 1
+	return mini(current_entries.size(), capacity - 1)
 
 
 func _rebuild_slots(entries: Array[ChangeRecord], capacity: int) -> void:
@@ -241,9 +261,9 @@ func _rebuild_slots(entries: Array[ChangeRecord], capacity: int) -> void:
 		child.queue_free()
 	_slot_nodes.clear()
 	_slot_base_modulates.clear()
+	var display_entries: Array[ChangeRecord] = _to_display_entries(entries, capacity)
 	for i: int in range(capacity):
-		var has_entry: bool = i < entries.size()
-		var slot: Panel = _build_slot(entries[i] if has_entry else null)
+		var slot: Panel = _build_slot(display_entries[i])
 		_slots_container.add_child(slot)
 		_slot_nodes.append(slot)
 		_slot_base_modulates.append(slot.modulate)
@@ -314,9 +334,9 @@ func _slot_action_symbol(entry: ChangeRecord) -> String:
 		return ""
 	match entry.type:
 		ChangeRecord.ChangeType.POSITION:
-			return _direction_arrow(entry.move_delta)
+			return "PUSH %s" % _direction_arrow(entry.move_delta)
 		ChangeRecord.ChangeType.EMPTY:
-			return "REST"
+			return "THINK"
 		ChangeRecord.ChangeType.GHOST:
 			return "GHOST"
 		_:
@@ -354,20 +374,6 @@ func _compute_appended_changes(
 	return appended
 
 
-func _slot_symbol(entry: ChangeRecord) -> String:
-	if entry == null:
-		return "-"
-	match entry.type:
-		ChangeRecord.ChangeType.POSITION:
-			return "POS"
-		ChangeRecord.ChangeType.EMPTY:
-			return "EMP"
-		ChangeRecord.ChangeType.GHOST:
-			return "GST"
-		_:
-			return "?"
-
-
 func _slot_color(entry: ChangeRecord) -> Color:
 	if entry == null:
 		return Color("586273")
@@ -396,10 +402,20 @@ func _slot_marker_color(entry: ChangeRecord) -> Color:
 			return Color("3b4555")
 
 
-func _slot_at(slot_index: int) -> Panel:
-	if slot_index < 0 or slot_index >= _slot_nodes.size():
+func _slot_for_queue_index(queue_index: int) -> Panel:
+	return _slot_at_display(_display_index_for_queue_index(queue_index))
+
+
+func _slot_at_display(display_index: int) -> Panel:
+	if display_index < 0 or display_index >= _slot_nodes.size():
 		return null
-	return _slot_nodes[slot_index]
+	return _slot_nodes[display_index]
+
+
+func _display_index_for_queue_index(queue_index: int) -> int:
+	if queue_index < 0 or queue_index >= _displayed_entries.size():
+		return -1
+	return _displayed_entries.size() - 1 - queue_index
 
 
 func _base_modulate_for_slot(slot: Panel) -> Color:
@@ -416,6 +432,77 @@ func _slot_focus_tween_kill(slot_index: int) -> void:
 	if tween != null:
 		tween.kill()
 	_slot_focus_tweens.erase(slot_index)
+
+
+func _incoming_lane_left_point() -> Vector2:
+	if _slot_nodes.is_empty():
+		return _to_local_canvas(global_position)
+	var first_center: Vector2 = _to_local_canvas(_slot_nodes[0].get_global_rect().get_center())
+	return first_center + Vector2(-maxf(lane_left_padding, 0.0), 0.0)
+
+
+func _incoming_lane_right_point() -> Vector2:
+	if _slot_nodes.is_empty():
+		return _to_local_canvas(global_position)
+	var last_center: Vector2 = _to_local_canvas(_slot_nodes[_slot_nodes.size() - 1].get_global_rect().get_center())
+	return last_center + Vector2(maxf(lane_right_padding, 0.0), 0.0)
+
+
+func _to_display_entries(entries: Array[ChangeRecord], capacity: int) -> Array[ChangeRecord]:
+	var display_entries: Array[ChangeRecord] = []
+	display_entries.resize(capacity)
+	for i: int in range(capacity):
+		display_entries[i] = null
+	var occupied: int = mini(entries.size(), capacity)
+	for i: int in range(occupied):
+		display_entries[i] = entries[entries.size() - 1 - i]
+	return display_entries
+
+
+func _build_incoming_badge(change: ChangeRecord) -> Control:
+	var badge := Panel.new()
+	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	badge.custom_minimum_size = Vector2(maxf(incoming_fx_size * 4.6, 44.0), maxf(incoming_fx_size * 2.3, 24.0))
+	badge.size = badge.custom_minimum_size
+	badge.pivot_offset = badge.size * 0.5
+	badge.modulate = _slot_color(change)
+	var vbox := VBoxContainer.new()
+	vbox.anchor_right = 1.0
+	vbox.anchor_bottom = 1.0
+	vbox.offset_left = 4.0
+	vbox.offset_top = 1.0
+	vbox.offset_right = -4.0
+	vbox.offset_bottom = -1.0
+	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_theme_constant_override("separation", 0)
+	badge.add_child(vbox)
+
+	var subject := Label.new()
+	subject.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	subject.add_theme_font_size_override("font_size", 13)
+	subject.text = _slot_object_symbol(change)
+	vbox.add_child(subject)
+
+	var action := Label.new()
+	action.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	action.add_theme_font_size_override("font_size", 10)
+	action.text = _incoming_action_text(change)
+	vbox.add_child(action)
+	return badge
+
+
+func _incoming_action_text(change: ChangeRecord) -> String:
+	if change == null:
+		return ""
+	match change.type:
+		ChangeRecord.ChangeType.POSITION:
+			return "PUSH %s" % _direction_arrow(change.move_delta)
+		ChangeRecord.ChangeType.EMPTY:
+			return "THINK"
+		ChangeRecord.ChangeType.GHOST:
+			return "GHOSTIFY"
+		_:
+			return "CHANGE"
 
 
 func _to_local_canvas(global_point: Vector2) -> Vector2:
