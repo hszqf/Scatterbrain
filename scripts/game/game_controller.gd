@@ -379,6 +379,18 @@ func _play_compile_trace(trace: Array[Dictionary]) -> void:
 			var after_entries: Array[ChangeRecord] = item.get("after_queue_entries", [])
 			var evicted_changes: Array[ChangeRecord] = item.get("evicted_changes", [])
 			var generated_changes: Array[ChangeRecord] = item.get("generated_changes", [])
+			for generated_change: ChangeRecord in generated_changes:
+				if generated_change == null:
+					continue
+				var generated_source_pos: Vector2 = _replay_controller.get_subject_global_position(generated_change.subject_id)
+				await _queue_view.play_incoming_change_fx(
+					generated_change,
+					generated_source_pos,
+					before_entries,
+					_memory_capacity(),
+					_defaults.obsession_capacity
+				)
+			_replay_controller.reset_subjects_for_next_pass(trace, trace_index + 1)
 			_last_presentation_trace.append("queue:update")
 			await _queue_view.play_queue_update(
 				before_entries,
@@ -393,7 +405,6 @@ func _play_compile_trace(trace: Array[Dictionary]) -> void:
 			if focused_queue_index >= 0:
 				_queue_view.end_focus_on_slot(focused_queue_index)
 				focused_queue_index = -1
-			_replay_controller.reset_subjects_for_next_pass(trace, trace_index + 1)
 			_last_presentation_trace.append("queue:restart")
 		if kind == "move" or kind == "ghostify" or kind == "beat_empty" or kind == "queue_restart":
 			_last_presentation_trace.append("board:trace:%s" % kind)

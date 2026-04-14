@@ -314,6 +314,16 @@ func get_replay_actor(subject_id: StringName) -> BoxView:
 	return null
 
 
+func get_subject_global_position(subject_id: StringName) -> Vector2:
+	var actor: BoxView = get_replay_actor(subject_id)
+	if actor != null and actor.visible:
+		return actor.global_position
+	var live_box: BoxView = _board_view.get_box_view(subject_id)
+	if live_box != null:
+		return live_box.global_position
+	return _board_view.global_position
+
+
 func get_last_phase_trace() -> Array[String]:
 	return _last_phase_trace.duplicate()
 
