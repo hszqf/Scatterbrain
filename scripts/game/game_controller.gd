@@ -361,7 +361,7 @@ func _recompile_world(reason: String) -> void:
 func _play_compile_trace(trace: Array[Dictionary]) -> void:
 	if trace.is_empty():
 		return
-	_replay_controller.begin_trace_playback(trace)
+	_replay_controller.begin_trace_playback(trace, _defaults)
 	var focused_queue_index: int = -1
 	for trace_index: int in range(trace.size()):
 		var item: Dictionary = trace[trace_index]
