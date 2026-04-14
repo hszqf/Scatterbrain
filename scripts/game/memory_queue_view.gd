@@ -144,9 +144,15 @@ func play_queue_update(
 	capacity: int,
 	obsession_capacity: int,
 	evicted_changes: Array[ChangeRecord],
-	appended_changes: Array[ChangeRecord]
+	appended_changes: Array[ChangeRecord],
+	incoming_change: ChangeRecord = null,
+	incoming_source_global_pos: Vector2 = Vector2.ZERO
 ) -> void:
 	_last_animation_trace.append("queue:update")
+	var incoming_particle: Control = null
+	var incoming_travel_time: float = maxf(incoming_fx_duration, 0.14)
+	if incoming_change != null:
+		incoming_particle = await _prepare_incoming_particle(incoming_change, incoming_source_global_pos, before_entries, capacity, obsession_capacity)
 	render_queue(before_entries, capacity, obsession_capacity)
 	var evicted_overlays: Array[Panel] = _capture_evicted_slot_overlays(evicted_changes.size())
 	render_queue(after_entries, capacity, obsession_capacity)
@@ -157,9 +163,72 @@ func play_queue_update(
 		_last_animation_trace.append("queue:evict")
 	if not appended.is_empty():
 		_last_animation_trace.append("queue:append")
-	await animate_queue_swap(evicted_overlays, appended)
+	if incoming_particle != null:
+		var target_index: int = resolve_incoming_slot_index(before_entries, capacity)
+		var target_slot: Panel = _slot_at_display(target_index)
+		var incoming_tween: Tween = null
+		if target_slot != null:
+			incoming_tween = create_tween()
+			incoming_tween.set_parallel(true)
+			incoming_tween.tween_property(
+				incoming_particle,
+				"position",
+				_to_local_canvas(target_slot.get_global_rect().get_center()) - incoming_particle.size * 0.5,
+				incoming_travel_time
+			).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+			incoming_tween.tween_property(incoming_particle, "scale", Vector2.ONE * incoming_fx_end_scale, incoming_travel_time)
+		var queue_tween: Tween = create_tween()
+		queue_tween.set_parallel(true)
+		_append_slots_to_tween(appended, queue_tween)
+		_evicted_overlays_to_tween(evicted_overlays, queue_tween)
+		if incoming_tween != null:
+			await incoming_tween.finished
+		await queue_tween.finished
+		if is_instance_valid(incoming_particle):
+			incoming_particle.queue_free()
+		_incoming_fx_nodes.erase(incoming_particle)
+		for overlay: Panel in evicted_overlays:
+			if is_instance_valid(overlay):
+				overlay.queue_free()
+	else:
+		await animate_queue_swap(evicted_overlays, appended)
 	_last_animation_trace.append("queue:settle")
 	await animate_queue_settle()
+
+
+func _prepare_incoming_particle(
+	change: ChangeRecord,
+	source_global_pos: Vector2,
+	current_entries: Array[ChangeRecord],
+	capacity: int,
+	obsession_capacity: int
+) -> Control:
+	if change == null or capacity <= 0:
+		return null
+	render_queue(current_entries, capacity, obsession_capacity)
+	await get_tree().process_frame
+	var left_lane: Vector2 = _incoming_lane_left_point()
+	var particle: Control = _build_incoming_badge(change)
+	particle.position = _to_local_canvas(source_global_pos) - particle.size * 0.5
+	add_child(particle)
+	_incoming_fx_nodes.append(particle)
+
+	var source_local: Vector2 = _to_local_canvas(source_global_pos)
+	var popped_local: Vector2 = source_local + Vector2(0.0, -maxf(incoming_pop_height, 0.0))
+	var pop_time: float = maxf(incoming_pop_duration, 0.01)
+	var pop_tween: Tween = create_tween()
+	pop_tween.tween_property(particle, "position", popped_local - particle.size * 0.5, pop_time).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	await pop_tween.finished
+	if incoming_hold_before_launch > 0.0:
+		await get_tree().create_timer(incoming_hold_before_launch).timeout
+
+	var travel_time: float = maxf(incoming_fx_duration, 0.14)
+	var lane_tween: Tween = create_tween()
+	lane_tween.tween_property(particle, "position", left_lane - particle.size * 0.5, travel_time).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	await lane_tween.finished
+	if incoming_hold_at_lane > 0.0:
+		await get_tree().create_timer(incoming_hold_at_lane).timeout
+	return particle
 
 
 func play_focus_on_slot(slot_index: int, beat_duration: float = 1.0) -> void:
