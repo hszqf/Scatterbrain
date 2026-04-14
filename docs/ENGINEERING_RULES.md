@@ -72,8 +72,9 @@
 1. `GameController` 读取 `level_scene` 并实例化 `LevelRoot`。
 2. `LevelRoot.build_runtime_data()` 生成 `LevelRuntimeData`。
 3. `WorldDefaults.from_runtime_data()` 构建默认世界。
-4. `WorldCompiler` 重编译输出 `CompiledWorld`。
-5. `BoardView` / `MemoryQueueView` 仅消费编译结果刷新画面。
+4. `GameController.player_memory_slots`（玩家属性，默认 `1`）覆盖 `WorldDefaults.memory_capacity` 后，再交给 `WorldCompiler`。
+5. `WorldCompiler` 重编译输出 `CompiledWorld`。
+6. `BoardView` / `MemoryQueueView` 仅消费编译结果刷新画面。
 
 ## 9) 重编译流程
 1. 新变化入列后检查容量。

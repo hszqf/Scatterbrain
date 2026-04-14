@@ -12,6 +12,7 @@ extends Node
 @export var board_center_anchor_path: NodePath
 @export var build_info_label_path: NodePath
 @export var level_scenes: Array[PackedScene] = []
+@export var player_memory_slots: int = 1
 
 var _board_view: BoardView
 var _replay_controller: ReplayController
@@ -226,7 +227,7 @@ func append_change(change: ChangeRecord) -> void:
 		change,
 		source_global_pos,
 		queue_before_append,
-		_defaults.memory_capacity,
+		_memory_capacity(),
 		_defaults.obsession_capacity
 	)
 	_last_appended_change_summary = _change_summary_or_none(change)
@@ -306,13 +307,13 @@ func _recompile_world(reason: String) -> void:
 		await _queue_view.play_queue_transition(
 			previous_queue_entries,
 			first_pass_queue_entries,
-			_defaults.memory_capacity,
+			_memory_capacity(),
 			_defaults.obsession_capacity,
 			result.pushed_out_changes
 		)
 		_last_presentation_trace = _queue_view.get_last_animation_trace()
 	else:
-		_queue_view.render_queue(result.queue_entries, _defaults.memory_capacity, _defaults.obsession_capacity)
+		_queue_view.render_queue(result.queue_entries, _memory_capacity(), _defaults.obsession_capacity)
 	if replay_gate_allowed:
 		_last_replay_steps = _duplicate_replay_steps(replay_trace)
 		_last_replay_display_steps = _trace_to_display_steps(replay_trace)
@@ -338,7 +339,7 @@ func _recompile_world(reason: String) -> void:
 		_queue.append(entry)
 
 	_board_view.sync_world(_world)
-	_queue_view.render_queue(_queue.entries(), _defaults.memory_capacity, _defaults.obsession_capacity)
+	_queue_view.render_queue(_queue.entries(), _memory_capacity(), _defaults.obsession_capacity)
 	_update_status()
 	_check_win()
 
@@ -373,7 +374,7 @@ func _play_compile_trace(trace: Array[Dictionary]) -> void:
 			await _queue_view.play_queue_update(
 				before_entries,
 				after_entries,
-				_defaults.memory_capacity,
+				_memory_capacity(),
 				_defaults.obsession_capacity,
 				evicted_changes,
 				generated_changes
@@ -462,7 +463,7 @@ func _reset_level() -> void:
 	_world.entity_positions = _defaults.default_entity_positions.duplicate()
 	_board_view.set_board_size(_defaults.board_size)
 	_board_view.sync_world(_world)
-	_queue_view.render_queue(_queue.entries(), _defaults.memory_capacity, _defaults.obsession_capacity)
+	_queue_view.render_queue(_queue.entries(), _memory_capacity(), _defaults.obsession_capacity)
 	_debug_feedback_label.text = ""
 	_level_label.text = _format_level_label()
 	_update_status()
@@ -487,7 +488,13 @@ func _build_defaults() -> WorldDefaults:
 	var runtime_data: LevelRuntimeData = (root as LevelRoot).build_runtime_data()
 	remove_child(root)
 	root.queue_free()
-	return WorldDefaults.from_runtime_data(runtime_data)
+	var defaults: WorldDefaults = WorldDefaults.from_runtime_data(runtime_data)
+	defaults.memory_capacity = _memory_capacity()
+	return defaults
+
+
+func _memory_capacity() -> int:
+	return maxi(1, player_memory_slots)
 
 
 func _get_active_level_scene() -> PackedScene:
