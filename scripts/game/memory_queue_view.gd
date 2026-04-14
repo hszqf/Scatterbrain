@@ -251,18 +251,36 @@ func _rebuild_slots(entries: Array[ChangeRecord], capacity: int) -> void:
 
 func _build_slot(entry: ChangeRecord) -> Panel:
 	var slot := Panel.new()
-	slot.custom_minimum_size = Vector2(28, 28)
-	slot.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	slot.custom_minimum_size = Vector2(52, 52)
+	slot.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	slot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	var has_entry: bool = entry != null
 	slot.modulate = _slot_color(entry) if has_entry else Color("3a4452")
-	var label := Label.new()
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	label.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	label.add_theme_font_size_override("font_size", 12)
-	label.text = _slot_symbol(entry) if has_entry else "-"
-	slot.add_child(label)
+	var object_label := Label.new()
+	object_label.anchor_right = 1.0
+	object_label.anchor_bottom = 1.0
+	object_label.offset_left = 0.0
+	object_label.offset_top = 0.0
+	object_label.offset_right = 0.0
+	object_label.offset_bottom = 0.0
+	object_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	object_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	object_label.add_theme_font_size_override("font_size", 30)
+	object_label.text = _slot_object_symbol(entry) if has_entry else ""
+	slot.add_child(object_label)
+
+	var action_label := Label.new()
+	action_label.anchor_right = 1.0
+	action_label.anchor_bottom = 1.0
+	action_label.offset_left = 0.0
+	action_label.offset_top = 0.0
+	action_label.offset_right = 0.0
+	action_label.offset_bottom = -2.0
+	action_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	action_label.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+	action_label.add_theme_font_size_override("font_size", 13)
+	action_label.text = _slot_action_symbol(entry) if has_entry else ""
+	slot.add_child(action_label)
 	var marker: ColorRect = ColorRect.new()
 	marker.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	marker.custom_minimum_size = Vector2(7, 7)
@@ -275,6 +293,46 @@ func _build_slot(entry: ChangeRecord) -> Panel:
 	marker.color = _slot_marker_color(entry) if has_entry else Color("4f5a6a")
 	slot.add_child(marker)
 	return slot
+
+
+func _slot_object_symbol(entry: ChangeRecord) -> String:
+	if entry == null:
+		return ""
+	match entry.type:
+		ChangeRecord.ChangeType.POSITION:
+			return "📦"
+		ChangeRecord.ChangeType.EMPTY:
+			return "·"
+		ChangeRecord.ChangeType.GHOST:
+			return "👻"
+		_:
+			return "?"
+
+
+func _slot_action_symbol(entry: ChangeRecord) -> String:
+	if entry == null:
+		return ""
+	match entry.type:
+		ChangeRecord.ChangeType.POSITION:
+			return _direction_arrow(entry.move_delta)
+		ChangeRecord.ChangeType.EMPTY:
+			return "REST"
+		ChangeRecord.ChangeType.GHOST:
+			return "GHOST"
+		_:
+			return ""
+
+
+func _direction_arrow(delta: Vector2i) -> String:
+	if delta == Vector2i.UP:
+		return "⬆️"
+	if delta == Vector2i.DOWN:
+		return "⬇️"
+	if delta == Vector2i.LEFT:
+		return "⬅️"
+	if delta == Vector2i.RIGHT:
+		return "➡️"
+	return "•"
 
 
 func _compute_appended_changes(
