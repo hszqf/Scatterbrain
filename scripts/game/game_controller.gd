@@ -223,13 +223,22 @@ func append_change(change: ChangeRecord) -> void:
 	var queue_before_append: Array[ChangeRecord] = _queue.entries()
 	var source_global_pos: Vector2 = _board_view.get_change_source_global_position(change)
 	_board_view.play_change_source_highlight(change)
-	_queue_view.play_incoming_change_fx(
-		change,
-		source_global_pos,
-		queue_before_append,
-		_memory_capacity(),
-		_defaults.obsession_capacity
-	)
+	if DisplayServer.get_name() == "headless":
+		_queue_view.play_incoming_change_fx(
+			change,
+			source_global_pos,
+			queue_before_append,
+			_memory_capacity(),
+			_defaults.obsession_capacity
+		)
+	else:
+		await _queue_view.play_incoming_change_fx(
+			change,
+			source_global_pos,
+			queue_before_append,
+			_memory_capacity(),
+			_defaults.obsession_capacity
+		)
 	_last_appended_change_summary = _change_summary_or_none(change)
 	_queue.append(change)
 	_recompile_world("append: %s" % change.summary())
