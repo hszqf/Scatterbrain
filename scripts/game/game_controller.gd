@@ -220,7 +220,25 @@ func _handle_move(direction: Vector2i) -> void:
 func append_change(change: ChangeRecord) -> void:
 	if change == null:
 		return
+	var queue_before_append: Array[ChangeRecord] = _queue.entries()
+	var source_global_pos: Vector2 = _board_view.get_change_source_global_position(change)
 	_board_view.play_change_source_highlight(change)
+	if DisplayServer.get_name() == "headless":
+		_queue_view.play_incoming_change_fx(
+			change,
+			source_global_pos,
+			queue_before_append,
+			_memory_capacity(),
+			_defaults.obsession_capacity
+		)
+	else:
+		await _queue_view.play_incoming_change_fx(
+			change,
+			source_global_pos,
+			queue_before_append,
+			_memory_capacity(),
+			_defaults.obsession_capacity
+		)
 	_last_appended_change_summary = _change_summary_or_none(change)
 	_queue.append(change)
 	_recompile_world("append: %s" % change.summary())
@@ -361,6 +379,17 @@ func _play_compile_trace(trace: Array[Dictionary]) -> void:
 			var after_entries: Array[ChangeRecord] = item.get("after_queue_entries", [])
 			var evicted_changes: Array[ChangeRecord] = item.get("evicted_changes", [])
 			var generated_changes: Array[ChangeRecord] = item.get("generated_changes", [])
+			for generated_change: ChangeRecord in generated_changes:
+				if generated_change == null:
+					continue
+				var generated_source_pos: Vector2 = _replay_controller.get_subject_global_position(generated_change.subject_id)
+				await _queue_view.play_incoming_change_fx(
+					generated_change,
+					generated_source_pos,
+					before_entries,
+					_memory_capacity(),
+					_defaults.obsession_capacity
+				)
 			_replay_controller.reset_subjects_for_next_pass(trace, trace_index + 1)
 			_last_presentation_trace.append("queue:update")
 			await _queue_view.play_queue_update(

@@ -10,7 +10,13 @@ extends Control
 @export var evict_hold_duration: float = 0.5
 @export var append_pop_scale: float = 1.2
 @export var append_duration: float = 0.3
-@export var append_entry_shift_x: float = 46.0
+@export var incoming_fx_duration: float = 0.5
+@export var incoming_fx_size: float = 14.0
+@export var incoming_fx_end_scale: float = 0.72
+@export var incoming_pop_height: float = 34.0
+@export var incoming_pop_duration: float = 0.18
+@export var incoming_hold_before_launch: float = 0.5
+@export var incoming_hold_at_lane: float = 0.5
 @export var lane_left_padding: float = 34.0
 @export var lane_right_padding: float = 34.0
 @export var settle_duration: float = 0.16
@@ -28,6 +34,7 @@ var _slot_focus_tweens: Dictionary[int, Tween] = {}
 var _displayed_entries: Array[ChangeRecord] = []
 var _displayed_capacity: int = 0
 var _displayed_obsession_capacity: int = 0
+var _incoming_fx_nodes: Array[Control] = []
 
 
 func _ready() -> void:
@@ -208,6 +215,53 @@ func get_last_animation_trace() -> Array[String]:
 	return _last_animation_trace.duplicate()
 
 
+func play_incoming_change_fx(change: ChangeRecord, source_global_pos: Vector2, current_entries: Array[ChangeRecord], capacity: int, obsession_capacity: int) -> void:
+	if change == null or capacity <= 0:
+		return
+	render_queue(current_entries, capacity, obsession_capacity)
+	await get_tree().process_frame
+	var target_index: int = resolve_incoming_slot_index(current_entries, capacity)
+	var target_slot: Panel = _slot_at_display(target_index)
+	if target_slot == null:
+		return
+	var target_global: Vector2 = target_slot.get_global_rect().get_center()
+	var left_lane: Vector2 = _incoming_lane_left_point()
+	var particle: Control = _build_incoming_badge(change)
+	particle.position = _to_local_canvas(source_global_pos) - particle.size * 0.5
+	add_child(particle)
+	_incoming_fx_nodes.append(particle)
+
+	var source_local: Vector2 = _to_local_canvas(source_global_pos)
+	var popped_local: Vector2 = source_local + Vector2(0.0, -maxf(incoming_pop_height, 0.0))
+	var pop_time: float = maxf(incoming_pop_duration, 0.01)
+	var pop_tween: Tween = create_tween()
+	pop_tween.tween_property(particle, "position", popped_local - particle.size * 0.5, pop_time).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	await pop_tween.finished
+	if incoming_hold_before_launch > 0.0:
+		await get_tree().create_timer(incoming_hold_before_launch).timeout
+
+	var travel_time: float = maxf(incoming_fx_duration, 0.14)
+	var lane_tween: Tween = create_tween()
+	lane_tween.tween_property(particle, "position", left_lane - particle.size * 0.5, travel_time).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	await lane_tween.finished
+	if incoming_hold_at_lane > 0.0:
+		await get_tree().create_timer(incoming_hold_at_lane).timeout
+
+	var target_tween: Tween = create_tween()
+	target_tween.set_parallel(true)
+	target_tween.tween_property(particle, "position", _to_local_canvas(target_global) - particle.size * 0.5, travel_time).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	target_tween.tween_property(particle, "scale", Vector2.ONE * incoming_fx_end_scale, travel_time)
+	await target_tween.finished
+	particle.queue_free()
+	_incoming_fx_nodes.erase(particle)
+
+
+func resolve_incoming_slot_index(current_entries: Array[ChangeRecord], capacity: int) -> int:
+	if capacity <= 0:
+		return -1
+	return mini(current_entries.size(), capacity - 1)
+
+
 func _rebuild_slots(entries: Array[ChangeRecord], capacity: int) -> void:
 	for child: Node in _slots_container.get_children():
 		child.queue_free()
@@ -386,6 +440,13 @@ func _slot_focus_tween_kill(slot_index: int) -> void:
 	_slot_focus_tweens.erase(slot_index)
 
 
+func _incoming_lane_left_point() -> Vector2:
+	if _slot_nodes.is_empty():
+		return _to_local_canvas(global_position)
+	var first_center: Vector2 = _to_local_canvas(_slot_nodes[0].get_global_rect().get_center())
+	return first_center + Vector2(-maxf(lane_left_padding, 0.0), 0.0)
+
+
 func _incoming_lane_right_point() -> Vector2:
 	if _slot_nodes.is_empty():
 		return _to_local_canvas(global_position)
@@ -402,6 +463,52 @@ func _to_display_entries(entries: Array[ChangeRecord], capacity: int) -> Array[C
 	for i: int in range(occupied):
 		display_entries[i] = entries[entries.size() - 1 - i]
 	return display_entries
+
+
+func _build_incoming_badge(change: ChangeRecord) -> Control:
+	var badge := Panel.new()
+	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	badge.custom_minimum_size = Vector2(maxf(incoming_fx_size * 4.6, 44.0), maxf(incoming_fx_size * 2.3, 24.0))
+	badge.size = badge.custom_minimum_size
+	badge.pivot_offset = badge.size * 0.5
+	badge.modulate = _slot_color(change)
+	var vbox := VBoxContainer.new()
+	vbox.anchor_right = 1.0
+	vbox.anchor_bottom = 1.0
+	vbox.offset_left = 4.0
+	vbox.offset_top = 1.0
+	vbox.offset_right = -4.0
+	vbox.offset_bottom = -1.0
+	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_theme_constant_override("separation", 0)
+	badge.add_child(vbox)
+
+	var subject := Label.new()
+	subject.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	subject.add_theme_font_size_override("font_size", 13)
+	subject.text = _slot_object_symbol(change)
+	vbox.add_child(subject)
+
+	var action := Label.new()
+	action.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	action.add_theme_font_size_override("font_size", 10)
+	action.text = _incoming_action_text(change)
+	vbox.add_child(action)
+	return badge
+
+
+func _incoming_action_text(change: ChangeRecord) -> String:
+	if change == null:
+		return ""
+	match change.type:
+		ChangeRecord.ChangeType.POSITION:
+			return "PUSH %s" % _direction_arrow(change.move_delta)
+		ChangeRecord.ChangeType.EMPTY:
+			return "THINK"
+		ChangeRecord.ChangeType.GHOST:
+			return "GHOSTIFY"
+		_:
+			return "CHANGE"
 
 
 func _capture_evicted_slot_overlays(evicted_count: int) -> Array[Panel]:
@@ -437,11 +544,8 @@ func _append_slots_to_tween(appended_changes: Array[ChangeRecord], tween: Tween)
 		slot.pivot_offset = slot.size * 0.5
 		slot.modulate.a = 0.0
 		slot.scale = Vector2(0.86, 0.86)
-		var slot_target_x: float = slot.position.x
-		slot.position.x = slot_target_x - maxf(append_entry_shift_x, 0.0)
 		tween.tween_property(slot, "modulate:a", 1.0, append_duration)
 		tween.tween_property(slot, "scale", Vector2(append_pop_scale, append_pop_scale), append_duration)
-		tween.tween_property(slot, "position:x", slot_target_x, append_duration)
 
 
 func _evicted_overlays_to_tween(evicted_overlays: Array[Panel], tween: Tween) -> void:
