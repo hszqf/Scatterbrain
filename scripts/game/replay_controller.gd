@@ -42,17 +42,19 @@ func has_trace_items(trace: Array[Dictionary]) -> bool:
 	return false
 
 
-func begin_trace_playback(trace: Array[Dictionary]) -> void:
+func begin_trace_playback(trace: Array[Dictionary], defaults: WorldDefaults) -> void:
 	_sync_replay_layer_transform()
 	var replay_subjects: Array[StringName] = _collect_trace_subjects(trace)
+	var baseline_subjects: Array[StringName] = _collect_baseline_subjects(defaults, replay_subjects)
 	_last_used_live_box_views = false
 	_last_phase_trace = []
 	_replay_presenting_subjects.clear()
-	_board_view.begin_replay_presentation(replay_subjects)
+	_board_view.begin_replay_presentation(baseline_subjects)
 	_clear_replay_actors()
-	for subject_id: StringName in replay_subjects:
+	for subject_id: StringName in baseline_subjects:
 		_replay_presenting_subjects[subject_id] = true
-		_ensure_replay_actor(subject_id)
+		var actor: BoxView = _ensure_replay_actor(subject_id)
+		_reset_actor_to_baseline(actor, subject_id, defaults)
 
 
 func end_trace_playback() -> void:
@@ -432,6 +434,8 @@ func _ensure_replay_actor(subject_id: StringName) -> BoxView:
 	if _replay_actors.has(subject_id):
 		return _replay_actors[subject_id]
 	var live_box: BoxView = _board_view.get_box_view(subject_id)
+	if live_box != null:
+		live_box.visible = false
 	var replay_actor: BoxView = preload("res://scenes/entities/BoxView.tscn").instantiate()
 	replay_actor.name = "ReplayActor_%s" % String(subject_id)
 	replay_actor.visible = true
@@ -448,3 +452,37 @@ func _clear_replay_actors() -> void:
 		if actor != null:
 			actor.queue_free()
 	_replay_actors.clear()
+
+
+func _collect_baseline_subjects(defaults: WorldDefaults, replay_subjects: Array[StringName]) -> Array[StringName]:
+	var seen: Dictionary[StringName, bool] = {}
+	if defaults != null:
+		for subject_id: StringName in defaults.default_entity_positions.keys():
+			seen[subject_id] = true
+	for subject_id: StringName in replay_subjects:
+		seen[subject_id] = true
+	var baseline_subjects: Array[StringName] = []
+	for subject_id: StringName in seen.keys():
+		baseline_subjects.append(subject_id)
+	baseline_subjects.sort_custom(func(a: StringName, b: StringName) -> bool:
+		return String(a) < String(b)
+	)
+	return baseline_subjects
+
+
+func _reset_actor_to_baseline(actor: BoxView, subject_id: StringName, defaults: WorldDefaults) -> void:
+	if actor == null:
+		return
+	actor.visible = true
+	actor.scale = Vector2.ONE
+	actor.modulate = Color.WHITE
+	actor.set_is_conflict(false)
+	if defaults != null and defaults.default_entity_positions.has(subject_id):
+		actor.set_board_position(defaults.default_entity_positions[subject_id], _board_view.cell_size)
+		actor.set_is_ghost(false)
+		return
+	var live_box: BoxView = _board_view.get_box_view(subject_id)
+	if live_box == null:
+		return
+	actor.position = live_box.position
+	actor.set_is_ghost(live_box.is_ghost())
