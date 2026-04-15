@@ -11,9 +11,6 @@ func build_animation_coordinate_snapshot(
 	lines.append("[AnimationSegments]")
 	lines.append("coord_system=board_grid_vector2i")
 	var source_steps: Array[Dictionary] = last_replay_display_steps if not last_replay_display_steps.is_empty() else replay_steps
-	if source_steps.is_empty():
-		lines.append("segments=none")
-		return "\n".join(lines)
 	var segment_index: int = 0
 	for step: Dictionary in source_steps:
 		if int(step.get("type", -1)) == ChangeRecord.ChangeType.EMPTY:
