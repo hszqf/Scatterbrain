@@ -469,34 +469,11 @@ func _to_display_entries(entries: Array[ChangeRecord], capacity: int) -> Array[C
 
 
 func _build_incoming_badge(change: ChangeRecord) -> Control:
-	var badge := Panel.new()
+	var badge: Panel = _build_slot(change)
 	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	badge.custom_minimum_size = Vector2(maxf(incoming_fx_size * 4.6, 44.0), maxf(incoming_fx_size * 2.3, 24.0))
+	badge.custom_minimum_size = Vector2(52, 52)
 	badge.size = badge.custom_minimum_size
 	badge.pivot_offset = badge.size * 0.5
-	badge.modulate = _slot_color(change)
-	var vbox := VBoxContainer.new()
-	vbox.anchor_right = 1.0
-	vbox.anchor_bottom = 1.0
-	vbox.offset_left = 4.0
-	vbox.offset_top = 1.0
-	vbox.offset_right = -4.0
-	vbox.offset_bottom = -1.0
-	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
-	vbox.add_theme_constant_override("separation", 0)
-	badge.add_child(vbox)
-
-	var subject := Label.new()
-	subject.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	subject.add_theme_font_size_override("font_size", 13)
-	subject.text = _slot_object_symbol(change)
-	vbox.add_child(subject)
-
-	var action := Label.new()
-	action.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	action.add_theme_font_size_override("font_size", 10)
-	action.text = _incoming_action_text(change)
-	vbox.add_child(action)
 	return badge
 
 

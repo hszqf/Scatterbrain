@@ -92,6 +92,7 @@ func compile(defaults: WorldDefaults, queue: ChangeQueue, player_position: Vecto
 			if generated_after_entry.is_empty():
 				continue
 
+			var before_queue_update_entries: Array[ChangeRecord] = queue_entries.duplicate()
 			for generated: ChangeRecord in generated_after_entry:
 				if _has_same_change(queue_entries, generated):
 					continue
@@ -120,7 +121,8 @@ func compile(defaults: WorldDefaults, queue: ChangeQueue, player_position: Vecto
 				"pass_index": pass_index,
 				"generated_changes": generated_this_pass.duplicate(),
 				"evicted_changes": evicted_changes.duplicate(),
-				"before_queue_entries": before_normalize_queue_entries,
+				"before_queue_entries": before_queue_update_entries,
+				"before_normalize_queue_entries": before_normalize_queue_entries,
 				"after_queue_entries": after_normalize_queue_entries,
 			})
 			replay_trace.append({
