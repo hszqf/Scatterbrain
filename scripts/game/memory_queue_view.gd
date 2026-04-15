@@ -630,7 +630,7 @@ func _incoming_push_entry_point() -> Vector2:
 		return _incoming_lane_left_point()
 	var newest_slot: Panel = _slot_nodes[0]
 	var newest_pos: Vector2 = _to_local_canvas(newest_slot.get_global_rect().position)
-	return newest_pos
+	return newest_pos - _slot_shift_vector()
 
 
 func _slot_shift_vector() -> Vector2:
