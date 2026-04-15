@@ -51,6 +51,7 @@ var _last_queue_after_compile_summaries: Array[String] = []
 var _last_replay_gate_allowed: bool = false
 var _last_replay_gate_reason: String = "none"
 var _last_presentation_trace: Array[String] = []
+var _last_queue_animation_plan_lines: Array[String] = []
 var _pending_pre_recompile_trace: Array[String] = []
 var _feedback_clear_at_msec: int = 0
 var _current_level_index: int = 0
@@ -157,7 +158,7 @@ func copy_debug_log() -> void:
 		_last_replay_steps,
 		_last_replay_display_steps,
 		_last_presentation_trace,
-		_queue_view.get_last_animation_plan_lines()
+		_last_queue_animation_plan_lines
 	)
 	DisplayServer.clipboard_set(text)
 	if DisplayServer.clipboard_get() == text:
@@ -273,6 +274,7 @@ func _recompile_world(reason: String) -> void:
 	_last_replay_completed = false
 	_last_replay_stop_reason = "none"
 	_last_presentation_trace = _pending_pre_recompile_trace.duplicate()
+	_last_queue_animation_plan_lines = []
 	_pending_pre_recompile_trace.clear()
 	print("[Recompile] begin reason=%s" % reason)
 	var current_player_position: Vector2i = _world.player_position
@@ -306,6 +308,9 @@ func _recompile_world(reason: String) -> void:
 			result.pushed_out_changes
 		)
 		_last_presentation_trace.append_array(_queue_view.get_last_animation_trace())
+		var queue_plan_lines: Array[String] = _queue_view.get_last_animation_plan_lines()
+		if not queue_plan_lines.is_empty():
+			_last_queue_animation_plan_lines = queue_plan_lines
 	elif not has_queue_update_trace:
 		_queue_view.render_queue(result.queue_entries, _memory_capacity(), _defaults.obsession_capacity)
 	if replay_gate_allowed:
@@ -348,6 +353,7 @@ func _play_compile_trace(trace: Array[Dictionary]) -> void:
 		return
 	_replay_controller.begin_trace_playback(trace, _defaults)
 	var focused_queue_index: int = -1
+	var pending_queue_update_item: Dictionary = {}
 	for trace_index: int in range(trace.size()):
 		var item: Dictionary = trace[trace_index]
 		var kind: String = String(item.get("kind", ""))
@@ -360,32 +366,11 @@ func _play_compile_trace(trace: Array[Dictionary]) -> void:
 				_queue_view.begin_focus_on_slot(focused_queue_index)
 			continue
 		if kind == "queue_update":
-			var before_entries: Array[ChangeRecord] = item.get("before_queue_entries", [])
-			var after_entries: Array[ChangeRecord] = item.get("after_queue_entries", [])
-			var evicted_changes: Array[ChangeRecord] = item.get("evicted_changes", [])
-			var generated_changes: Array[ChangeRecord] = item.get("generated_changes", [])
-			for generated_change: ChangeRecord in generated_changes:
-				if generated_change == null:
-					continue
-				var generated_source_pos: Vector2 = _replay_controller.get_subject_global_position(generated_change.subject_id)
-				await _queue_view.play_incoming_change_fx(
-					generated_change,
-					generated_source_pos,
-					before_entries,
-					_memory_capacity(),
-					_defaults.obsession_capacity
-				)
-			_replay_controller.reset_subjects_for_next_pass(trace, trace_index + 1)
-			_last_presentation_trace.append("queue:update")
-			await _queue_view.play_queue_update(
-				before_entries,
-				after_entries,
-				_memory_capacity(),
-				_defaults.obsession_capacity,
-				evicted_changes,
-				generated_changes
-			)
+			pending_queue_update_item = item.duplicate(true)
 			continue
+		if not pending_queue_update_item.is_empty() and (kind == "move" or kind == "ghostify" or kind == "beat_empty" or kind == "queue_restart"):
+			await _play_pending_queue_update(pending_queue_update_item, trace, trace_index)
+			pending_queue_update_item = {}
 		if kind == "queue_restart":
 			if focused_queue_index >= 0:
 				_queue_view.end_focus_on_slot(focused_queue_index)
@@ -397,9 +382,42 @@ func _play_compile_trace(trace: Array[Dictionary]) -> void:
 			if (kind == "move" or kind == "ghostify" or kind == "beat_empty") and focused_queue_index >= 0:
 				_queue_view.end_focus_on_slot(focused_queue_index)
 				focused_queue_index = -1
+	if not pending_queue_update_item.is_empty():
+		await _play_pending_queue_update(pending_queue_update_item, trace, trace.size())
 	if focused_queue_index >= 0:
 		_queue_view.end_focus_on_slot(focused_queue_index)
 	_replay_controller.end_trace_playback()
+
+
+func _play_pending_queue_update(item: Dictionary, trace: Array[Dictionary], next_trace_index: int) -> void:
+	var before_entries: Array[ChangeRecord] = item.get("before_queue_entries", [])
+	var after_entries: Array[ChangeRecord] = item.get("after_queue_entries", [])
+	var evicted_changes: Array[ChangeRecord] = item.get("evicted_changes", [])
+	var generated_changes: Array[ChangeRecord] = item.get("generated_changes", [])
+	for generated_change: ChangeRecord in generated_changes:
+		if generated_change == null:
+			continue
+		var generated_source_pos: Vector2 = _replay_controller.get_subject_global_position(generated_change.subject_id)
+		await _queue_view.play_incoming_change_fx(
+			generated_change,
+			generated_source_pos,
+			before_entries,
+			_memory_capacity(),
+			_defaults.obsession_capacity
+		)
+	await _queue_view.play_queue_update(
+		before_entries,
+		after_entries,
+		_memory_capacity(),
+		_defaults.obsession_capacity,
+		evicted_changes,
+		generated_changes
+	)
+	_last_presentation_trace.append_array(_queue_view.get_last_animation_trace())
+	var queue_plan_lines: Array[String] = _queue_view.get_last_animation_plan_lines()
+	if not queue_plan_lines.is_empty():
+		_last_queue_animation_plan_lines = queue_plan_lines
+	_replay_controller.reset_subjects_for_next_pass(trace, next_trace_index)
 
 
 func _queue_entries_match(left: Array[ChangeRecord], right: Array[ChangeRecord]) -> bool:
@@ -469,6 +487,7 @@ func _reset_level() -> void:
 	_last_replay_gate_allowed = false
 	_last_replay_gate_reason = "none"
 	_last_presentation_trace = []
+	_last_queue_animation_plan_lines = []
 	_pending_pre_recompile_trace = []
 	_defaults = _build_defaults()
 	_world = CompiledWorld.new()
