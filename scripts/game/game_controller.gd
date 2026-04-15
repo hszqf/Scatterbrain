@@ -51,6 +51,9 @@ var _last_queue_after_compile_summaries: Array[String] = []
 var _last_replay_gate_allowed: bool = false
 var _last_replay_gate_reason: String = "none"
 var _last_presentation_trace: Array[String] = []
+var _last_pre_recompile_queue_trace: Array[String] = []
+var _last_replay_queue_trace: Array[String] = []
+var _last_board_trace: Array[String] = []
 var _last_queue_animation_plan_lines: Array[String] = []
 var _pending_pre_recompile_trace: Array[String] = []
 var _feedback_clear_at_msec: int = 0
@@ -154,11 +157,17 @@ func on_copy_log_pressed() -> void:
 
 
 func copy_debug_log() -> void:
+	var latest_queue_plan_lines: Array[String] = _queue_view.get_last_animation_plan_lines()
+	if not latest_queue_plan_lines.is_empty():
+		_last_queue_animation_plan_lines = latest_queue_plan_lines
 	var text: String = _debug_log_formatter.build_animation_coordinate_snapshot(
 		_last_replay_steps,
 		_last_replay_display_steps,
 		_last_presentation_trace,
-		_last_queue_animation_plan_lines
+		_last_queue_animation_plan_lines,
+		_last_pre_recompile_queue_trace,
+		_last_replay_queue_trace,
+		_last_board_trace
 	)
 	DisplayServer.clipboard_set(text)
 	if DisplayServer.clipboard_get() == text:
@@ -273,7 +282,10 @@ func _recompile_world(reason: String) -> void:
 	_last_replay_used_live_box_views = false
 	_last_replay_completed = false
 	_last_replay_stop_reason = "none"
-	_last_presentation_trace = _pending_pre_recompile_trace.duplicate()
+	_last_pre_recompile_queue_trace = _pending_pre_recompile_trace.duplicate()
+	_last_replay_queue_trace = []
+	_last_board_trace = []
+	_refresh_presentation_trace()
 	_last_queue_animation_plan_lines = []
 	_pending_pre_recompile_trace.clear()
 	print("[Recompile] begin reason=%s" % reason)
@@ -307,7 +319,7 @@ func _recompile_world(reason: String) -> void:
 			_defaults.obsession_capacity,
 			result.pushed_out_changes
 		)
-		_last_presentation_trace.append_array(_queue_view.get_last_animation_trace())
+		_append_replay_queue_trace(_queue_view.get_last_animation_trace())
 		var queue_plan_lines: Array[String] = _queue_view.get_last_animation_plan_lines()
 		if not queue_plan_lines.is_empty():
 			_last_queue_animation_plan_lines = queue_plan_lines
@@ -319,7 +331,7 @@ func _recompile_world(reason: String) -> void:
 		_last_replay_presenting_subjects = _collect_trace_subjects(replay_trace)
 		_last_replay_stop_reason = "completed"
 		if _replay_controller.has_trace_items(replay_trace):
-			_last_presentation_trace.append("board:rebuild")
+			_append_board_trace("board:rebuild")
 			await _play_compile_trace(replay_trace)
 			_last_replay_used_live_box_views = _replay_controller.used_live_box_views()
 			_last_replay_completed = true
@@ -362,7 +374,7 @@ func _play_compile_trace(trace: Array[Dictionary]) -> void:
 				_queue_view.end_focus_on_slot(focused_queue_index)
 			focused_queue_index = int(item.get("queue_index", -1))
 			if focused_queue_index >= 0:
-				_last_presentation_trace.append("queue:focus:%d" % focused_queue_index)
+				_append_replay_queue_trace(["queue:focus:%d" % focused_queue_index])
 				_queue_view.begin_focus_on_slot(focused_queue_index)
 			continue
 		if kind == "queue_update":
@@ -375,9 +387,9 @@ func _play_compile_trace(trace: Array[Dictionary]) -> void:
 			if focused_queue_index >= 0:
 				_queue_view.end_focus_on_slot(focused_queue_index)
 				focused_queue_index = -1
-			_last_presentation_trace.append("queue:restart")
+			_append_replay_queue_trace(["queue:restart"])
 		if kind == "move" or kind == "ghostify" or kind == "beat_empty" or kind == "queue_restart":
-			_last_presentation_trace.append("board:trace:%s" % kind)
+			_append_board_trace("board:trace:%s" % kind)
 			await _replay_controller.play_trace_item(item, _replay_controller.memory_beat_duration)
 			if (kind == "move" or kind == "ghostify" or kind == "beat_empty") and focused_queue_index >= 0:
 				_queue_view.end_focus_on_slot(focused_queue_index)
@@ -413,7 +425,7 @@ func _play_pending_queue_update(item: Dictionary, trace: Array[Dictionary], next
 		evicted_changes,
 		generated_changes
 	)
-	_last_presentation_trace.append_array(_queue_view.get_last_animation_trace())
+	_append_replay_queue_trace(_queue_view.get_last_animation_trace())
 	var queue_plan_lines: Array[String] = _queue_view.get_last_animation_plan_lines()
 	if not queue_plan_lines.is_empty():
 		_last_queue_animation_plan_lines = queue_plan_lines
@@ -487,6 +499,9 @@ func _reset_level() -> void:
 	_last_replay_gate_allowed = false
 	_last_replay_gate_reason = "none"
 	_last_presentation_trace = []
+	_last_pre_recompile_queue_trace = []
+	_last_replay_queue_trace = []
+	_last_board_trace = []
 	_last_queue_animation_plan_lines = []
 	_pending_pre_recompile_trace = []
 	_defaults = _build_defaults()
@@ -660,6 +675,27 @@ func _change_summaries(changes: Array[ChangeRecord]) -> Array[String]:
 	for change: ChangeRecord in changes:
 		summaries.append(_change_summary_or_none(change))
 	return summaries
+
+
+func _append_replay_queue_trace(trace_entries: Array[String]) -> void:
+	if trace_entries.is_empty():
+		return
+	_last_replay_queue_trace.append_array(trace_entries)
+	_refresh_presentation_trace()
+
+
+func _append_board_trace(trace_entry: String) -> void:
+	if trace_entry.is_empty():
+		return
+	_last_board_trace.append(trace_entry)
+	_refresh_presentation_trace()
+
+
+func _refresh_presentation_trace() -> void:
+	_last_presentation_trace = []
+	_last_presentation_trace.append_array(_last_pre_recompile_queue_trace)
+	_last_presentation_trace.append_array(_last_replay_queue_trace)
+	_last_presentation_trace.append_array(_last_board_trace)
 
 
 

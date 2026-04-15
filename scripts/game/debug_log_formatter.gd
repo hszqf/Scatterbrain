@@ -6,7 +6,10 @@ func build_animation_coordinate_snapshot(
 	replay_steps: Array[Dictionary],
 	last_replay_display_steps: Array[Dictionary],
 	presentation_trace: Array[String] = [],
-	queue_animation_plan: Array[String] = []
+	queue_animation_plan: Array[String] = [],
+	pre_recompile_queue_trace: Array[String] = [],
+	replay_queue_trace: Array[String] = [],
+	board_trace: Array[String] = []
 ) -> String:
 	var lines: Array[String] = []
 	lines.append("[AnimationSegments]")
@@ -29,6 +32,10 @@ func build_animation_coordinate_snapshot(
 	else:
 		for index: int in range(presentation_trace.size()):
 			lines.append("flow_%d=%s" % [index, presentation_trace[index]])
+	lines.append("[AnimationFlowByPhase]")
+	_append_flow_phase(lines, "pre_recompile_queue_trace", pre_recompile_queue_trace)
+	_append_flow_phase(lines, "replay_queue_trace", replay_queue_trace)
+	_append_flow_phase(lines, "board_trace", board_trace)
 	lines.append("[QueueAnimationPlan]")
 	if queue_animation_plan.is_empty():
 		lines.append("plan=none")
@@ -36,6 +43,14 @@ func build_animation_coordinate_snapshot(
 		for index: int in range(queue_animation_plan.size()):
 			lines.append("plan_%d=%s" % [index, queue_animation_plan[index]])
 	return "\n".join(lines)
+
+
+func _append_flow_phase(lines: Array[String], phase_name: String, phase_trace: Array[String]) -> void:
+	if phase_trace.is_empty():
+		lines.append("%s=none" % phase_name)
+		return
+	for index: int in range(phase_trace.size()):
+		lines.append("%s_%d=%s" % [phase_name, index, phase_trace[index]])
 
 
 func build_snapshot(

@@ -137,6 +137,7 @@ func animate_queue_settle() -> void:
 
 
 func play_generated_change_insert(change: ChangeRecord, new_queue_entries: Array[ChangeRecord]) -> void:
+	_last_animation_trace = []
 	_last_animation_trace.append("queue:generated_change")
 	_last_animation_plan_lines = []
 	var previous_entries: Array[ChangeRecord] = _displayed_entries.duplicate()
@@ -159,6 +160,7 @@ func play_queue_update(
 	evicted_changes: Array[ChangeRecord],
 	appended_changes: Array[ChangeRecord]
 ) -> void:
+	_last_animation_trace = []
 	_last_animation_trace.append("queue:update")
 	_last_animation_plan_lines = []
 	render_queue(before_entries, capacity, obsession_capacity)
@@ -252,6 +254,7 @@ func get_last_animation_plan_lines() -> Array[String]:
 func play_incoming_change_fx(change: ChangeRecord, source_global_pos: Vector2, current_entries: Array[ChangeRecord], capacity: int, obsession_capacity: int) -> void:
 	if change == null or capacity <= 0:
 		return
+	_last_animation_trace = []
 	_last_animation_trace.append("queue:incoming_fx:start")
 	_last_animation_plan_lines = []
 	_clear_pending_incoming_overlay()
