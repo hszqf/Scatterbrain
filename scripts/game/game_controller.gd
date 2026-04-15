@@ -51,6 +51,7 @@ var _last_queue_after_compile_summaries: Array[String] = []
 var _last_replay_gate_allowed: bool = false
 var _last_replay_gate_reason: String = "none"
 var _last_presentation_trace: Array[String] = []
+var _pending_pre_recompile_trace: Array[String] = []
 var _feedback_clear_at_msec: int = 0
 var _current_level_index: int = 0
 
@@ -154,7 +155,8 @@ func on_copy_log_pressed() -> void:
 func copy_debug_log() -> void:
 	var text: String = _debug_log_formatter.build_animation_coordinate_snapshot(
 		_last_replay_steps,
-		_last_replay_display_steps
+		_last_replay_display_steps,
+		_last_presentation_trace
 	)
 	DisplayServer.clipboard_set(text)
 	if DisplayServer.clipboard_get() == text:
@@ -217,6 +219,7 @@ func append_change(change: ChangeRecord) -> void:
 			_memory_capacity(),
 			_defaults.obsession_capacity
 		)
+	_pending_pre_recompile_trace = _queue_view.get_last_animation_trace()
 	_last_appended_change_summary = _change_summary_or_none(change)
 	_queue.append(change)
 	_recompile_world("append: %s" % change.summary())
@@ -268,7 +271,8 @@ func _recompile_world(reason: String) -> void:
 	_last_replay_used_live_box_views = false
 	_last_replay_completed = false
 	_last_replay_stop_reason = "none"
-	_last_presentation_trace = []
+	_last_presentation_trace = _pending_pre_recompile_trace.duplicate()
+	_pending_pre_recompile_trace.clear()
 	print("[Recompile] begin reason=%s" % reason)
 	var current_player_position: Vector2i = _world.player_position
 	var previous_queue_entries: Array[ChangeRecord] = _queue.entries()
@@ -298,7 +302,7 @@ func _recompile_world(reason: String) -> void:
 			_defaults.obsession_capacity,
 			result.pushed_out_changes
 		)
-		_last_presentation_trace = _queue_view.get_last_animation_trace()
+		_last_presentation_trace.append_array(_queue_view.get_last_animation_trace())
 	else:
 		_queue_view.render_queue(result.queue_entries, _memory_capacity(), _defaults.obsession_capacity)
 	if replay_gate_allowed:
@@ -449,6 +453,7 @@ func _reset_level() -> void:
 	_last_replay_gate_allowed = false
 	_last_replay_gate_reason = "none"
 	_last_presentation_trace = []
+	_pending_pre_recompile_trace = []
 	_defaults = _build_defaults()
 	_world = CompiledWorld.new()
 	_world.board_size = _defaults.board_size
