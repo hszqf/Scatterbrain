@@ -228,7 +228,9 @@ func play_incoming_change_fx(change: ChangeRecord, source_global_pos: Vector2, c
 	var target_slot: Panel = _slot_at_display(target_index)
 	if target_slot == null:
 		return
-	var left_lane: Vector2 = _incoming_lane_left_point()
+	var target_slot_rect: Rect2 = target_slot.get_global_rect()
+	var target_slot_center: Vector2 = _to_local_canvas(target_slot_rect.get_center())
+	var lane_anchor: Vector2 = target_slot_center
 	var particle: Control = _build_incoming_badge(change)
 	particle.position = _to_local_canvas(source_global_pos) - particle.size * 0.5
 	add_child(particle)
@@ -245,7 +247,7 @@ func play_incoming_change_fx(change: ChangeRecord, source_global_pos: Vector2, c
 
 	var travel_time: float = maxf(incoming_fx_duration, 0.14)
 	var lane_tween: Tween = create_tween()
-	lane_tween.tween_property(particle, "position", left_lane - particle.size * 0.5, travel_time).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	lane_tween.tween_property(particle, "position", lane_anchor - particle.size * 0.5, travel_time).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	await lane_tween.finished
 	if incoming_hold_at_lane > 0.0:
 		await get_tree().create_timer(incoming_hold_at_lane).timeout
@@ -262,7 +264,7 @@ func play_incoming_change_fx(change: ChangeRecord, source_global_pos: Vector2, c
 func resolve_incoming_slot_index(current_entries: Array[ChangeRecord], capacity: int) -> int:
 	if capacity <= 0:
 		return -1
-	return mini(current_entries.size(), capacity - 1)
+	return 0
 
 
 func _rebuild_slots(entries: Array[ChangeRecord], capacity: int) -> void:
@@ -628,7 +630,7 @@ func _incoming_push_entry_point() -> Vector2:
 		return _incoming_lane_left_point()
 	var newest_slot: Panel = _slot_nodes[0]
 	var newest_pos: Vector2 = _to_local_canvas(newest_slot.get_global_rect().position)
-	return newest_pos - _slot_shift_vector()
+	return newest_pos
 
 
 func _slot_shift_vector() -> Vector2:
