@@ -13,6 +13,7 @@ func build_animation_coordinate_snapshot(
 ) -> String:
 	var lines: Array[String] = []
 	lines.append("[AnimationSegments]")
+	lines.append("formatter_version=2026-04-animation-flow-by-phase")
 	lines.append("coord_system=board_grid_vector2i")
 	var source_steps: Array[Dictionary] = last_replay_display_steps if not last_replay_display_steps.is_empty() else replay_steps
 	var segment_index: int = 0

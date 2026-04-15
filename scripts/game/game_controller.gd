@@ -56,6 +56,14 @@ var _last_replay_queue_trace: Array[String] = []
 var _last_board_trace: Array[String] = []
 var _last_queue_animation_plan_lines: Array[String] = []
 var _pending_pre_recompile_trace: Array[String] = []
+var _cached_snapshot_recompile_reason: String = "none"
+var _cached_snapshot_level_index: int = -1
+var _cached_snapshot_pre_recompile_queue_trace: Array[String] = []
+var _cached_snapshot_replay_queue_trace: Array[String] = []
+var _cached_snapshot_board_trace: Array[String] = []
+var _cached_snapshot_queue_animation_plan_lines: Array[String] = []
+var _trace_generation_id: int = 0
+var _last_snapshot_generation_id: int = 0
 var _feedback_clear_at_msec: int = 0
 var _current_level_index: int = 0
 
@@ -160,15 +168,31 @@ func copy_debug_log() -> void:
 	var latest_queue_plan_lines: Array[String] = _queue_view.get_last_animation_plan_lines()
 	if not latest_queue_plan_lines.is_empty():
 		_last_queue_animation_plan_lines = latest_queue_plan_lines
+		_mark_trace_generation("snapshot:queue_plan_refresh")
+	_cache_last_non_empty_snapshot_if_needed()
+	var snapshot_meta: Dictionary = _resolve_snapshot_metadata()
 	var text: String = _debug_log_formatter.build_animation_coordinate_snapshot(
 		_last_replay_steps,
 		_last_replay_display_steps,
-		_last_presentation_trace,
-		_last_queue_animation_plan_lines,
-		_last_pre_recompile_queue_trace,
-		_last_replay_queue_trace,
-		_last_board_trace
+		snapshot_meta.get("presentation_trace", []),
+		snapshot_meta.get("queue_plan_lines", []),
+		snapshot_meta.get("pre_trace", []),
+		snapshot_meta.get("replay_trace", []),
+		snapshot_meta.get("board_trace", [])
 	)
+	text = "%s\n[SnapshotMeta]\nsnapshot_recompile_reason=%s\nsnapshot_level_index=%d\nsnapshot_has_presentation_trace=%s\nsnapshot_pre_trace_count=%d\nsnapshot_replay_trace_count=%d\nsnapshot_board_trace_count=%d\nsnapshot_queue_plan_count=%d\nsnapshot_trace_generation_id=%d\nsnapshot_trace_generation_max=%d\nsnapshot_formatter_phase_support=%s" % [
+		text,
+		snapshot_meta.get("recompile_reason", "none"),
+		int(snapshot_meta.get("level_index", -1)),
+		str(snapshot_meta.get("has_presentation_trace", false)),
+		int(snapshot_meta.get("pre_trace_count", 0)),
+		int(snapshot_meta.get("replay_trace_count", 0)),
+		int(snapshot_meta.get("board_trace_count", 0)),
+		int(snapshot_meta.get("queue_plan_count", 0)),
+		int(snapshot_meta.get("generation_id", 0)),
+		_trace_generation_id,
+		str(true),
+	]
 	DisplayServer.clipboard_set(text)
 	if DisplayServer.clipboard_get() == text:
 		_debug_feedback_label.text = "LOG copied"
@@ -231,6 +255,8 @@ func append_change(change: ChangeRecord) -> void:
 			_defaults.obsession_capacity
 		)
 	_pending_pre_recompile_trace = _queue_view.get_last_animation_trace()
+	if not _pending_pre_recompile_trace.is_empty():
+		_mark_trace_generation("trace:incoming")
 	_last_appended_change_summary = _change_summary_or_none(change)
 	_queue.append(change)
 	_recompile_world("append: %s" % change.summary())
@@ -288,6 +314,7 @@ func _recompile_world(reason: String) -> void:
 	_refresh_presentation_trace()
 	_last_queue_animation_plan_lines = []
 	_pending_pre_recompile_trace.clear()
+	_mark_trace_generation("recompile:clear_pending_pre_trace")
 	print("[Recompile] begin reason=%s" % reason)
 	var current_player_position: Vector2i = _world.player_position
 	var previous_queue_entries: Array[ChangeRecord] = _queue.entries()
@@ -516,6 +543,8 @@ func _reset_level() -> void:
 	_last_board_trace = []
 	_last_queue_animation_plan_lines = []
 	_pending_pre_recompile_trace = []
+	_trace_generation_id = 0
+	_last_snapshot_generation_id = 0
 	_defaults = _build_defaults()
 	_world = CompiledWorld.new()
 	_world.board_size = _defaults.board_size
@@ -693,6 +722,7 @@ func _append_replay_queue_trace(trace_entries: Array[String]) -> void:
 	if trace_entries.is_empty():
 		return
 	_last_replay_queue_trace.append_array(trace_entries)
+	_mark_trace_generation("trace:replay_queue")
 	_refresh_presentation_trace()
 
 
@@ -700,6 +730,7 @@ func _append_pre_recompile_queue_trace(trace_entries: Array[String]) -> void:
 	if trace_entries.is_empty():
 		return
 	_last_pre_recompile_queue_trace.append_array(trace_entries)
+	_mark_trace_generation("trace:pre_recompile_queue")
 	_refresh_presentation_trace()
 
 
@@ -707,6 +738,7 @@ func _append_board_trace(trace_entry: String) -> void:
 	if trace_entry.is_empty():
 		return
 	_last_board_trace.append(trace_entry)
+	_mark_trace_generation("trace:board")
 	_refresh_presentation_trace()
 
 
@@ -715,6 +747,61 @@ func _refresh_presentation_trace() -> void:
 	_last_presentation_trace.append_array(_last_pre_recompile_queue_trace)
 	_last_presentation_trace.append_array(_last_replay_queue_trace)
 	_last_presentation_trace.append_array(_last_board_trace)
+	_cache_last_non_empty_snapshot_if_needed()
+
+
+func _mark_trace_generation(_reason: String) -> void:
+	_trace_generation_id += 1
+
+
+func _cache_last_non_empty_snapshot_if_needed() -> void:
+	if _last_pre_recompile_queue_trace.is_empty() and _last_replay_queue_trace.is_empty() and _last_board_trace.is_empty() and _last_queue_animation_plan_lines.is_empty():
+		return
+	_cached_snapshot_recompile_reason = _last_recompile_reason
+	_cached_snapshot_level_index = _current_level_index
+	_cached_snapshot_pre_recompile_queue_trace = _last_pre_recompile_queue_trace.duplicate()
+	_cached_snapshot_replay_queue_trace = _last_replay_queue_trace.duplicate()
+	_cached_snapshot_board_trace = _last_board_trace.duplicate()
+	_cached_snapshot_queue_animation_plan_lines = _last_queue_animation_plan_lines.duplicate()
+	_last_snapshot_generation_id = _trace_generation_id
+
+
+func _resolve_snapshot_metadata() -> Dictionary:
+	var use_current: bool = not _last_pre_recompile_queue_trace.is_empty() or not _last_replay_queue_trace.is_empty() or not _last_board_trace.is_empty() or not _last_queue_animation_plan_lines.is_empty()
+	var pre_trace: Array[String] = _last_pre_recompile_queue_trace
+	var replay_trace: Array[String] = _last_replay_queue_trace
+	var board_trace: Array[String] = _last_board_trace
+	var queue_plan_lines: Array[String] = _last_queue_animation_plan_lines
+	var recompile_reason: String = _last_recompile_reason
+	var level_index: int = _current_level_index
+	var generation_id: int = _trace_generation_id
+	if not use_current:
+		pre_trace = _cached_snapshot_pre_recompile_queue_trace
+		replay_trace = _cached_snapshot_replay_queue_trace
+		board_trace = _cached_snapshot_board_trace
+		queue_plan_lines = _cached_snapshot_queue_animation_plan_lines
+		recompile_reason = _cached_snapshot_recompile_reason
+		level_index = _cached_snapshot_level_index
+		generation_id = _last_snapshot_generation_id
+	var presentation_trace: Array[String] = []
+	presentation_trace.append_array(pre_trace)
+	presentation_trace.append_array(replay_trace)
+	presentation_trace.append_array(board_trace)
+	return {
+		"presentation_trace": presentation_trace,
+		"queue_plan_lines": queue_plan_lines,
+		"pre_trace": pre_trace,
+		"replay_trace": replay_trace,
+		"board_trace": board_trace,
+		"recompile_reason": recompile_reason,
+		"level_index": level_index + 1,
+		"has_presentation_trace": not presentation_trace.is_empty(),
+		"pre_trace_count": pre_trace.size(),
+		"replay_trace_count": replay_trace.size(),
+		"board_trace_count": board_trace.size(),
+		"queue_plan_count": queue_plan_lines.size(),
+		"generation_id": generation_id,
+	}
 
 
 
