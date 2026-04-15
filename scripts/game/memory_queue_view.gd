@@ -160,8 +160,6 @@ func play_queue_update(
 	var appended: Array[ChangeRecord] = appended_changes.duplicate()
 	if appended.is_empty():
 		appended = _compute_appended_changes(before_entries, after_entries, evicted_changes.size())
-	if appended.is_empty():
-		_clear_pending_incoming_overlay()
 	if not appended.is_empty():
 		_last_animation_trace.append("queue:append")
 	if not evicted_changes.is_empty():
@@ -557,7 +555,7 @@ func _capture_front_slot_overlays(entry_count: int) -> Array[Panel]:
 	return overlays
 
 
-func _build_append_overlay(change: ChangeRecord) -> Control:
+func _build_append_overlay(change: ChangeRecord) -> Panel:
 	var overlay: Panel = _build_slot(change)
 	overlay.custom_minimum_size = Vector2(52, 52)
 	overlay.size = overlay.custom_minimum_size
@@ -587,14 +585,9 @@ func _animate_push_right_then_evict(
 		var left: Vector2 = _to_local_canvas(_slot_nodes[0].get_global_rect().position)
 		var next: Vector2 = _to_local_canvas(_slot_nodes[1].get_global_rect().position)
 		shift_distance = next.x - left.x
-	var incoming_overlay: Control = _consume_pending_incoming_overlay(appended_changes[0])
+	var incoming_overlay: Panel = _build_append_overlay(appended_changes[0])
 	var newest_pos: Vector2 = _to_local_canvas(newest_slot.get_global_rect().position)
-	if incoming_overlay == null:
-		return
-	incoming_overlay.pivot_offset = incoming_overlay.size * 0.5
-	incoming_overlay.z_index = 64
-	if _pending_incoming_overlay == null:
-		incoming_overlay.position = newest_pos + Vector2(-shift_distance, 0.0)
+	incoming_overlay.position = newest_pos + Vector2(-shift_distance, 0.0)
 	var move_tween: Tween = create_tween()
 	move_tween.set_parallel(true)
 	var move_time: float = maxf(push_shift_duration, 0.05)
@@ -621,39 +614,9 @@ func _animate_push_right_then_evict(
 			evict_tween.tween_property(overlay, "modulate:a", 0.0, evict_duration)
 		await evict_tween.finished
 	incoming_overlay.queue_free()
-	_incoming_fx_nodes.erase(incoming_overlay)
 	for overlay: Panel in existing_overlays:
 		if is_instance_valid(overlay):
 			overlay.queue_free()
-
-
-func _consume_pending_incoming_overlay(fallback_change: ChangeRecord) -> Control:
-	if _pending_incoming_overlay != null and is_instance_valid(_pending_incoming_overlay):
-		var overlay: Control = _pending_incoming_overlay
-		_pending_incoming_overlay = null
-		return overlay
-	return _build_append_overlay(fallback_change)
-
-
-func _clear_pending_incoming_overlay() -> void:
-	if _pending_incoming_overlay == null:
-		return
-	if is_instance_valid(_pending_incoming_overlay):
-		_pending_incoming_overlay.queue_free()
-	_incoming_fx_nodes.erase(_pending_incoming_overlay)
-	_pending_incoming_overlay = null
-
-
-func _incoming_push_entry_point() -> Vector2:
-	if _slot_nodes.is_empty():
-		return _incoming_lane_left_point()
-	var newest_slot: Panel = _slot_nodes[0]
-	var newest_pos: Vector2 = _to_local_canvas(newest_slot.get_global_rect().position)
-	var shift_distance: float = newest_slot.size.x
-	if _slot_nodes.size() > 1 and _slot_nodes[1] != null:
-		var next_pos: Vector2 = _to_local_canvas(_slot_nodes[1].get_global_rect().position)
-		shift_distance = next_pos.x - newest_pos.x
-	return newest_pos + Vector2(-shift_distance, 0.0)
 
 
 func _append_slots_to_tween(appended_changes: Array[ChangeRecord], tween: Tween) -> void:
