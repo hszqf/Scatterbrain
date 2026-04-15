@@ -61,14 +61,15 @@ func play_queue_transition(
 ) -> void:
 	_last_animation_trace = []
 	render_queue(previous_entries, capacity, obsession_capacity)
-	var evicted_overlays: Array[Panel] = _capture_evicted_slot_overlays(evicted_changes.size())
-	render_queue(new_entries, capacity, obsession_capacity)
 	var appended_changes: Array[ChangeRecord] = _compute_appended_changes(previous_entries, new_entries, evicted_changes.size())
+	if appended_changes.is_empty():
+		_clear_pending_incoming_overlay()
 	if not evicted_changes.is_empty():
 		_last_animation_trace.append("queue:evict")
 	if not appended_changes.is_empty():
 		_last_animation_trace.append("queue:append")
-	await animate_queue_swap(evicted_overlays, appended_changes)
+	await _animate_push_right_then_evict(previous_entries, appended_changes, evicted_changes.size())
+	render_queue(new_entries, capacity, obsession_capacity)
 	_last_animation_trace.append("queue:settle")
 	await animate_queue_settle()
 

@@ -280,6 +280,8 @@ func _recompile_world(reason: String) -> void:
 	var world_after_compile: CompiledWorld = result.world
 	var replay_trace: Array[Dictionary] = result.replay_trace
 	var first_pass_queue_entries: Array[ChangeRecord] = _queue_entries_for_first_pass(replay_trace, result.queue_entries)
+	var queue_entries_changed: bool = not _queue_entries_match(previous_queue_entries, first_pass_queue_entries)
+	var live_append_transition: bool = reason.begins_with("append:") and queue_entries_changed
 	_last_pushed_out_summaries = _change_summaries(result.pushed_out_changes)
 	_last_generated_ghost_summaries = _change_summaries(result.generated_ghost_changes)
 	_last_queue_after_compile_summaries = _change_summaries(result.queue_entries)
@@ -294,7 +296,7 @@ func _recompile_world(reason: String) -> void:
 		has_queue_update_trace,
 		can_play_trace
 	)
-	if replay_gate_allowed:
+	if replay_gate_allowed or live_append_transition:
 		await _queue_view.play_queue_transition(
 			previous_queue_entries,
 			first_pass_queue_entries,
@@ -303,7 +305,7 @@ func _recompile_world(reason: String) -> void:
 			result.pushed_out_changes
 		)
 		_last_presentation_trace.append_array(_queue_view.get_last_animation_trace())
-	else:
+	elif not has_queue_update_trace:
 		_queue_view.render_queue(result.queue_entries, _memory_capacity(), _defaults.obsession_capacity)
 	if replay_gate_allowed:
 		_last_replay_steps = _duplicate_replay_steps(replay_trace)
@@ -397,6 +399,19 @@ func _play_compile_trace(trace: Array[Dictionary]) -> void:
 	if focused_queue_index >= 0:
 		_queue_view.end_focus_on_slot(focused_queue_index)
 	_replay_controller.end_trace_playback()
+
+
+func _queue_entries_match(left: Array[ChangeRecord], right: Array[ChangeRecord]) -> bool:
+	if left.size() != right.size():
+		return false
+	for i: int in range(left.size()):
+		if left[i] == null or right[i] == null:
+			if left[i] != right[i]:
+				return false
+			continue
+		if left[i].summary() != right[i].summary():
+			return false
+	return true
 
 
 func _update_status() -> void:
