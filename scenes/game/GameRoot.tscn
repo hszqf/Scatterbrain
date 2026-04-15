@@ -86,7 +86,7 @@ layout_mode = 2
 size_flags_vertical = 3
 
 [node name="BottomPanel" type="Panel" parent="CanvasLayer/UIRoot/MainVBox"]
-custom_minimum_size = Vector2(0, 176)
+custom_minimum_size = Vector2(0, 248)
 layout_mode = 2
 
 [node name="BottomVBox" type="VBoxContainer" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel"]
@@ -119,43 +119,47 @@ theme_override_constants/h_separation = 10
 theme_override_constants/v_separation = 10
 
 [node name="PadBlankA" type="Control" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomVBox/BottomRow/MovePad"]
-custom_minimum_size = Vector2(56, 56)
+custom_minimum_size = Vector2(80, 80)
 layout_mode = 2
 
 [node name="UpButton" type="Button" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomVBox/BottomRow/MovePad"]
-custom_minimum_size = Vector2(56, 56)
+custom_minimum_size = Vector2(80, 80)
 layout_mode = 2
 text = "UP"
+theme_override_font_sizes/font_size = 22
 
 [node name="PadBlankB" type="Control" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomVBox/BottomRow/MovePad"]
-custom_minimum_size = Vector2(56, 56)
+custom_minimum_size = Vector2(80, 80)
 layout_mode = 2
 
 [node name="LeftButton" type="Button" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomVBox/BottomRow/MovePad"]
-custom_minimum_size = Vector2(56, 56)
+custom_minimum_size = Vector2(80, 80)
 layout_mode = 2
 text = "LT"
+theme_override_font_sizes/font_size = 22
 
 [node name="PadBlankC" type="Control" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomVBox/BottomRow/MovePad"]
-custom_minimum_size = Vector2(56, 56)
+custom_minimum_size = Vector2(80, 80)
 layout_mode = 2
 
 [node name="RightButton" type="Button" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomVBox/BottomRow/MovePad"]
-custom_minimum_size = Vector2(56, 56)
+custom_minimum_size = Vector2(80, 80)
 layout_mode = 2
 text = "RT"
+theme_override_font_sizes/font_size = 22
 
 [node name="PadBlankD" type="Control" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomVBox/BottomRow/MovePad"]
-custom_minimum_size = Vector2(56, 56)
+custom_minimum_size = Vector2(80, 80)
 layout_mode = 2
 
 [node name="DownButton" type="Button" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomVBox/BottomRow/MovePad"]
-custom_minimum_size = Vector2(56, 56)
+custom_minimum_size = Vector2(80, 80)
 layout_mode = 2
 text = "DN"
+theme_override_font_sizes/font_size = 22
 
 [node name="PadBlankE" type="Control" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomVBox/BottomRow/MovePad"]
-custom_minimum_size = Vector2(56, 56)
+custom_minimum_size = Vector2(80, 80)
 layout_mode = 2
 
 [node name="ActionColumn" type="VBoxContainer" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomVBox/BottomRow"]
@@ -165,14 +169,16 @@ alignment = 1
 theme_override_constants/separation = 10
 
 [node name="MeditateButton" type="Button" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomVBox/BottomRow/ActionColumn"]
-custom_minimum_size = Vector2(104, 56)
+custom_minimum_size = Vector2(132, 80)
 layout_mode = 2
 text = "REST"
+theme_override_font_sizes/font_size = 22
 
 [node name="RestartButton" type="Button" parent="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomVBox/BottomRow/ActionColumn"]
-custom_minimum_size = Vector2(104, 56)
+custom_minimum_size = Vector2(132, 80)
 layout_mode = 2
 text = "RST"
+theme_override_font_sizes/font_size = 22
 
 
 [node name="BuildInfoLabel" type="Label" parent="CanvasLayer/UIRoot"]

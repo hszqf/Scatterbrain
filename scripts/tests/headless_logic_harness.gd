@@ -175,6 +175,8 @@ func _run_case(case_data: Dictionary) -> bool:
 			passed = _assert_snapshot_includes_build_info(context)
 		"snapshot_includes_input_chain_fields":
 			passed = _assert_snapshot_includes_input_chain_fields(context)
+		"animation_snapshot_reports_segment_coordinates":
+			passed = _assert_animation_snapshot_reports_segment_coordinates(context)
 		"move_input_populates_input_chain_debug_fields":
 			passed = _assert_move_input_populates_input_chain_debug_fields(context)
 		"empty_input_populates_input_chain_debug_fields":
@@ -1567,6 +1569,27 @@ func _assert_snapshot_includes_input_chain_fields(context: Dictionary) -> bool:
 		and snapshot.contains("queue_after_compile=") \
 		and snapshot.contains("replay_gate_allowed=") \
 		and snapshot.contains("replay_gate_reason=")
+
+
+func _assert_animation_snapshot_reports_segment_coordinates(context: Dictionary) -> bool:
+	var steps: Array[Dictionary] = [
+		{
+			"type": ChangeRecord.ChangeType.POSITION,
+			"subject": &"box_0",
+			"from": Vector2i(3, 1),
+			"to": Vector2i(2, 1),
+		},
+		{
+			"type": ChangeRecord.ChangeType.GHOST,
+			"subject": &"box_0",
+			"from": Vector2i(2, 1),
+			"to": Vector2i(2, 1),
+		},
+	]
+	var snapshot: String = _formatter.build_animation_coordinate_snapshot([], steps)
+	return snapshot.contains("coord_system=board_grid_vector2i") \
+		and snapshot.contains("segment_0=box_0:(3, 1)->(2, 1)") \
+		and snapshot.contains("segment_1=box_0:(2, 1)->(2, 1)")
 
 
 func _assert_move_input_populates_input_chain_debug_fields(context: Dictionary) -> bool:
@@ -3554,6 +3577,19 @@ func _build_cases() -> Array[Dictionary]:
 			"id": "snapshot_includes_input_chain_fields",
 			"name": "snapshot_includes_input_chain_fields",
 			"action": "DebugSnapshot includes input->append->compile chain fields with stable keys",
+			"blueprint": {
+				"board_size": Vector2i(2, 1),
+				"player_start": Vector2i(0, 0),
+				"exit_position": Vector2i(1, 0),
+				"floors": [Vector3i(0, 0, 0), Vector3i(1, 0, 0)],
+				"walls": [],
+				"boxes": [],
+			},
+		},
+		{
+			"id": "animation_snapshot_reports_segment_coordinates",
+			"name": "animation_snapshot_reports_segment_coordinates",
+			"action": "animation snapshot only reports segment start/end coordinates in board grid coordinates",
 			"blueprint": {
 				"board_size": Vector2i(2, 1),
 				"player_start": Vector2i(0, 0),
