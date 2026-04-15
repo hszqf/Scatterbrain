@@ -16,15 +16,18 @@ func compile(defaults: WorldDefaults, queue: ChangeQueue, player_position: Vecto
 
 	while iteration < MAX_ITERATIONS:
 		iteration += 1
+		var pass_index: int = iteration - 1
+		print("[Recompile][Diag] pass_index=%d queue_entries_before_normalize=%s" % [pass_index, _describe_changes(queue_entries)])
 		var temp_queue := ChangeQueue.new()
 		for entry: ChangeRecord in queue_entries:
 			temp_queue.append(entry)
 		var removed: Array[ChangeRecord] = temp_queue.normalize_to_capacity(defaults.memory_capacity)
+		print("[Recompile][Diag] pass_index=%d removed_by_normalize=%s" % [pass_index, _describe_changes(removed)])
 		if iteration == 1:
 			result.pushed_out_changes.append_array(removed)
 		queue_entries = temp_queue.entries()
+		print("[Recompile][Diag] pass_index=%d queue_entries_after_normalize=%s" % [pass_index, _describe_changes(queue_entries)])
 
-		var pass_index: int = iteration - 1
 		replay_trace.append({
 			"kind": "pass_begin",
 			"pass_index": pass_index,
@@ -33,8 +36,11 @@ func compile(defaults: WorldDefaults, queue: ChangeQueue, player_position: Vecto
 
 		context.clear_generated()
 		var replay_player_start: Vector2i = _derive_replay_player_start(player_position, queue_entries)
+		print("[Recompile][Diag] pass_index=%d replay_player_start=%s" % [pass_index, replay_player_start])
 		var state := SimulationState.new()
 		state.setup_from_defaults(defaults, replay_player_start)
+		print("[Recompile][Diag] pass_index=%d pass_begin_player_position=%s" % [pass_index, state.player_position])
+		print("[Recompile][Diag] pass_index=%d pass_begin_position_by_subject=%s" % [pass_index, state.position_by_subject])
 		var generated_this_pass: Array[ChangeRecord] = []
 		var pass_interrupted: bool = false
 		for queue_index: int in range(queue_entries.size()):
@@ -88,7 +94,11 @@ func compile(defaults: WorldDefaults, queue: ChangeQueue, player_position: Vecto
 						"player_at": state.player_position,
 					})
 
-			var generated_after_entry: Array[ChangeRecord] = _detect_generated_changes_after_entry(state, queue_entries, context, queue_index)
+			var generated_after_entry: Array[ChangeRecord] = _detect_generated_changes_after_entry(state, queue_entries, context, pass_index, queue_index)
+			print(
+				"[Recompile][Diag] pass_index=%d queue_index=%d generated_after_entry=%s" %
+				[pass_index, queue_index, _describe_changes(generated_after_entry)]
+			)
 			if generated_after_entry.is_empty():
 				continue
 
@@ -152,6 +162,8 @@ func compile(defaults: WorldDefaults, queue: ChangeQueue, player_position: Vecto
 	final_queue.normalize_to_capacity(defaults.memory_capacity)
 	result.queue_entries = final_queue.entries()
 	result.replay_trace = replay_trace
+	print("[Recompile][Diag] result_generated_ghost_changes=%s" % [_describe_changes(result.generated_ghost_changes)])
+	print("[Recompile][Diag] replay_trace_kinds_summary=%s" % [_summarize_trace_kinds(replay_trace)])
 	return result
 
 
@@ -171,7 +183,8 @@ func _detect_generated_changes_after_entry(
 	state: SimulationState,
 	queue_entries: Array[ChangeRecord],
 	context: CompileContext,
-	_source_queue_index: int
+	pass_index: int,
+	source_queue_index: int
 ) -> Array[ChangeRecord]:
 	context.clear_generated()
 	for subject_id: StringName in state.position_by_subject.keys():
@@ -180,10 +193,25 @@ func _detect_generated_changes_after_entry(
 		if bool(state.is_ghost_by_subject.get(subject_id, false)):
 			continue
 		var position: Vector2i = state.subject_position(subject_id)
-		if PlacementRules.can_land_solid(state, subject_id, position):
-			continue
+		var can_land_solid: bool = PlacementRules.can_land_solid(state, subject_id, position)
 		var ghost_change: ChangeRecord = ConflictRules.ghostify_change(subject_id, position, "placement_conflict")
-		if _has_same_change(queue_entries, ghost_change):
+		var filtered_by_same_change: bool = _has_same_change(queue_entries, ghost_change)
+		print(
+			"[Recompile][Diag] pass_index=%d queue_index=%d detect subject_id=%s position=%s player_position=%s can_land_solid=%s filtered_by_has_same_change=%s ghost_change=%s" %
+			[
+				pass_index,
+				source_queue_index,
+				subject_id,
+				position,
+				state.player_position,
+				can_land_solid,
+				filtered_by_same_change,
+				_describe_change(ghost_change),
+			]
+		)
+		if can_land_solid:
+			continue
+		if filtered_by_same_change:
 			continue
 		context.add_generated_change(ghost_change)
 	return context.generated_changes.duplicate()
@@ -221,3 +249,31 @@ func _has_same_change(changes: Array[ChangeRecord], candidate: ChangeRecord) -> 
 		if entry.type == candidate.type and entry.subject_id == candidate.subject_id and entry.target_position == candidate.target_position and entry.source_kind == candidate.source_kind:
 			return true
 	return false
+
+
+func _describe_changes(changes: Array[ChangeRecord]) -> Array[Dictionary]:
+	var described: Array[Dictionary] = []
+	for entry: ChangeRecord in changes:
+		described.append(_describe_change(entry))
+	return described
+
+
+func _describe_change(entry: ChangeRecord) -> Dictionary:
+	if entry == null:
+		return {"null": true}
+	return {
+		"type": entry.type,
+		"subject_id": entry.subject_id,
+		"target_position": entry.target_position,
+		"move_delta": entry.move_delta,
+		"source_kind": entry.source_kind,
+		"debug_label": entry.debug_label,
+	}
+
+
+func _summarize_trace_kinds(trace: Array[Dictionary]) -> Dictionary:
+	var summary: Dictionary = {}
+	for item: Dictionary in trace:
+		var kind: String = String(item.get("kind", "unknown"))
+		summary[kind] = int(summary.get(kind, 0)) + 1
+	return summary
