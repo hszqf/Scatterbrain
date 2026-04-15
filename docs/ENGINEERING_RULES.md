@@ -99,6 +99,7 @@
    - `Position`：从当前 remembered 位置位移并更新位置，状态重置为非幽灵；
    - `Ghost`：仅在当前 remembered 位置原地幽灵化（from==to），不得单独制造位移；若前序 surviving 位移已被挤出，则当前位置回落为默认初始位置。
 17. 单次输入最多触发 4 轮编译，超限报错并保留最后稳定结果。
+18. live append 的队列事务 owner 固定为 pre-recompile 阶段：若 pre-recompile 已完成 incoming + takeover/append + evict + settle，replay 阶段禁止重复播放同一事务；replay 仅保留 queue_focus 或 compile trace 中真实 `generated_change/queue_update` 引发的队列动画。
 
 ## 10) 变化队列规则
 - 队列保存变化事实，不保存推箱动画过程。

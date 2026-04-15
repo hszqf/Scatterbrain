@@ -311,7 +311,19 @@ func _recompile_world(reason: String) -> void:
 		has_queue_update_trace,
 		can_play_trace
 	)
-	if replay_gate_allowed or live_append_transition:
+	if live_append_transition:
+		await _queue_view.play_queue_transition(
+			previous_queue_entries,
+			first_pass_queue_entries,
+			_memory_capacity(),
+			_defaults.obsession_capacity,
+			result.pushed_out_changes
+		)
+		_append_pre_recompile_queue_trace(_queue_view.get_last_animation_trace())
+		var pre_queue_plan_lines: Array[String] = _queue_view.get_last_animation_plan_lines()
+		if not pre_queue_plan_lines.is_empty():
+			_last_queue_animation_plan_lines = pre_queue_plan_lines
+	elif replay_gate_allowed:
 		await _queue_view.play_queue_transition(
 			previous_queue_entries,
 			first_pass_queue_entries,
@@ -681,6 +693,13 @@ func _append_replay_queue_trace(trace_entries: Array[String]) -> void:
 	if trace_entries.is_empty():
 		return
 	_last_replay_queue_trace.append_array(trace_entries)
+	_refresh_presentation_trace()
+
+
+func _append_pre_recompile_queue_trace(trace_entries: Array[String]) -> void:
+	if trace_entries.is_empty():
+		return
+	_last_pre_recompile_queue_trace.append_array(trace_entries)
 	_refresh_presentation_trace()
 
 

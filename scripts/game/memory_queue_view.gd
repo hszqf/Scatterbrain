@@ -64,13 +64,36 @@ func play_queue_transition(
 	_last_animation_plan_lines = []
 	render_queue(previous_entries, capacity, obsession_capacity)
 	var appended_changes: Array[ChangeRecord] = _compute_appended_changes(previous_entries, new_entries, evicted_changes.size())
-	if appended_changes.is_empty():
+	var has_pending_incoming_overlay: bool = _pending_incoming_overlay != null and is_instance_valid(_pending_incoming_overlay)
+	var animated_appended_changes: Array[ChangeRecord] = appended_changes.duplicate()
+	if animated_appended_changes.is_empty() and has_pending_incoming_overlay and not new_entries.is_empty():
+		animated_appended_changes.append(new_entries[0])
+	if animated_appended_changes.is_empty():
 		_clear_pending_incoming_overlay()
-	if not evicted_changes.is_empty():
+	var diff_classification: String = _classify_queue_diff(
+		previous_entries,
+		new_entries,
+		appended_changes,
+		evicted_changes,
+		has_pending_incoming_overlay
+	)
+	var animation_mode: String = _resolve_animation_mode(
+		appended_changes.size(),
+		evicted_changes.size(),
+		mini(previous_entries.size(), capacity),
+		has_pending_incoming_overlay
+	)
+	await _animate_push_right_then_evict(
+		previous_entries,
+		new_entries,
+		animated_appended_changes,
+		evicted_changes.size(),
+		diff_classification
+	)
+	if animation_mode == "append_plus_evict" or animation_mode == "incoming_plus_evict":
 		_last_animation_trace.append("queue:evict")
-	if not appended_changes.is_empty():
+	elif animation_mode == "incoming_plus_shift" or animation_mode == "append_only":
 		_last_animation_trace.append("queue:append")
-	await _animate_push_right_then_evict(previous_entries, new_entries, appended_changes, evicted_changes.size())
 	render_queue(new_entries, capacity, obsession_capacity)
 	_last_animation_trace.append("queue:settle")
 	await animate_queue_settle()
@@ -744,7 +767,8 @@ func _build_queue_animation_plan(
 	var display_entries_before: Array[ChangeRecord] = _to_display_entries(before_entries, capacity)
 	var display_entries_after: Array[ChangeRecord] = _to_display_entries(after_entries, capacity)
 	var target_display_index: int = resolve_incoming_slot_index(before_entries, capacity)
-	var mode: String = _resolve_animation_mode(appended_changes.size(), evicted_count, survivor_shift_count)
+	var incoming_owned: bool = had_pending_incoming_overlay or created_incoming_overlay
+	var mode: String = _resolve_animation_mode(appended_changes.size(), evicted_count, survivor_shift_count, incoming_owned)
 	var canonical_entries_before: Array[String] = _canonical_entry_labels(display_entries_before)
 	var canonical_entries_after: Array[String] = _canonical_entry_labels(display_entries_after)
 	var classification: String = diff_classification if diff_classification != "" else mode
@@ -790,11 +814,20 @@ func _build_queue_animation_plan(
 	return lines
 
 
-func _resolve_animation_mode(appended_count: int, evicted_count: int, survivor_shift_count: int) -> String:
+func _resolve_animation_mode(
+	appended_count: int,
+	evicted_count: int,
+	survivor_shift_count: int,
+	has_incoming_owner: bool = false
+) -> String:
+	if evicted_count > 0 and (appended_count > 0 or has_incoming_owner):
+		if appended_count <= 0 and has_incoming_owner:
+			return "incoming_plus_evict"
+		return "append_plus_evict"
+	if evicted_count > 0:
+		return "evict_only"
 	if appended_count <= 0:
 		return "none"
-	if evicted_count > 0:
-		return "append_plus_evict"
 	if survivor_shift_count > 0:
 		return "incoming_plus_shift"
 	return "append_only"
@@ -864,11 +897,14 @@ func _classify_queue_diff(
 	before_entries: Array[ChangeRecord],
 	after_entries: Array[ChangeRecord],
 	appended_changes: Array[ChangeRecord],
-	evicted_changes: Array[ChangeRecord]
+	evicted_changes: Array[ChangeRecord],
+	has_pending_incoming_overlay: bool = false
 ) -> String:
 	if _canonical_entry_labels(before_entries) == _canonical_entry_labels(after_entries):
 		return "normalize_in_place"
 	if not evicted_changes.is_empty():
+		if appended_changes.is_empty() and has_pending_incoming_overlay:
+			return "pre_recompile_append_plus_evict"
 		return "append_plus_evict"
 	if not appended_changes.is_empty():
 		return "true_append"
