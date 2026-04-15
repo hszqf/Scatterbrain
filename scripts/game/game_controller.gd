@@ -156,7 +156,8 @@ func copy_debug_log() -> void:
 	var text: String = _debug_log_formatter.build_animation_coordinate_snapshot(
 		_last_replay_steps,
 		_last_replay_display_steps,
-		_last_presentation_trace
+		_last_presentation_trace,
+		_queue_view.get_last_animation_plan_lines()
 	)
 	DisplayServer.clipboard_set(text)
 	if DisplayServer.clipboard_get() == text:
