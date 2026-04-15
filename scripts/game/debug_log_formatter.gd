@@ -2,6 +2,31 @@ class_name DebugLogFormatter
 extends RefCounted
 
 
+func build_animation_coordinate_snapshot(
+	replay_steps: Array[Dictionary],
+	last_replay_display_steps: Array[Dictionary]
+) -> String:
+	var lines: Array[String] = []
+	lines.append("[AnimationSegments]")
+	lines.append("coord_system=board_grid_vector2i")
+	var source_steps: Array[Dictionary] = last_replay_display_steps if not last_replay_display_steps.is_empty() else replay_steps
+	if source_steps.is_empty():
+		lines.append("segments=none")
+		return "\n".join(lines)
+	var segment_index: int = 0
+	for step: Dictionary in source_steps:
+		if int(step.get("type", -1)) == ChangeRecord.ChangeType.EMPTY:
+			continue
+		var subject: StringName = step.get("subject", &"")
+		var from_pos: Vector2i = step.get("from", Vector2i.ZERO)
+		var to_pos: Vector2i = step.get("to", Vector2i.ZERO)
+		lines.append("segment_%d=%s:%s->%s" % [segment_index, String(subject), str(from_pos), str(to_pos)])
+		segment_index += 1
+	if segment_index == 0:
+		lines.append("segments=none")
+	return "\n".join(lines)
+
+
 func build_snapshot(
 	world: CompiledWorld,
 	queue_entries: Array[ChangeRecord],

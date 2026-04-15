@@ -152,31 +152,9 @@ func on_copy_log_pressed() -> void:
 
 
 func copy_debug_log() -> void:
-	var replay_layer_transform: String = _snapshot_replay_layer_transform()
-	var text: String = _debug_log_formatter.build_snapshot(
-		_world,
-		_queue.entries(),
-		_last_recompile_reason,
+	var text: String = _debug_log_formatter.build_animation_coordinate_snapshot(
 		_last_replay_steps,
-		_last_replay_display_steps,
-		_last_replay_presenting_subjects,
-		_last_replay_used_live_box_views,
-		_last_replay_completed,
-		BuildInfo.display_text(),
-		_format_node2d_transform(_board_view),
-		replay_layer_transform,
-		_last_replay_stop_reason,
-		_last_input_source,
-		_last_input_intent,
-		_last_input_direction,
-		_last_move_player_moved,
-		_last_move_generated_change,
-		_last_appended_change_summary,
-		_last_pushed_out_summaries,
-		_last_generated_ghost_summaries,
-		_last_queue_after_compile_summaries,
-		_last_replay_gate_allowed,
-		_last_replay_gate_reason
+		_last_replay_display_steps
 	)
 	DisplayServer.clipboard_set(text)
 	if DisplayServer.clipboard_get() == text:
