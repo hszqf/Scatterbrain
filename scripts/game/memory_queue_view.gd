@@ -165,13 +165,35 @@ func play_queue_update(
 	var appended: Array[ChangeRecord] = appended_changes.duplicate()
 	if appended.is_empty():
 		appended = _compute_appended_changes(before_entries, after_entries, evicted_changes.size())
+	var diff_classification: String = _classify_queue_diff(before_entries, after_entries, appended, evicted_changes)
+	if diff_classification == "normalize_in_place":
+		_clear_pending_incoming_overlay_if_stale()
+		_last_animation_plan_lines = _build_queue_animation_plan(
+			before_entries,
+			after_entries,
+			[],
+			0,
+			0,
+			[],
+			[],
+			[],
+			false,
+			_pending_incoming_overlay != null and is_instance_valid(_pending_incoming_overlay),
+			false,
+			diff_classification
+		)
+		await _animate_normalize_in_place_takeover()
+		render_queue(after_entries, capacity, obsession_capacity)
+		_last_animation_trace.append("queue:settle")
+		await animate_queue_settle()
+		return
 	if appended.is_empty():
 		_clear_pending_incoming_overlay()
 	if not appended.is_empty():
 		_last_animation_trace.append("queue:append")
 	if not evicted_changes.is_empty():
 		_last_animation_trace.append("queue:evict")
-	await _animate_push_right_then_evict(before_entries, after_entries, appended, evicted_changes.size())
+	await _animate_push_right_then_evict(before_entries, after_entries, appended, evicted_changes.size(), diff_classification)
 	render_queue(after_entries, capacity, obsession_capacity)
 	_last_animation_trace.append("queue:settle")
 	await animate_queue_settle()
@@ -528,10 +550,12 @@ func _capture_evicted_slot_overlays(evicted_count: int) -> Array[Panel]:
 	return overlays
 
 
-func _capture_front_slot_overlays(entry_count: int) -> Array[Panel]:
+func _capture_front_slot_overlays(entry_count: int, skip_indices: Array[int] = []) -> Array[Panel]:
 	var overlays: Array[Panel] = []
 	var count: int = mini(entry_count, _slot_nodes.size())
 	for i: int in range(count):
+		if skip_indices.has(i):
+			continue
 		var slot: Panel = _slot_nodes[i]
 		if slot == null:
 			continue
@@ -563,7 +587,8 @@ func _animate_push_right_then_evict(
 	before_entries: Array[ChangeRecord],
 	after_entries: Array[ChangeRecord],
 	appended_changes: Array[ChangeRecord],
-	evicted_count: int
+	evicted_count: int,
+	diff_classification: String = ""
 ) -> void:
 	if _slot_nodes.is_empty() or appended_changes.is_empty():
 		_last_animation_plan_lines = _build_queue_animation_plan(
@@ -577,18 +602,25 @@ func _animate_push_right_then_evict(
 			[],
 			false,
 			false,
-			false
+			false,
+			diff_classification
 		)
 		return
 	var occupied_before: int = mini(before_entries.size(), _slot_nodes.size())
-	var existing_overlays: Array[Panel] = _capture_front_slot_overlays(occupied_before)
+	var had_pending_overlay: bool = _pending_incoming_overlay != null and is_instance_valid(_pending_incoming_overlay)
+	var capture_skip_indices: Array[int] = [0] if had_pending_overlay else []
+	var existing_overlays: Array[Panel] = _capture_front_slot_overlays(occupied_before, capture_skip_indices)
 	var created_overlay_indices: Array[int] = []
 	var hidden_slot_indices: Array[int] = []
 	var removed_overlay_indices: Array[int] = []
 	for i: int in range(occupied_before):
+		if capture_skip_indices.has(i):
+			continue
 		created_overlay_indices.append(i)
 	for i: int in range(occupied_before):
 		if i < 0 or i >= _slot_nodes.size():
+			continue
+		if capture_skip_indices.has(i):
 			continue
 		if _slot_nodes[i] != null:
 			_slot_nodes[i].visible = false
@@ -610,13 +642,16 @@ func _animate_push_right_then_evict(
 			removed_overlay_indices,
 			false,
 			false,
-			false
+			false,
+			diff_classification
 		)
 		return
 	var shift_step: Vector2 = _slot_shift_vector()
-	var had_pending_overlay: bool = _pending_incoming_overlay != null and is_instance_valid(_pending_incoming_overlay)
-	var incoming_overlay: Control = _consume_pending_incoming_overlay(appended_changes[0])
-	var created_incoming_overlay: bool = not had_pending_overlay
+	var incoming_overlay: Control = _consume_pending_incoming_overlay()
+	var created_incoming_overlay: bool = false
+	if incoming_overlay == null:
+		incoming_overlay = _build_append_overlay(appended_changes[0])
+		created_incoming_overlay = true
 	var newest_pos: Vector2 = _to_local_canvas(newest_slot.get_global_rect().position)
 	if incoming_overlay == null:
 		removed_overlay_indices = created_overlay_indices.duplicate()
@@ -631,10 +666,12 @@ func _animate_push_right_then_evict(
 			removed_overlay_indices,
 			false,
 			had_pending_overlay,
-			created_incoming_overlay
+			created_incoming_overlay,
+			diff_classification
 		)
 		return
-	created_overlay_indices.append(0)
+	if not created_overlay_indices.has(0):
+		created_overlay_indices.append(0)
 	incoming_overlay.pivot_offset = incoming_overlay.size * 0.5
 	incoming_overlay.z_index = 64
 	if not had_pending_overlay:
@@ -676,7 +713,8 @@ func _animate_push_right_then_evict(
 		removed_overlay_indices,
 		true,
 		had_pending_overlay,
-		created_incoming_overlay
+		created_incoming_overlay,
+		diff_classification
 	)
 	incoming_overlay.queue_free()
 	_incoming_fx_nodes.erase(incoming_overlay)
@@ -696,16 +734,23 @@ func _build_queue_animation_plan(
 	removed_overlay_indices: Array[int],
 	shift_applied: bool,
 	had_pending_incoming_overlay: bool,
-	created_incoming_overlay: bool
+	created_incoming_overlay: bool,
+	diff_classification: String
 ) -> Array[String]:
 	var capacity: int = _slot_nodes.size()
 	var display_entries_before: Array[ChangeRecord] = _to_display_entries(before_entries, capacity)
 	var display_entries_after: Array[ChangeRecord] = _to_display_entries(after_entries, capacity)
 	var target_display_index: int = resolve_incoming_slot_index(before_entries, capacity)
 	var mode: String = _resolve_animation_mode(appended_changes.size(), evicted_count, survivor_shift_count)
+	var canonical_entries_before: Array[String] = _canonical_entry_labels(display_entries_before)
+	var canonical_entries_after: Array[String] = _canonical_entry_labels(display_entries_after)
+	var classification: String = diff_classification if diff_classification != "" else mode
 	var lines: Array[String] = []
 	lines.append("display_entries_before=%s" % str(_entry_labels(display_entries_before)))
 	lines.append("display_entries_after=%s" % str(_entry_labels(display_entries_after)))
+	lines.append("canonical_entries_before=%s" % str(canonical_entries_before))
+	lines.append("canonical_entries_after=%s" % str(canonical_entries_after))
+	lines.append("diff_classification=%s" % classification)
 	lines.append("appended_count=%d" % appended_changes.size())
 	lines.append("evicted_count=%d" % evicted_count)
 	lines.append("target_display_index_for_incoming=%d" % target_display_index)
@@ -762,12 +807,69 @@ func _entry_labels(entries: Array[ChangeRecord]) -> Array[String]:
 	return labels
 
 
-func _consume_pending_incoming_overlay(fallback_change: ChangeRecord) -> Control:
+func _consume_pending_incoming_overlay() -> Control:
 	if _pending_incoming_overlay != null and is_instance_valid(_pending_incoming_overlay):
 		var overlay: Control = _pending_incoming_overlay
 		_pending_incoming_overlay = null
 		return overlay
-	return _build_append_overlay(fallback_change)
+	return null
+
+
+func _clear_pending_incoming_overlay_if_stale() -> void:
+	if _pending_incoming_overlay != null and not is_instance_valid(_pending_incoming_overlay):
+		_pending_incoming_overlay = null
+
+
+func _animate_normalize_in_place_takeover() -> void:
+	_clear_pending_incoming_overlay_if_stale()
+	if _pending_incoming_overlay == null or not is_instance_valid(_pending_incoming_overlay):
+		return
+	if _slot_nodes.is_empty() or _slot_nodes[0] == null:
+		_clear_pending_incoming_overlay()
+		return
+	var incoming_overlay: Control = _consume_pending_incoming_overlay()
+	if incoming_overlay == null:
+		return
+	incoming_overlay.pivot_offset = incoming_overlay.size * 0.5
+	incoming_overlay.z_index = 64
+	var newest_pos: Vector2 = _to_local_canvas(_slot_nodes[0].get_global_rect().position)
+	var move_tween: Tween = create_tween()
+	move_tween.tween_property(incoming_overlay, "position", newest_pos, maxf(push_shift_duration, 0.05)).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	await move_tween.finished
+	incoming_overlay.queue_free()
+	_incoming_fx_nodes.erase(incoming_overlay)
+
+
+func _entry_visual_identity(entry: ChangeRecord) -> String:
+	if entry == null:
+		return "-"
+	match entry.type:
+		ChangeRecord.ChangeType.POSITION:
+			return "POSITION|subject=%s|delta=%s|target=%s" % [str(entry.subject_id), str(entry.move_delta), str(entry.target_position)]
+		_:
+			return entry.summary()
+
+
+func _canonical_entry_labels(entries: Array[ChangeRecord]) -> Array[String]:
+	var labels: Array[String] = []
+	for entry: ChangeRecord in entries:
+		labels.append(_entry_visual_identity(entry))
+	return labels
+
+
+func _classify_queue_diff(
+	before_entries: Array[ChangeRecord],
+	after_entries: Array[ChangeRecord],
+	appended_changes: Array[ChangeRecord],
+	evicted_changes: Array[ChangeRecord]
+) -> String:
+	if _canonical_entry_labels(before_entries) == _canonical_entry_labels(after_entries):
+		return "normalize_in_place"
+	if not evicted_changes.is_empty():
+		return "append_plus_evict"
+	if not appended_changes.is_empty():
+		return "true_append"
+	return "none"
 
 
 func _clear_pending_incoming_overlay() -> void:
