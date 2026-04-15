@@ -36,6 +36,7 @@ var _displayed_entries: Array[ChangeRecord] = []
 var _displayed_capacity: int = 0
 var _displayed_obsession_capacity: int = 0
 var _incoming_fx_nodes: Array[Control] = []
+var _pending_incoming_overlay: Control
 
 
 func _ready() -> void:
@@ -218,13 +219,13 @@ func get_last_animation_trace() -> Array[String]:
 func play_incoming_change_fx(change: ChangeRecord, source_global_pos: Vector2, current_entries: Array[ChangeRecord], capacity: int, obsession_capacity: int) -> void:
 	if change == null or capacity <= 0:
 		return
+	_clear_pending_incoming_overlay()
 	render_queue(current_entries, capacity, obsession_capacity)
 	await get_tree().process_frame
 	var target_index: int = resolve_incoming_slot_index(current_entries, capacity)
 	var target_slot: Panel = _slot_at_display(target_index)
 	if target_slot == null:
 		return
-	var target_global: Vector2 = target_slot.get_global_rect().get_center()
 	var left_lane: Vector2 = _incoming_lane_left_point()
 	var particle: Control = _build_incoming_badge(change)
 	particle.position = _to_local_canvas(source_global_pos) - particle.size * 0.5
@@ -249,11 +250,11 @@ func play_incoming_change_fx(change: ChangeRecord, source_global_pos: Vector2, c
 
 	var target_tween: Tween = create_tween()
 	target_tween.set_parallel(true)
-	target_tween.tween_property(particle, "position", _to_local_canvas(target_global) - particle.size * 0.5, travel_time).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	var push_entry: Vector2 = _incoming_push_entry_point()
+	target_tween.tween_property(particle, "position", push_entry - particle.size * 0.5, travel_time).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	target_tween.tween_property(particle, "scale", Vector2.ONE * incoming_fx_end_scale, travel_time)
 	await target_tween.finished
-	particle.queue_free()
-	_incoming_fx_nodes.erase(particle)
+	_pending_incoming_overlay = particle
 
 
 func resolve_incoming_slot_index(current_entries: Array[ChangeRecord], capacity: int) -> int:
