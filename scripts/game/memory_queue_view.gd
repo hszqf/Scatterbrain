@@ -576,17 +576,18 @@ func _animate_push_right_then_evict(
 		return
 	var occupied_before: int = mini(before_entries.size(), _slot_nodes.size())
 	var existing_overlays: Array[Panel] = _capture_front_slot_overlays(occupied_before)
+	for i: int in range(occupied_before):
+		if i < 0 or i >= _slot_nodes.size():
+			continue
+		if _slot_nodes[i] != null:
+			_slot_nodes[i].visible = false
 	var newest_slot: Panel = _slot_nodes[0]
 	if newest_slot == null:
 		for overlay: Panel in existing_overlays:
 			if is_instance_valid(overlay):
 				overlay.queue_free()
 		return
-	var shift_distance: float = newest_slot.size.x
-	if _slot_nodes.size() > 1 and _slot_nodes[1] != null:
-		var left: Vector2 = _to_local_canvas(_slot_nodes[0].get_global_rect().position)
-		var next: Vector2 = _to_local_canvas(_slot_nodes[1].get_global_rect().position)
-		shift_distance = next.x - left.x
+	var shift_step: Vector2 = _slot_shift_vector()
 	var had_pending_overlay: bool = _pending_incoming_overlay != null and is_instance_valid(_pending_incoming_overlay)
 	var incoming_overlay: Control = _consume_pending_incoming_overlay(appended_changes[0])
 	var newest_pos: Vector2 = _to_local_canvas(newest_slot.get_global_rect().position)
@@ -595,7 +596,7 @@ func _animate_push_right_then_evict(
 	incoming_overlay.pivot_offset = incoming_overlay.size * 0.5
 	incoming_overlay.z_index = 64
 	if not had_pending_overlay:
-		incoming_overlay.position = newest_pos + Vector2(-shift_distance, 0.0)
+		incoming_overlay.position = newest_pos - shift_step
 	var move_tween: Tween = create_tween()
 	move_tween.set_parallel(true)
 	var move_time: float = maxf(push_shift_duration, 0.05)
@@ -603,7 +604,7 @@ func _animate_push_right_then_evict(
 	for overlay: Panel in existing_overlays:
 		if overlay == null:
 			continue
-		move_tween.tween_property(overlay, "position:x", overlay.position.x + shift_distance, move_time).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		move_tween.tween_property(overlay, "position", overlay.position + shift_step, move_time).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	await move_tween.finished
 	var evict_overlays: Array[Panel] = []
 	var evictable: int = mini(evicted_count, existing_overlays.size())
@@ -650,11 +651,17 @@ func _incoming_push_entry_point() -> Vector2:
 		return _incoming_lane_left_point()
 	var newest_slot: Panel = _slot_nodes[0]
 	var newest_pos: Vector2 = _to_local_canvas(newest_slot.get_global_rect().position)
-	var shift_distance: float = newest_slot.size.x
+	return newest_pos - _slot_shift_vector()
+
+
+func _slot_shift_vector() -> Vector2:
+	if _slot_nodes.is_empty() or _slot_nodes[0] == null:
+		return Vector2(52.0, 0.0)
+	var newest_pos: Vector2 = _to_local_canvas(_slot_nodes[0].get_global_rect().position)
 	if _slot_nodes.size() > 1 and _slot_nodes[1] != null:
 		var next_pos: Vector2 = _to_local_canvas(_slot_nodes[1].get_global_rect().position)
-		shift_distance = next_pos.x - newest_pos.x
-	return newest_pos + Vector2(-shift_distance, 0.0)
+		return next_pos - newest_pos
+	return Vector2(_slot_nodes[0].size.x, 0.0)
 
 
 func _append_slots_to_tween(appended_changes: Array[ChangeRecord], tween: Tween) -> void:
