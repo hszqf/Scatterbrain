@@ -165,10 +165,6 @@ func on_copy_log_pressed() -> void:
 
 
 func copy_debug_log() -> void:
-	var latest_queue_plan_lines: Array[String] = _queue_view.get_last_animation_plan_lines()
-	if not latest_queue_plan_lines.is_empty():
-		_last_queue_animation_plan_lines = latest_queue_plan_lines
-		_mark_trace_generation("snapshot:queue_plan_refresh")
 	_cache_last_non_empty_snapshot_if_needed()
 	var snapshot_meta: Dictionary = _resolve_snapshot_metadata()
 	var text: String = _debug_log_formatter.build_animation_coordinate_snapshot(
@@ -324,18 +320,19 @@ func _recompile_world(reason: String) -> void:
 	var first_pass_queue_entries: Array[ChangeRecord] = _queue_entries_for_first_pass(replay_trace, result.queue_entries)
 	var queue_entries_changed: bool = not _queue_entries_match(previous_queue_entries, first_pass_queue_entries)
 	var live_append_transition: bool = reason.begins_with("append:") and queue_entries_changed
+	var pre_recompile_owns_live_append_transaction: bool = live_append_transition
 	_last_pushed_out_summaries = _change_summaries(result.pushed_out_changes)
 	_last_generated_ghost_summaries = _change_summaries(result.generated_ghost_changes)
 	_last_queue_after_compile_summaries = _change_summaries(result.queue_entries)
 	var has_replayable_pushed_out: bool = not result.pushed_out_changes.is_empty()
 	var can_play_trace: bool = _replay_controller.has_trace_items(replay_trace)
-	var has_queue_update_trace: bool = _trace_contains_kind(replay_trace, "queue_update")
-	var replay_gate_allowed: bool = can_play_trace and (has_replayable_pushed_out or has_queue_update_trace)
+	var has_replay_owned_queue_update_trace: bool = _trace_contains_replay_owned_queue_update(replay_trace)
+	var replay_gate_allowed: bool = can_play_trace and (has_replayable_pushed_out or has_replay_owned_queue_update_trace)
 	_last_replay_gate_allowed = replay_gate_allowed
 	_last_replay_gate_reason = _resolve_replay_gate_reason(
 		result.pushed_out_changes,
 		has_replayable_pushed_out,
-		has_queue_update_trace,
+		has_replay_owned_queue_update_trace,
 		can_play_trace
 	)
 	if live_append_transition:
@@ -347,10 +344,8 @@ func _recompile_world(reason: String) -> void:
 			result.pushed_out_changes
 		)
 		_append_pre_recompile_queue_trace(_queue_view.get_last_animation_trace())
-		var pre_queue_plan_lines: Array[String] = _queue_view.get_last_animation_plan_lines()
-		if not pre_queue_plan_lines.is_empty():
-			_last_queue_animation_plan_lines = pre_queue_plan_lines
-	elif replay_gate_allowed:
+		_save_queue_animation_plan_lines()
+	elif replay_gate_allowed and not pre_recompile_owns_live_append_transaction:
 		await _queue_view.play_queue_transition(
 			previous_queue_entries,
 			first_pass_queue_entries,
@@ -359,10 +354,8 @@ func _recompile_world(reason: String) -> void:
 			result.pushed_out_changes
 		)
 		_append_replay_queue_trace(_queue_view.get_last_animation_trace())
-		var queue_plan_lines: Array[String] = _queue_view.get_last_animation_plan_lines()
-		if not queue_plan_lines.is_empty():
-			_last_queue_animation_plan_lines = queue_plan_lines
-	elif not has_queue_update_trace:
+		_save_queue_animation_plan_lines()
+	elif not has_replay_owned_queue_update_trace:
 		_queue_view.render_queue(result.queue_entries, _memory_capacity(), _defaults.obsession_capacity)
 	if replay_gate_allowed:
 		_last_replay_steps = _duplicate_replay_steps(replay_trace)
@@ -417,11 +410,10 @@ func _play_compile_trace(trace: Array[Dictionary]) -> void:
 				_queue_view.begin_focus_on_slot(focused_queue_index)
 			continue
 		if kind == "queue_update":
+			if not _is_replay_owned_queue_update(item):
+				continue
 			pending_queue_update_item = item.duplicate(true)
 			continue
-		if not pending_queue_update_item.is_empty() and (kind == "move" or kind == "ghostify" or kind == "beat_empty" or kind == "queue_restart"):
-			await _play_pending_queue_update(pending_queue_update_item, trace, trace_index)
-			pending_queue_update_item = {}
 		if kind == "queue_restart":
 			if focused_queue_index >= 0:
 				_queue_view.end_focus_on_slot(focused_queue_index)
@@ -430,6 +422,9 @@ func _play_compile_trace(trace: Array[Dictionary]) -> void:
 		if kind == "move" or kind == "ghostify" or kind == "beat_empty" or kind == "queue_restart":
 			_append_board_trace("board:trace:%s" % kind)
 			await _replay_controller.play_trace_item(item, _replay_controller.memory_beat_duration)
+			if not pending_queue_update_item.is_empty() and (kind == "move" or kind == "ghostify" or kind == "beat_empty"):
+				await _play_pending_queue_update(pending_queue_update_item, trace, trace_index + 1)
+				pending_queue_update_item = {}
 			if (kind == "move" or kind == "ghostify" or kind == "beat_empty") and focused_queue_index >= 0:
 				_queue_view.end_focus_on_slot(focused_queue_index)
 				focused_queue_index = -1
@@ -465,10 +460,16 @@ func _play_pending_queue_update(item: Dictionary, trace: Array[Dictionary], next
 		generated_changes
 	)
 	_append_replay_queue_trace(_queue_view.get_last_animation_trace())
-	var queue_plan_lines: Array[String] = _queue_view.get_last_animation_plan_lines()
-	if not queue_plan_lines.is_empty():
-		_last_queue_animation_plan_lines = queue_plan_lines
+	_save_queue_animation_plan_lines()
 	_replay_controller.reset_subjects_for_next_pass(trace, next_trace_index)
+
+
+func _save_queue_animation_plan_lines() -> void:
+	var latest_queue_plan_lines: Array[String] = _queue_view.get_last_animation_plan_lines()
+	if latest_queue_plan_lines.is_empty():
+		return
+	_last_queue_animation_plan_lines = latest_queue_plan_lines
+	_mark_trace_generation("trace:queue_plan")
 
 
 func _queue_entries_match(left: Array[ChangeRecord], right: Array[ChangeRecord]) -> bool:
@@ -811,6 +812,20 @@ func _trace_contains_kind(trace: Array[Dictionary], kind_name: String) -> bool:
 		if String(item.get("kind", "")) == kind_name:
 			return true
 	return false
+
+
+func _trace_contains_replay_owned_queue_update(trace: Array[Dictionary]) -> bool:
+	for item: Dictionary in trace:
+		if _is_replay_owned_queue_update(item):
+			return true
+	return false
+
+
+func _is_replay_owned_queue_update(item: Dictionary) -> bool:
+	if String(item.get("kind", "")) != "queue_update":
+		return false
+	var generated_changes: Array[ChangeRecord] = item.get("generated_changes", [])
+	return not generated_changes.is_empty()
 
 
 func _resolve_replay_gate_reason(
