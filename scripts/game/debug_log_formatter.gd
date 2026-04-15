@@ -5,7 +5,8 @@ extends RefCounted
 func build_animation_coordinate_snapshot(
 	replay_steps: Array[Dictionary],
 	last_replay_display_steps: Array[Dictionary],
-	presentation_trace: Array[String] = []
+	presentation_trace: Array[String] = [],
+	queue_animation_plan: Array[String] = []
 ) -> String:
 	var lines: Array[String] = []
 	lines.append("[AnimationSegments]")
@@ -28,6 +29,12 @@ func build_animation_coordinate_snapshot(
 	else:
 		for index: int in range(presentation_trace.size()):
 			lines.append("flow_%d=%s" % [index, presentation_trace[index]])
+	lines.append("[QueueAnimationPlan]")
+	if queue_animation_plan.is_empty():
+		lines.append("plan=none")
+	else:
+		for index: int in range(queue_animation_plan.size()):
+			lines.append("plan_%d=%s" % [index, queue_animation_plan[index]])
 	return "\n".join(lines)
 
 

@@ -31,6 +31,7 @@ var _obsession_label: Label
 var _slot_nodes: Array[Panel] = []
 var _slot_base_modulates: Array[Color] = []
 var _last_animation_trace: Array[String] = []
+var _last_animation_plan_lines: Array[String] = []
 var _slot_focus_tweens: Dictionary[int, Tween] = {}
 var _displayed_entries: Array[ChangeRecord] = []
 var _displayed_capacity: int = 0
@@ -60,6 +61,7 @@ func play_queue_transition(
 	evicted_changes: Array[ChangeRecord]
 ) -> void:
 	_last_animation_trace = []
+	_last_animation_plan_lines = []
 	render_queue(previous_entries, capacity, obsession_capacity)
 	var appended_changes: Array[ChangeRecord] = _compute_appended_changes(previous_entries, new_entries, evicted_changes.size())
 	if appended_changes.is_empty():
@@ -68,7 +70,7 @@ func play_queue_transition(
 		_last_animation_trace.append("queue:evict")
 	if not appended_changes.is_empty():
 		_last_animation_trace.append("queue:append")
-	await _animate_push_right_then_evict(previous_entries, appended_changes, evicted_changes.size())
+	await _animate_push_right_then_evict(previous_entries, new_entries, appended_changes, evicted_changes.size())
 	render_queue(new_entries, capacity, obsession_capacity)
 	_last_animation_trace.append("queue:settle")
 	await animate_queue_settle()
@@ -136,6 +138,7 @@ func animate_queue_settle() -> void:
 
 func play_generated_change_insert(change: ChangeRecord, new_queue_entries: Array[ChangeRecord]) -> void:
 	_last_animation_trace.append("queue:generated_change")
+	_last_animation_plan_lines = []
 	var previous_entries: Array[ChangeRecord] = _displayed_entries.duplicate()
 	var capacity: int = _displayed_capacity if _displayed_capacity > 0 else max(new_queue_entries.size(), previous_entries.size())
 	render_queue(new_queue_entries, capacity, _displayed_obsession_capacity)
@@ -157,6 +160,7 @@ func play_queue_update(
 	appended_changes: Array[ChangeRecord]
 ) -> void:
 	_last_animation_trace.append("queue:update")
+	_last_animation_plan_lines = []
 	render_queue(before_entries, capacity, obsession_capacity)
 	var appended: Array[ChangeRecord] = appended_changes.duplicate()
 	if appended.is_empty():
@@ -167,7 +171,7 @@ func play_queue_update(
 		_last_animation_trace.append("queue:append")
 	if not evicted_changes.is_empty():
 		_last_animation_trace.append("queue:evict")
-	await _animate_push_right_then_evict(before_entries, appended, evicted_changes.size())
+	await _animate_push_right_then_evict(before_entries, after_entries, appended, evicted_changes.size())
 	render_queue(after_entries, capacity, obsession_capacity)
 	_last_animation_trace.append("queue:settle")
 	await animate_queue_settle()
@@ -219,10 +223,15 @@ func get_last_animation_trace() -> Array[String]:
 	return _last_animation_trace.duplicate()
 
 
+func get_last_animation_plan_lines() -> Array[String]:
+	return _last_animation_plan_lines.duplicate()
+
+
 func play_incoming_change_fx(change: ChangeRecord, source_global_pos: Vector2, current_entries: Array[ChangeRecord], capacity: int, obsession_capacity: int) -> void:
 	if change == null or capacity <= 0:
 		return
 	_last_animation_trace.append("queue:incoming_fx:start")
+	_last_animation_plan_lines = []
 	_clear_pending_incoming_overlay()
 	render_queue(current_entries, capacity, obsession_capacity)
 	await get_tree().process_frame
@@ -552,30 +561,80 @@ func _build_append_overlay(change: ChangeRecord) -> Control:
 
 func _animate_push_right_then_evict(
 	before_entries: Array[ChangeRecord],
+	after_entries: Array[ChangeRecord],
 	appended_changes: Array[ChangeRecord],
 	evicted_count: int
 ) -> void:
 	if _slot_nodes.is_empty() or appended_changes.is_empty():
+		_last_animation_plan_lines = _build_queue_animation_plan(
+			before_entries,
+			after_entries,
+			appended_changes,
+			evicted_count,
+			0,
+			[],
+			[],
+			[],
+			false,
+			false,
+			false
+		)
 		return
 	var occupied_before: int = mini(before_entries.size(), _slot_nodes.size())
 	var existing_overlays: Array[Panel] = _capture_front_slot_overlays(occupied_before)
+	var created_overlay_indices: Array[int] = []
+	var hidden_slot_indices: Array[int] = []
+	var removed_overlay_indices: Array[int] = []
+	for i: int in range(occupied_before):
+		created_overlay_indices.append(i)
 	for i: int in range(occupied_before):
 		if i < 0 or i >= _slot_nodes.size():
 			continue
 		if _slot_nodes[i] != null:
 			_slot_nodes[i].visible = false
+			hidden_slot_indices.append(i)
 	var newest_slot: Panel = _slot_nodes[0]
 	if newest_slot == null:
 		for overlay: Panel in existing_overlays:
 			if is_instance_valid(overlay):
 				overlay.queue_free()
+		removed_overlay_indices = created_overlay_indices.duplicate()
+		_last_animation_plan_lines = _build_queue_animation_plan(
+			before_entries,
+			after_entries,
+			appended_changes,
+			evicted_count,
+			0,
+			hidden_slot_indices,
+			created_overlay_indices,
+			removed_overlay_indices,
+			false,
+			false,
+			false
+		)
 		return
 	var shift_step: Vector2 = _slot_shift_vector()
 	var had_pending_overlay: bool = _pending_incoming_overlay != null and is_instance_valid(_pending_incoming_overlay)
 	var incoming_overlay: Control = _consume_pending_incoming_overlay(appended_changes[0])
+	var created_incoming_overlay: bool = not had_pending_overlay
 	var newest_pos: Vector2 = _to_local_canvas(newest_slot.get_global_rect().position)
 	if incoming_overlay == null:
+		removed_overlay_indices = created_overlay_indices.duplicate()
+		_last_animation_plan_lines = _build_queue_animation_plan(
+			before_entries,
+			after_entries,
+			appended_changes,
+			evicted_count,
+			0,
+			hidden_slot_indices,
+			created_overlay_indices,
+			removed_overlay_indices,
+			false,
+			had_pending_overlay,
+			created_incoming_overlay
+		)
 		return
+	created_overlay_indices.append(0)
 	incoming_overlay.pivot_offset = incoming_overlay.size * 0.5
 	incoming_overlay.z_index = 64
 	if not had_pending_overlay:
@@ -605,11 +664,102 @@ func _animate_push_right_then_evict(
 			evict_tween.tween_property(overlay, "scale", Vector2(evict_scale, evict_scale), evict_duration)
 			evict_tween.tween_property(overlay, "modulate:a", 0.0, evict_duration)
 		await evict_tween.finished
+	removed_overlay_indices = created_overlay_indices.duplicate()
+	_last_animation_plan_lines = _build_queue_animation_plan(
+		before_entries,
+		after_entries,
+		appended_changes,
+		evicted_count,
+		occupied_before,
+		hidden_slot_indices,
+		created_overlay_indices,
+		removed_overlay_indices,
+		true,
+		had_pending_overlay,
+		created_incoming_overlay
+	)
 	incoming_overlay.queue_free()
 	_incoming_fx_nodes.erase(incoming_overlay)
 	for overlay: Panel in existing_overlays:
 		if is_instance_valid(overlay):
 			overlay.queue_free()
+
+
+func _build_queue_animation_plan(
+	before_entries: Array[ChangeRecord],
+	after_entries: Array[ChangeRecord],
+	appended_changes: Array[ChangeRecord],
+	evicted_count: int,
+	survivor_shift_count: int,
+	hidden_slot_indices: Array[int],
+	created_overlay_indices: Array[int],
+	removed_overlay_indices: Array[int],
+	shift_applied: bool,
+	had_pending_incoming_overlay: bool,
+	created_incoming_overlay: bool
+) -> Array[String]:
+	var capacity: int = _slot_nodes.size()
+	var display_entries_before: Array[ChangeRecord] = _to_display_entries(before_entries, capacity)
+	var display_entries_after: Array[ChangeRecord] = _to_display_entries(after_entries, capacity)
+	var target_display_index: int = resolve_incoming_slot_index(before_entries, capacity)
+	var mode: String = _resolve_animation_mode(appended_changes.size(), evicted_count, survivor_shift_count)
+	var lines: Array[String] = []
+	lines.append("display_entries_before=%s" % str(_entry_labels(display_entries_before)))
+	lines.append("display_entries_after=%s" % str(_entry_labels(display_entries_after)))
+	lines.append("appended_count=%d" % appended_changes.size())
+	lines.append("evicted_count=%d" % evicted_count)
+	lines.append("target_display_index_for_incoming=%d" % target_display_index)
+	lines.append("whether_pending_incoming_overlay_used=%s" % str(had_pending_incoming_overlay))
+	lines.append("survivor_shift_count=%d" % survivor_shift_count)
+	lines.append("hidden_slot_indices=%s" % str(hidden_slot_indices))
+	lines.append("created_overlay_indices=%s" % str(created_overlay_indices))
+	lines.append("removed_overlay_indices=%s" % str(removed_overlay_indices))
+	lines.append("animation_mode=%s" % mode)
+	var old_memory_count: int = mini(before_entries.size(), capacity)
+	var old_memory_moved: bool = shift_applied and old_memory_count > 0
+	lines.append("append_only_old_memory_moved=%s" % str(old_memory_moved))
+	var shift_mappings: Array[String] = []
+	if old_memory_moved:
+		for from_slot: int in range(old_memory_count):
+			shift_mappings.append("%d->%d" % [from_slot, from_slot + 1])
+	lines.append("append_only_shift_mapping=%s" % str(shift_mappings))
+	var takeover_mode: String = "slot_self_fade_in"
+	if had_pending_incoming_overlay:
+		takeover_mode = "badge_takeover_slot"
+	elif created_incoming_overlay:
+		takeover_mode = "overlay_takeover_slot"
+	lines.append("new_memory_slot_takeover=%s" % takeover_mode)
+	lines.append("incoming_motion_plan=incoming: source -> display_slot_%d" % target_display_index)
+	if shift_mappings.is_empty():
+		lines.append("survivor_shift_plan=none")
+	else:
+		lines.append("survivor_shift_plan=survivor_shift: slot%s" % ", slot".join(shift_mappings))
+	if evicted_count > 0:
+		var evict_from: int = max(0, old_memory_count - 1)
+		lines.append("evict_motion_plan=evict: display_slot_%d -> right_lane" % evict_from)
+	else:
+		lines.append("evict_motion_plan=none")
+	return lines
+
+
+func _resolve_animation_mode(appended_count: int, evicted_count: int, survivor_shift_count: int) -> String:
+	if appended_count <= 0:
+		return "none"
+	if evicted_count > 0:
+		return "append_plus_evict"
+	if survivor_shift_count > 0:
+		return "incoming_plus_shift"
+	return "append_only"
+
+
+func _entry_labels(entries: Array[ChangeRecord]) -> Array[String]:
+	var labels: Array[String] = []
+	for entry: ChangeRecord in entries:
+		if entry == null:
+			labels.append("-")
+		else:
+			labels.append(entry.summary())
+	return labels
 
 
 func _consume_pending_incoming_overlay(fallback_change: ChangeRecord) -> Control:
