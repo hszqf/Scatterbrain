@@ -38,6 +38,7 @@ var _displayed_capacity: int = 0
 var _displayed_obsession_capacity: int = 0
 var _incoming_fx_nodes: Array[Control] = []
 var _pending_incoming_overlay: Control
+var _pending_incoming_geometry_points: Dictionary = {}
 
 
 func _ready() -> void:
@@ -193,6 +194,7 @@ func play_queue_update(
 	var diff_classification: String = _classify_queue_diff(before_entries, after_entries, appended, evicted_changes)
 	if diff_classification == "normalize_in_place":
 		_clear_pending_incoming_overlay_if_stale()
+		await _animate_normalize_in_place_takeover()
 		_last_animation_plan_lines = _build_queue_animation_plan(
 			before_entries,
 			after_entries,
@@ -203,11 +205,10 @@ func play_queue_update(
 			[],
 			[],
 			false,
-			_pending_incoming_overlay != null and is_instance_valid(_pending_incoming_overlay),
+			false,
 			false,
 			diff_classification
 		)
-		await _animate_normalize_in_place_takeover()
 		render_queue(after_entries, capacity, obsession_capacity)
 		_last_animation_trace.append("queue:settle")
 		await animate_queue_settle()
@@ -290,6 +291,7 @@ func play_incoming_change_fx(change: ChangeRecord, source_global_pos: Vector2, c
 		return
 	var target_slot_rect: Rect2 = target_slot.get_global_rect()
 	var target_slot_center: Vector2 = _to_local_canvas(target_slot_rect.get_center())
+	var target_slot_top_left: Vector2 = _to_local_canvas(target_slot_rect.position)
 	var lane_anchor: Vector2 = target_slot_center
 	var particle: Control = _build_incoming_badge(change)
 	particle.position = _to_local_canvas(source_global_pos) - particle.size * 0.5
@@ -315,9 +317,16 @@ func play_incoming_change_fx(change: ChangeRecord, source_global_pos: Vector2, c
 	var target_tween: Tween = create_tween()
 	target_tween.set_parallel(true)
 	var push_entry: Vector2 = _incoming_push_entry_point()
+	_pending_incoming_geometry_points = {
+		"source": _point_pair_from_center(source_local),
+		"push_entry": _point_pair_from_center(push_entry),
+		"target_slot": _point_pair(target_slot_top_left, target_slot_center),
+		"overlay_start": _point_pair_from_center(popped_local),
+	}
 	target_tween.tween_property(particle, "position", push_entry - particle.size * 0.5, travel_time).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	target_tween.tween_property(particle, "scale", Vector2.ONE * incoming_fx_end_scale, travel_time)
 	await target_tween.finished
+	_pending_incoming_geometry_points["overlay_final"] = _point_pair_from_center(push_entry)
 	_last_animation_trace.append("queue:incoming_fx:landed")
 	_pending_incoming_overlay = particle
 
@@ -636,6 +645,13 @@ func _animate_push_right_then_evict(
 	var had_pending_overlay: bool = _pending_incoming_overlay != null and is_instance_valid(_pending_incoming_overlay)
 	var capture_skip_indices: Array[int] = [0] if had_pending_overlay else []
 	var existing_overlays: Array[Panel] = _capture_front_slot_overlays(occupied_before, capture_skip_indices)
+	var captured_slot_to_overlay: Array[String] = []
+	var overlay_capture_idx: int = 0
+	for slot_index: int in range(occupied_before):
+		if capture_skip_indices.has(slot_index):
+			continue
+		captured_slot_to_overlay.append("slot_%d->overlay_%d" % [slot_index, overlay_capture_idx])
+		overlay_capture_idx += 1
 	var created_overlay_indices: Array[int] = []
 	var hidden_slot_indices: Array[int] = []
 	var removed_overlay_indices: Array[int] = []
@@ -702,10 +718,13 @@ func _animate_push_right_then_evict(
 	incoming_overlay.pivot_offset = incoming_overlay.size * 0.5
 	incoming_overlay.z_index = 64
 	var incoming_from_center: Vector2 = incoming_overlay.position + incoming_overlay.size * 0.5
+	var incoming_from_top_left: Vector2 = incoming_overlay.position
 	if not had_pending_overlay:
 		incoming_overlay.position = newest_pos - shift_step
 		incoming_from_center = incoming_overlay.position + incoming_overlay.size * 0.5
+		incoming_from_top_left = incoming_overlay.position
 	var incoming_to_center: Vector2 = newest_center
+	var incoming_to_top_left: Vector2 = newest_pos
 	var move_tween: Tween = create_tween()
 	move_tween.set_parallel(true)
 	var move_time: float = maxf(push_shift_duration, 0.05)
@@ -717,6 +736,7 @@ func _animate_push_right_then_evict(
 	await move_tween.finished
 	var evict_overlays: Array[Panel] = []
 	var evict_motion_plan: Array[String] = []
+	var right_lane: Vector2 = _incoming_lane_right_point()
 	var evictable: int = mini(evicted_count, existing_overlays.size())
 	for i: int in range(evictable):
 		var overlay_index: int = existing_overlays.size() - 1 - i
@@ -725,10 +745,17 @@ func _animate_push_right_then_evict(
 		var evict_overlay: Panel = existing_overlays[overlay_index]
 		evict_overlays.append(evict_overlay)
 		if evict_overlay != null:
+			var evict_start_center: Vector2 = evict_overlay.position + evict_overlay.size * 0.5
+			var lane_target_x: float = right_lane.x - evict_overlay.size.x * 0.5 + float(i) * 4.0
+			var evict_target_top_left: Vector2 = Vector2(lane_target_x + evict_drop_pixels, evict_overlay.position.y)
+			var evict_lane_center: Vector2 = Vector2(lane_target_x + evict_overlay.size.x * 0.5, evict_start_center.y)
+			var evict_target_center: Vector2 = evict_target_top_left + evict_overlay.size * 0.5
 			evict_motion_plan.append(
-				"overlay[%d]: %s -> right_lane" % [
+				"overlay[%d]: start=%s lane=%s target=%s" % [
 					overlay_index,
-					str(evict_overlay.position + evict_overlay.size * 0.5)
+					_point_pair_str(evict_overlay.position, evict_start_center),
+					_point_pair_str_from_center(evict_lane_center),
+					_point_pair_str(evict_target_top_left, evict_target_center)
 				]
 			)
 	if not evict_overlays.is_empty():
@@ -754,10 +781,13 @@ func _animate_push_right_then_evict(
 		had_pending_overlay,
 		created_incoming_overlay,
 		diff_classification,
+		incoming_from_top_left,
 		incoming_from_center,
+		incoming_to_top_left,
 		incoming_to_center,
 		_existing_overlay_shift_plan(existing_overlays, shift_step),
-		evict_motion_plan
+		evict_motion_plan,
+		captured_slot_to_overlay
 	)
 	incoming_overlay.queue_free()
 	_incoming_fx_nodes.erase(incoming_overlay)
@@ -779,10 +809,13 @@ func _build_queue_animation_plan(
 	had_pending_incoming_overlay: bool,
 	created_incoming_overlay: bool,
 	diff_classification: String,
+	incoming_from_top_left: Vector2 = Vector2.INF,
 	incoming_from_center: Vector2 = Vector2.INF,
+	incoming_to_top_left: Vector2 = Vector2.INF,
 	incoming_to_center: Vector2 = Vector2.INF,
 	survivor_shift_plan_lines: Array[String] = [],
-	evict_motion_plan_lines: Array[String] = []
+	evict_motion_plan_lines: Array[String] = [],
+	captured_slot_to_overlay_lines: Array[String] = []
 ) -> Array[String]:
 	var capacity: int = _slot_nodes.size()
 	var display_entries_before: Array[ChangeRecord] = _to_display_entries(before_entries, capacity)
@@ -826,6 +859,19 @@ func _build_queue_animation_plan(
 		lines.append("incoming_motion_plan=incoming: %s -> display_slot_%d_center=%s" % [str(incoming_from_center), target_display_index, str(incoming_to_center)])
 	else:
 		lines.append("incoming_motion_plan=incoming: source -> display_slot_%d" % target_display_index)
+	var geometry_lines: Array[String] = _build_queue_geometry_lines(
+		target_display_index,
+		shift_applied,
+		incoming_from_top_left,
+		incoming_from_center,
+		incoming_to_top_left,
+		incoming_to_center,
+		survivor_shift_plan_lines,
+		evict_motion_plan_lines,
+		captured_slot_to_overlay_lines
+	)
+	for geo_line: String in geometry_lines:
+		lines.append(geo_line)
 	if not survivor_shift_plan_lines.is_empty():
 		lines.append("survivor_shift_plan=%s" % str(survivor_shift_plan_lines))
 	elif shift_mappings.is_empty():
@@ -896,10 +942,13 @@ func _animate_normalize_in_place_takeover() -> void:
 		return
 	incoming_overlay.pivot_offset = incoming_overlay.size * 0.5
 	incoming_overlay.z_index = 64
+	_pending_incoming_geometry_points["normalize_takeover_start"] = _point_pair(incoming_overlay.position, incoming_overlay.position + incoming_overlay.size * 0.5)
 	var newest_pos: Vector2 = _slot_top_left_in_local(_slot_nodes[0])
+	var newest_center: Vector2 = _slot_center_in_local(_slot_nodes[0])
 	var move_tween: Tween = create_tween()
 	move_tween.tween_property(incoming_overlay, "position", newest_pos, maxf(push_shift_duration, 0.05)).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	await move_tween.finished
+	_pending_incoming_geometry_points["normalize_takeover_final"] = _point_pair(newest_pos, newest_center)
 	incoming_overlay.queue_free()
 	_incoming_fx_nodes.erase(incoming_overlay)
 
@@ -982,8 +1031,76 @@ func _existing_overlay_shift_plan(overlays: Array[Panel], shift_step: Vector2) -
 			continue
 		var from_center: Vector2 = overlay.position + overlay.size * 0.5
 		var to_center: Vector2 = from_center + shift_step
-		lines.append("overlay[%d]: %s -> %s" % [i, str(from_center), str(to_center)])
+		lines.append("overlay[%d]: before=%s after=%s" % [
+			i,
+			_point_pair_str(overlay.position, from_center),
+			_point_pair_str(overlay.position + shift_step, to_center)
+		])
 	return lines
+
+
+func _build_queue_geometry_lines(
+	target_display_index: int,
+	shift_applied: bool,
+	incoming_from_top_left: Vector2,
+	incoming_from_center: Vector2,
+	incoming_to_top_left: Vector2,
+	incoming_to_center: Vector2,
+	survivor_shift_plan_lines: Array[String],
+	evict_motion_plan_lines: Array[String],
+	captured_slot_to_overlay_lines: Array[String]
+) -> Array[String]:
+	var lines: Array[String] = []
+	lines.append("geo.slot_shift_vector=%s" % str(_slot_shift_vector()))
+	lines.append("geo.captured_slot_to_overlay=%s" % str(captured_slot_to_overlay_lines))
+	lines.append("geo.incoming.source=%s" % _point_pair_dict_str(_pending_incoming_geometry_points.get("source", {})))
+	lines.append("geo.incoming.push_entry=%s" % _point_pair_dict_str(_pending_incoming_geometry_points.get("push_entry", {})))
+	lines.append("geo.incoming.target_slot(display_%d)=%s" % [target_display_index, _point_pair_dict_str(_pending_incoming_geometry_points.get("target_slot", {}))])
+	if incoming_from_top_left != Vector2.INF and incoming_from_center != Vector2.INF:
+		lines.append("geo.incoming.overlay_start=%s" % _point_pair_str(incoming_from_top_left, incoming_from_center))
+	else:
+		lines.append("geo.incoming.overlay_start=%s" % _point_pair_dict_str(_pending_incoming_geometry_points.get("overlay_start", {})))
+	if incoming_to_top_left != Vector2.INF and incoming_to_center != Vector2.INF:
+		lines.append("geo.incoming.overlay_final=%s" % _point_pair_str(incoming_to_top_left, incoming_to_center))
+	else:
+		lines.append("geo.incoming.overlay_final=%s" % _point_pair_dict_str(_pending_incoming_geometry_points.get("overlay_final", {})))
+	for index: int in range(survivor_shift_plan_lines.size()):
+		lines.append("geo.shift.overlay_%d=%s" % [index, survivor_shift_plan_lines[index]])
+	for index: int in range(evict_motion_plan_lines.size()):
+		lines.append("geo.evict.overlay_%d=%s" % [index, evict_motion_plan_lines[index]])
+	lines.append("geo.normalize_in_place.takeover_start=%s" % _point_pair_dict_str(_pending_incoming_geometry_points.get("normalize_takeover_start", {})))
+	lines.append("geo.normalize_in_place.takeover_final=%s" % _point_pair_dict_str(_pending_incoming_geometry_points.get("normalize_takeover_final", {})))
+	if not shift_applied and survivor_shift_plan_lines.is_empty():
+		lines.append("geo.shift=none")
+	if evict_motion_plan_lines.is_empty():
+		lines.append("geo.evict=none")
+	return lines
+
+
+func _point_pair(top_left: Vector2, center: Vector2) -> Dictionary:
+	return {
+		"top_left": top_left,
+		"center": center,
+	}
+
+
+func _point_pair_from_center(center: Vector2) -> Dictionary:
+	var default_size: Vector2 = Vector2(52.0, 52.0)
+	return _point_pair(center - default_size * 0.5, center)
+
+
+func _point_pair_str(top_left: Vector2, center: Vector2) -> String:
+	return "top_left=%s center=%s" % [str(top_left), str(center)]
+
+
+func _point_pair_str_from_center(center: Vector2) -> String:
+	return _point_pair_str(center - Vector2(52.0, 52.0) * 0.5, center)
+
+
+func _point_pair_dict_str(point_pair: Dictionary) -> String:
+	if point_pair.is_empty():
+		return "n/a"
+	return _point_pair_str(point_pair.get("top_left", Vector2.ZERO), point_pair.get("center", Vector2.ZERO))
 
 
 func _append_slots_to_tween(appended_changes: Array[ChangeRecord], tween: Tween) -> void:
