@@ -1586,8 +1586,8 @@ func _assert_animation_snapshot_reports_segment_coordinates(context: Dictionary)
 			"to": Vector2i(2, 1),
 		},
 	]
-	var snapshot: String = _formatter.build_animation_coordinate_snapshot([], steps)
-	var no_segment_snapshot: String = _formatter.build_animation_coordinate_snapshot([], [], ["queue:update", "board:trace:queue_restart"])
+	var snapshot: String = _formatter.build_animation_coordinate_snapshot([], steps, [], [], [])
+	var no_segment_snapshot: String = _formatter.build_animation_coordinate_snapshot([], [], ["queue:update", "board:trace:queue_restart"], [], [])
 	return snapshot.contains("coord_system=board_grid_vector2i") \
 		and snapshot.contains("segment_0=box_0:(3, 1)->(2, 1)") \
 		and snapshot.contains("segment_1=box_0:(2, 1)->(2, 1)") \

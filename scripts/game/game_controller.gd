@@ -55,6 +55,8 @@ var _last_pre_recompile_queue_trace: Array[String] = []
 var _last_replay_queue_trace: Array[String] = []
 var _last_board_trace: Array[String] = []
 var _last_queue_animation_plan_lines: Array[String] = []
+var _last_queue_geometry_points_lines: Array[String] = []
+var _last_queue_geometry_capture_stage: String = "none"
 var _pending_pre_recompile_trace: Array[String] = []
 var _cached_snapshot_recompile_reason: String = "none"
 var _cached_snapshot_level_index: int = -1
@@ -62,6 +64,8 @@ var _cached_snapshot_pre_recompile_queue_trace: Array[String] = []
 var _cached_snapshot_replay_queue_trace: Array[String] = []
 var _cached_snapshot_board_trace: Array[String] = []
 var _cached_snapshot_queue_animation_plan_lines: Array[String] = []
+var _cached_snapshot_queue_geometry_points_lines: Array[String] = []
+var _cached_snapshot_queue_geometry_capture_stage: String = "none"
 var _trace_generation_id: int = 0
 var _last_snapshot_generation_id: int = 0
 var _feedback_clear_at_msec: int = 0
@@ -172,9 +176,11 @@ func copy_debug_log() -> void:
 		_last_replay_display_steps,
 		snapshot_meta.get("presentation_trace", []),
 		snapshot_meta.get("queue_plan_lines", []),
+		snapshot_meta.get("queue_geometry_points", []),
 		snapshot_meta.get("pre_trace", []),
 		snapshot_meta.get("replay_trace", []),
-		snapshot_meta.get("board_trace", [])
+		snapshot_meta.get("board_trace", []),
+		String(snapshot_meta.get("queue_geometry_capture_stage", "none"))
 	)
 	text = "%s\n[SnapshotMeta]\nsnapshot_recompile_reason=%s\nsnapshot_level_index=%d\nsnapshot_has_presentation_trace=%s\nsnapshot_pre_trace_count=%d\nsnapshot_replay_trace_count=%d\nsnapshot_board_trace_count=%d\nsnapshot_queue_plan_count=%d\nsnapshot_trace_generation_id=%d\nsnapshot_trace_generation_max=%d\nsnapshot_formatter_phase_support=%s" % [
 		text,
@@ -309,6 +315,8 @@ func _recompile_world(reason: String) -> void:
 	_last_board_trace = []
 	_refresh_presentation_trace()
 	_last_queue_animation_plan_lines = []
+	_last_queue_geometry_points_lines = []
+	_last_queue_geometry_capture_stage = "none"
 	_pending_pre_recompile_trace.clear()
 	_mark_trace_generation("recompile:clear_pending_pre_trace")
 	print("[Recompile] begin reason=%s" % reason)
@@ -345,6 +353,7 @@ func _recompile_world(reason: String) -> void:
 		)
 		_append_pre_recompile_queue_trace(_queue_view.get_last_animation_trace())
 		_save_queue_animation_plan_lines()
+		_save_queue_geometry_points_lines()
 	elif replay_gate_allowed and not pre_recompile_owns_live_append_transaction:
 		await _queue_view.play_queue_transition(
 			previous_queue_entries,
@@ -355,6 +364,7 @@ func _recompile_world(reason: String) -> void:
 		)
 		_append_replay_queue_trace(_queue_view.get_last_animation_trace())
 		_save_queue_animation_plan_lines()
+		_save_queue_geometry_points_lines()
 	elif not has_replay_owned_queue_update_trace:
 		_queue_view.render_queue(result.queue_entries, _memory_capacity(), _defaults.obsession_capacity)
 	if replay_gate_allowed:
@@ -466,6 +476,7 @@ func _play_pending_queue_update(item: Dictionary) -> void:
 	)
 	_append_replay_queue_trace(_queue_view.get_last_animation_trace())
 	_save_queue_animation_plan_lines()
+	_save_queue_geometry_points_lines()
 
 
 func _save_queue_animation_plan_lines() -> void:
@@ -474,6 +485,12 @@ func _save_queue_animation_plan_lines() -> void:
 		return
 	_last_queue_animation_plan_lines = latest_queue_plan_lines
 	_mark_trace_generation("trace:queue_plan")
+
+
+func _save_queue_geometry_points_lines() -> void:
+	_last_queue_geometry_points_lines = _queue_view.get_last_geometry_points_lines()
+	_last_queue_geometry_capture_stage = _queue_view.get_last_geometry_capture_stage()
+	_mark_trace_generation("trace:queue_geometry")
 
 
 func _queue_entries_match(left: Array[ChangeRecord], right: Array[ChangeRecord]) -> bool:
@@ -547,6 +564,8 @@ func _reset_level() -> void:
 	_last_replay_queue_trace = []
 	_last_board_trace = []
 	_last_queue_animation_plan_lines = []
+	_last_queue_geometry_points_lines = []
+	_last_queue_geometry_capture_stage = "none"
 	_pending_pre_recompile_trace = []
 	_trace_generation_id = 0
 	_last_snapshot_generation_id = 0
@@ -760,7 +779,7 @@ func _mark_trace_generation(_reason: String) -> void:
 
 
 func _cache_last_non_empty_snapshot_if_needed() -> void:
-	if _last_pre_recompile_queue_trace.is_empty() and _last_replay_queue_trace.is_empty() and _last_board_trace.is_empty() and _last_queue_animation_plan_lines.is_empty():
+	if _last_pre_recompile_queue_trace.is_empty() and _last_replay_queue_trace.is_empty() and _last_board_trace.is_empty() and _last_queue_animation_plan_lines.is_empty() and _last_queue_geometry_points_lines.is_empty():
 		return
 	_cached_snapshot_recompile_reason = _last_recompile_reason
 	_cached_snapshot_level_index = _current_level_index
@@ -768,15 +787,19 @@ func _cache_last_non_empty_snapshot_if_needed() -> void:
 	_cached_snapshot_replay_queue_trace = _last_replay_queue_trace.duplicate()
 	_cached_snapshot_board_trace = _last_board_trace.duplicate()
 	_cached_snapshot_queue_animation_plan_lines = _last_queue_animation_plan_lines.duplicate()
+	_cached_snapshot_queue_geometry_points_lines = _last_queue_geometry_points_lines.duplicate()
+	_cached_snapshot_queue_geometry_capture_stage = _last_queue_geometry_capture_stage
 	_last_snapshot_generation_id = _trace_generation_id
 
 
 func _resolve_snapshot_metadata() -> Dictionary:
-	var use_current: bool = not _last_pre_recompile_queue_trace.is_empty() or not _last_replay_queue_trace.is_empty() or not _last_board_trace.is_empty() or not _last_queue_animation_plan_lines.is_empty()
+	var use_current: bool = not _last_pre_recompile_queue_trace.is_empty() or not _last_replay_queue_trace.is_empty() or not _last_board_trace.is_empty() or not _last_queue_animation_plan_lines.is_empty() or not _last_queue_geometry_points_lines.is_empty()
 	var pre_trace: Array[String] = _last_pre_recompile_queue_trace
 	var replay_trace: Array[String] = _last_replay_queue_trace
 	var board_trace: Array[String] = _last_board_trace
 	var queue_plan_lines: Array[String] = _last_queue_animation_plan_lines
+	var queue_geometry_points: Array[String] = _last_queue_geometry_points_lines
+	var queue_geometry_capture_stage: String = _last_queue_geometry_capture_stage
 	var recompile_reason: String = _last_recompile_reason
 	var level_index: int = _current_level_index
 	var generation_id: int = _trace_generation_id
@@ -785,6 +808,8 @@ func _resolve_snapshot_metadata() -> Dictionary:
 		replay_trace = _cached_snapshot_replay_queue_trace
 		board_trace = _cached_snapshot_board_trace
 		queue_plan_lines = _cached_snapshot_queue_animation_plan_lines
+		queue_geometry_points = _cached_snapshot_queue_geometry_points_lines
+		queue_geometry_capture_stage = _cached_snapshot_queue_geometry_capture_stage
 		recompile_reason = _cached_snapshot_recompile_reason
 		level_index = _cached_snapshot_level_index
 		generation_id = _last_snapshot_generation_id
@@ -795,6 +820,8 @@ func _resolve_snapshot_metadata() -> Dictionary:
 	return {
 		"presentation_trace": presentation_trace,
 		"queue_plan_lines": queue_plan_lines,
+		"queue_geometry_points": queue_geometry_points,
+		"queue_geometry_capture_stage": queue_geometry_capture_stage,
 		"pre_trace": pre_trace,
 		"replay_trace": replay_trace,
 		"board_trace": board_trace,
