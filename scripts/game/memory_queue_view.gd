@@ -588,7 +588,7 @@ func _capture_front_slot_overlays(entry_count: int, skip_indices: Array[int] = [
 		var overlay := Panel.new()
 		overlay.custom_minimum_size = slot.size
 		overlay.size = slot.size
-		overlay.position = _to_local_canvas(slot.get_global_rect().position)
+		overlay.position = _slot_top_left_in_local(slot)
 		overlay.modulate = slot.modulate
 		overlay.pivot_offset = overlay.size * 0.5
 		overlay.z_index = 64
@@ -678,7 +678,8 @@ func _animate_push_right_then_evict(
 	if incoming_overlay == null:
 		incoming_overlay = _build_append_overlay(appended_changes[0])
 		created_incoming_overlay = true
-	var newest_pos: Vector2 = _to_local_canvas(newest_slot.get_global_rect().position)
+	var newest_pos: Vector2 = _slot_top_left_in_local(newest_slot)
+	var newest_center: Vector2 = _slot_center_in_local(newest_slot)
 	if incoming_overlay == null:
 		removed_overlay_indices = created_overlay_indices.duplicate()
 		_last_animation_plan_lines = _build_queue_animation_plan(
@@ -700,8 +701,11 @@ func _animate_push_right_then_evict(
 		created_overlay_indices.append(0)
 	incoming_overlay.pivot_offset = incoming_overlay.size * 0.5
 	incoming_overlay.z_index = 64
+	var incoming_from_center: Vector2 = incoming_overlay.position + incoming_overlay.size * 0.5
 	if not had_pending_overlay:
 		incoming_overlay.position = newest_pos - shift_step
+		incoming_from_center = incoming_overlay.position + incoming_overlay.size * 0.5
+	var incoming_to_center: Vector2 = newest_center
 	var move_tween: Tween = create_tween()
 	move_tween.set_parallel(true)
 	var move_time: float = maxf(push_shift_duration, 0.05)
@@ -712,12 +716,21 @@ func _animate_push_right_then_evict(
 		move_tween.tween_property(overlay, "position", overlay.position + shift_step, move_time).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	await move_tween.finished
 	var evict_overlays: Array[Panel] = []
+	var evict_motion_plan: Array[String] = []
 	var evictable: int = mini(evicted_count, existing_overlays.size())
 	for i: int in range(evictable):
 		var overlay_index: int = existing_overlays.size() - 1 - i
 		if overlay_index < 0:
 			break
-		evict_overlays.append(existing_overlays[overlay_index])
+		var evict_overlay: Panel = existing_overlays[overlay_index]
+		evict_overlays.append(evict_overlay)
+		if evict_overlay != null:
+			evict_motion_plan.append(
+				"overlay[%d]: %s -> right_lane" % [
+					overlay_index,
+					str(evict_overlay.position + evict_overlay.size * 0.5)
+				]
+			)
 	if not evict_overlays.is_empty():
 		var evict_tween: Tween = create_tween()
 		evict_tween.set_parallel(true)
@@ -740,7 +753,11 @@ func _animate_push_right_then_evict(
 		true,
 		had_pending_overlay,
 		created_incoming_overlay,
-		diff_classification
+		diff_classification,
+		incoming_from_center,
+		incoming_to_center,
+		_existing_overlay_shift_plan(existing_overlays, shift_step),
+		evict_motion_plan
 	)
 	incoming_overlay.queue_free()
 	_incoming_fx_nodes.erase(incoming_overlay)
@@ -761,7 +778,11 @@ func _build_queue_animation_plan(
 	shift_applied: bool,
 	had_pending_incoming_overlay: bool,
 	created_incoming_overlay: bool,
-	diff_classification: String
+	diff_classification: String,
+	incoming_from_center: Vector2 = Vector2.INF,
+	incoming_to_center: Vector2 = Vector2.INF,
+	survivor_shift_plan_lines: Array[String] = [],
+	evict_motion_plan_lines: Array[String] = []
 ) -> Array[String]:
 	var capacity: int = _slot_nodes.size()
 	var display_entries_before: Array[ChangeRecord] = _to_display_entries(before_entries, capacity)
@@ -801,12 +822,19 @@ func _build_queue_animation_plan(
 	elif created_incoming_overlay:
 		takeover_mode = "overlay_takeover_slot"
 	lines.append("new_memory_slot_takeover=%s" % takeover_mode)
-	lines.append("incoming_motion_plan=incoming: source -> display_slot_%d" % target_display_index)
-	if shift_mappings.is_empty():
+	if incoming_from_center != Vector2.INF and incoming_to_center != Vector2.INF:
+		lines.append("incoming_motion_plan=incoming: %s -> display_slot_%d_center=%s" % [str(incoming_from_center), target_display_index, str(incoming_to_center)])
+	else:
+		lines.append("incoming_motion_plan=incoming: source -> display_slot_%d" % target_display_index)
+	if not survivor_shift_plan_lines.is_empty():
+		lines.append("survivor_shift_plan=%s" % str(survivor_shift_plan_lines))
+	elif shift_mappings.is_empty():
 		lines.append("survivor_shift_plan=none")
 	else:
 		lines.append("survivor_shift_plan=survivor_shift: slot%s" % ", slot".join(shift_mappings))
-	if evicted_count > 0:
+	if not evict_motion_plan_lines.is_empty():
+		lines.append("evict_motion_plan=%s" % str(evict_motion_plan_lines))
+	elif evicted_count > 0:
 		var evict_from: int = max(0, old_memory_count - 1)
 		lines.append("evict_motion_plan=evict: display_slot_%d -> right_lane" % evict_from)
 	else:
@@ -868,7 +896,7 @@ func _animate_normalize_in_place_takeover() -> void:
 		return
 	incoming_overlay.pivot_offset = incoming_overlay.size * 0.5
 	incoming_overlay.z_index = 64
-	var newest_pos: Vector2 = _to_local_canvas(_slot_nodes[0].get_global_rect().position)
+	var newest_pos: Vector2 = _slot_top_left_in_local(_slot_nodes[0])
 	var move_tween: Tween = create_tween()
 	move_tween.tween_property(incoming_overlay, "position", newest_pos, maxf(push_shift_duration, 0.05)).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	await move_tween.finished
@@ -924,18 +952,38 @@ func _incoming_push_entry_point() -> Vector2:
 	if _slot_nodes.is_empty():
 		return _incoming_lane_left_point()
 	var newest_slot: Panel = _slot_nodes[0]
-	var newest_pos: Vector2 = _to_local_canvas(newest_slot.get_global_rect().position)
-	return newest_pos - _slot_shift_vector()
+	var newest_center: Vector2 = _slot_center_in_local(newest_slot)
+	return newest_center - _slot_shift_vector()
 
 
 func _slot_shift_vector() -> Vector2:
 	if _slot_nodes.is_empty() or _slot_nodes[0] == null:
 		return Vector2(52.0, 0.0)
-	var newest_pos: Vector2 = _to_local_canvas(_slot_nodes[0].get_global_rect().position)
+	var newest_pos: Vector2 = _slot_center_in_local(_slot_nodes[0])
 	if _slot_nodes.size() > 1 and _slot_nodes[1] != null:
-		var next_pos: Vector2 = _to_local_canvas(_slot_nodes[1].get_global_rect().position)
+		var next_pos: Vector2 = _slot_center_in_local(_slot_nodes[1])
 		return next_pos - newest_pos
 	return Vector2(_slot_nodes[0].size.x, 0.0)
+
+
+func _slot_top_left_in_local(slot: Control) -> Vector2:
+	return _to_local_canvas(slot.get_global_rect().position)
+
+
+func _slot_center_in_local(slot: Control) -> Vector2:
+	return _to_local_canvas(slot.get_global_rect().get_center())
+
+
+func _existing_overlay_shift_plan(overlays: Array[Panel], shift_step: Vector2) -> Array[String]:
+	var lines: Array[String] = []
+	for i: int in range(overlays.size()):
+		var overlay: Panel = overlays[i]
+		if overlay == null:
+			continue
+		var from_center: Vector2 = overlay.position + overlay.size * 0.5
+		var to_center: Vector2 = from_center + shift_step
+		lines.append("overlay[%d]: %s -> %s" % [i, str(from_center), str(to_center)])
+	return lines
 
 
 func _append_slots_to_tween(appended_changes: Array[ChangeRecord], tween: Tween) -> void:
