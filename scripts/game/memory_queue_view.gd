@@ -92,7 +92,8 @@ func play_queue_transition(
 		new_entries,
 		animated_appended_changes,
 		evicted_changes.size(),
-		diff_classification
+		diff_classification,
+		"queue_transition"
 	)
 	if animation_mode == "append_plus_evict" or animation_mode == "incoming_plus_evict":
 		_last_animation_trace.append("queue:evict")
@@ -224,7 +225,14 @@ func play_queue_update(
 		_last_animation_trace.append("queue:append")
 	if not evicted_changes.is_empty():
 		_last_animation_trace.append("queue:evict")
-	await _animate_push_right_then_evict(before_entries, after_entries, appended, evicted_changes.size(), diff_classification)
+	await _animate_push_right_then_evict(
+		before_entries,
+		after_entries,
+		appended,
+		evicted_changes.size(),
+		diff_classification,
+		"queue_update"
+	)
 	render_queue(after_entries, capacity, obsession_capacity)
 	_last_animation_trace.append("queue:settle")
 	await animate_queue_settle()
@@ -303,9 +311,8 @@ func play_incoming_change_fx(change: ChangeRecord, source_global_pos: Vector2, c
 	if target_slot == null:
 		_last_animation_trace.append("queue:incoming_fx:skip_no_target")
 		return
-	var target_slot_rect: Rect2 = target_slot.get_global_rect()
-	var target_slot_center: Vector2 = _to_local_canvas(target_slot_rect.get_center())
-	var target_slot_top_left: Vector2 = _to_local_canvas(target_slot_rect.position)
+	var target_slot_center: Vector2 = _slot_center_in_local(target_slot)
+	var target_slot_top_left: Vector2 = _slot_top_left_in_local(target_slot)
 	var lane_anchor: Vector2 = target_slot_center
 	var particle: Control = _build_incoming_badge(change)
 	particle.position = _to_local_canvas(source_global_pos) - particle.size * 0.5
@@ -642,7 +649,8 @@ func _animate_push_right_then_evict(
 	after_entries: Array[ChangeRecord],
 	appended_changes: Array[ChangeRecord],
 	evicted_count: int,
-	diff_classification: String = ""
+	diff_classification: String = "",
+	geometry_stage_name: String = "queue_transition"
 ) -> void:
 	if _slot_nodes.is_empty() or appended_changes.is_empty():
 		_last_animation_plan_lines = _build_queue_animation_plan(
@@ -663,7 +671,10 @@ func _animate_push_right_then_evict(
 	var occupied_before: int = mini(before_entries.size(), _slot_nodes.size())
 	var had_pending_overlay: bool = _pending_incoming_overlay != null and is_instance_valid(_pending_incoming_overlay)
 	var capture_skip_indices: Array[int] = []
-	if had_pending_overlay:
+	var must_capture_old_slot_zero_for_evict: bool = had_pending_overlay and evicted_count > 0 and (
+		diff_classification == "append_plus_evict" or diff_classification == "pre_recompile_append_plus_evict"
+	)
+	if had_pending_overlay and not must_capture_old_slot_zero_for_evict:
 		capture_skip_indices.append(0)
 	var existing_overlays: Array[Panel] = _capture_front_slot_overlays(occupied_before, capture_skip_indices)
 	var captured_slot_to_overlay: Array[String] = []
@@ -765,15 +776,15 @@ func _animate_push_right_then_evict(
 	var target_geo: Dictionary = _pending_incoming_geometry_points.get("target_slot", {})
 	if target_geo.is_empty():
 		target_geo = _point_pair(newest_pos, newest_center)
-	_append_geo_line("queue_transition", "incoming.source", source_geo)
-	_append_geo_line("queue_transition", "incoming.push_entry", push_entry_geo)
-	_append_geo_line("queue_transition", "incoming.target_slot", target_geo)
-	_append_geo_line("queue_transition", "incoming.overlay_start", _point_pair(incoming_from_top_left, incoming_from_center))
-	_append_geo_line("queue_transition", "incoming.overlay_final", _point_pair(incoming_to_top_left, incoming_to_center))
+	_append_geo_line(geometry_stage_name, "incoming.source", source_geo)
+	_append_geo_line(geometry_stage_name, "incoming.push_entry", push_entry_geo)
+	_append_geo_line(geometry_stage_name, "incoming.target_slot", target_geo)
+	_append_geo_line(geometry_stage_name, "incoming.overlay_start", _point_pair(incoming_from_top_left, incoming_from_center))
+	_append_geo_line(geometry_stage_name, "incoming.overlay_final", _point_pair(incoming_to_top_left, incoming_to_center))
 	for index: int in range(captured_slot_to_overlay.size()):
-		_append_geo_raw_line("queue_transition", "captured_slot_to_overlay_%d=%s" % [index, captured_slot_to_overlay[index]])
+		_append_geo_raw_line(geometry_stage_name, "captured_slot_to_overlay_%d=%s" % [index, captured_slot_to_overlay[index]])
 	for index: int in range(survivor_shift_plan.size()):
-		_append_geo_raw_line("queue_transition", "shift.overlay_%d=%s" % [index, survivor_shift_plan[index]])
+		_append_geo_raw_line(geometry_stage_name, "shift.overlay_%d=%s" % [index, survivor_shift_plan[index]])
 	var evict_overlays: Array[Panel] = []
 	var evict_motion_plan: Array[String] = []
 	var right_lane: Vector2 = _incoming_lane_right_point()
@@ -798,7 +809,7 @@ func _animate_push_right_then_evict(
 					_point_pair_str(evict_target_top_left, evict_target_center)
 				]
 			)
-			_append_geo_raw_line("queue_transition", "evict.overlay_%d=%s" % [overlay_index, evict_motion_plan[evict_motion_plan.size() - 1]])
+			_append_geo_raw_line(geometry_stage_name, "evict.overlay_%d=%s" % [overlay_index, evict_motion_plan[evict_motion_plan.size() - 1]])
 	if not evict_overlays.is_empty():
 		var evict_tween: Tween = create_tween()
 		evict_tween.set_parallel(true)
