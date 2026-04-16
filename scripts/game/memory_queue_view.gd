@@ -313,7 +313,7 @@ func play_incoming_change_fx(change: ChangeRecord, source_global_pos: Vector2, c
 		return
 	var target_slot_center: Vector2 = _slot_center_in_local(target_slot)
 	var target_slot_top_left: Vector2 = _slot_top_left_in_local(target_slot)
-	var lane_anchor: Vector2 = target_slot_center
+	var queue_entry_center: Vector2 = target_slot_center
 	var particle: Control = _build_incoming_badge(change)
 	particle.position = _to_local_canvas(source_global_pos) - particle.size * 0.5
 	add_child(particle)
@@ -329,20 +329,14 @@ func play_incoming_change_fx(change: ChangeRecord, source_global_pos: Vector2, c
 		await get_tree().create_timer(incoming_hold_before_launch).timeout
 
 	var travel_time: float = maxf(incoming_fx_duration, 0.14)
-	var lane_tween: Tween = create_tween()
-	lane_tween.tween_property(particle, "position", lane_anchor - particle.size * 0.5, travel_time).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	await lane_tween.finished
-	if incoming_hold_at_lane > 0.0:
-		await get_tree().create_timer(incoming_hold_at_lane).timeout
-
 	var target_tween: Tween = create_tween()
 	target_tween.set_parallel(true)
-	var push_entry: Vector2 = _incoming_push_entry_point()
+	var push_entry: Vector2 = queue_entry_center
 	_pending_incoming_geometry_points = {
 		"source": _point_pair_from_center(source_local),
 		"push_entry": _point_pair_from_center(push_entry),
 		"incoming_fx_target_slot": _point_pair(target_slot_top_left, target_slot_center),
-		"overlay_start": _point_pair_from_center(popped_local),
+		"overlay_start": _point_pair_from_center(push_entry),
 	}
 	_append_geo_line("incoming_fx", "incoming.source", _pending_incoming_geometry_points["source"])
 	_append_geo_line("incoming_fx", "incoming.push_entry", _pending_incoming_geometry_points["push_entry"])
@@ -757,6 +751,14 @@ func _animate_push_right_then_evict(
 		incoming_from_top_left = incoming_overlay.position
 	var incoming_to_center: Vector2 = newest_center
 	var incoming_to_top_left: Vector2 = newest_pos
+	var lock_incoming_at_slot: bool = had_pending_overlay and (
+		diff_classification == "append_plus_evict"
+		or diff_classification == "pre_recompile_append_plus_evict"
+		or diff_classification == "incoming_plus_evict"
+	)
+	if lock_incoming_at_slot:
+		incoming_to_center = incoming_from_center
+		incoming_to_top_left = incoming_from_top_left
 	var overlay_shift_starts: Array[Vector2] = []
 	var overlay_shift_afters: Array[Vector2] = []
 	for overlay: Panel in existing_overlays:
@@ -769,7 +771,8 @@ func _animate_push_right_then_evict(
 	var move_tween: Tween = create_tween()
 	move_tween.set_parallel(true)
 	var move_time: float = maxf(push_shift_duration, 0.05)
-	move_tween.tween_property(incoming_overlay, "position", newest_pos, move_time).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	if not lock_incoming_at_slot:
+		move_tween.tween_property(incoming_overlay, "position", newest_pos, move_time).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	for overlay_index: int in range(existing_overlays.size()):
 		var overlay: Panel = existing_overlays[overlay_index]
 		if overlay == null:
