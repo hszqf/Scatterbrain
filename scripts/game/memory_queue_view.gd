@@ -341,12 +341,12 @@ func play_incoming_change_fx(change: ChangeRecord, source_global_pos: Vector2, c
 	_pending_incoming_geometry_points = {
 		"source": _point_pair_from_center(source_local),
 		"push_entry": _point_pair_from_center(push_entry),
-		"target_slot": _point_pair(target_slot_top_left, target_slot_center),
+		"incoming_fx_target_slot": _point_pair(target_slot_top_left, target_slot_center),
 		"overlay_start": _point_pair_from_center(popped_local),
 	}
 	_append_geo_line("incoming_fx", "incoming.source", _pending_incoming_geometry_points["source"])
 	_append_geo_line("incoming_fx", "incoming.push_entry", _pending_incoming_geometry_points["push_entry"])
-	_append_geo_line("incoming_fx", "incoming.target_slot(display_%d)" % target_index, _pending_incoming_geometry_points["target_slot"])
+	_append_geo_line("incoming_fx", "incoming_fx.target_slot(display_%d)" % target_index, _pending_incoming_geometry_points["incoming_fx_target_slot"])
 	_append_geo_line("incoming_fx", "incoming.overlay_start", _pending_incoming_geometry_points["overlay_start"])
 	target_tween.tween_property(particle, "position", push_entry - particle.size * 0.5, travel_time).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	target_tween.tween_property(particle, "scale", Vector2.ONE * incoming_fx_end_scale, travel_time)
@@ -773,12 +773,13 @@ func _animate_push_right_then_evict(
 	var push_entry_geo: Dictionary = _pending_incoming_geometry_points.get("push_entry", {})
 	if push_entry_geo.is_empty():
 		push_entry_geo = _point_pair_from_center(_incoming_push_entry_point())
-	var target_geo: Dictionary = _pending_incoming_geometry_points.get("target_slot", {})
-	if target_geo.is_empty():
-		target_geo = _point_pair(newest_pos, newest_center)
+	var target_geo: Dictionary = _point_pair(newest_pos, newest_center)
+	var incoming_fx_target_geo: Dictionary = _pending_incoming_geometry_points.get("incoming_fx_target_slot", {})
 	_append_geo_line(geometry_stage_name, "incoming.source", source_geo)
 	_append_geo_line(geometry_stage_name, "incoming.push_entry", push_entry_geo)
 	_append_geo_line(geometry_stage_name, "incoming.target_slot", target_geo)
+	if not incoming_fx_target_geo.is_empty():
+		_append_geo_line(geometry_stage_name, "incoming_fx.target_slot", incoming_fx_target_geo)
 	_append_geo_line(geometry_stage_name, "incoming.overlay_start", _point_pair(incoming_from_top_left, incoming_from_center))
 	_append_geo_line(geometry_stage_name, "incoming.overlay_final", _point_pair(incoming_to_top_left, incoming_to_center))
 	for index: int in range(captured_slot_to_overlay.size()):
@@ -786,6 +787,7 @@ func _animate_push_right_then_evict(
 	for index: int in range(survivor_shift_plan.size()):
 		_append_geo_raw_line(geometry_stage_name, "shift.overlay_%d=%s" % [index, survivor_shift_plan[index]])
 	var evict_overlays: Array[Panel] = []
+	var evict_target_positions: Array[Vector2] = []
 	var evict_motion_plan: Array[String] = []
 	var right_lane: Vector2 = _incoming_lane_right_point()
 	var evictable: int = mini(evicted_count, existing_overlays.size())
@@ -795,12 +797,17 @@ func _animate_push_right_then_evict(
 			break
 		var evict_overlay: Panel = existing_overlays[overlay_index]
 		evict_overlays.append(evict_overlay)
+		evict_target_positions.append(Vector2.ZERO)
 		if evict_overlay != null:
 			var evict_start_center: Vector2 = evict_overlay.position + evict_overlay.size * 0.5
-			var lane_target_x: float = right_lane.x - evict_overlay.size.x * 0.5 + float(i) * 4.0
-			var evict_target_top_left: Vector2 = Vector2(lane_target_x + evict_drop_pixels, evict_overlay.position.y)
+			var min_lane_center_x: float = evict_start_center.x + maxf(8.0, evict_drop_pixels * 0.5)
+			var lane_center_x: float = maxf(right_lane.x + float(i) * 4.0, min_lane_center_x)
+			var lane_target_x: float = lane_center_x - evict_overlay.size.x * 0.5
+			var target_center_x: float = lane_center_x + maxf(evict_drop_pixels, 8.0)
+			var evict_target_top_left: Vector2 = Vector2(target_center_x - evict_overlay.size.x * 0.5, evict_overlay.position.y)
 			var evict_lane_center: Vector2 = Vector2(lane_target_x + evict_overlay.size.x * 0.5, evict_start_center.y)
 			var evict_target_center: Vector2 = evict_target_top_left + evict_overlay.size * 0.5
+			evict_target_positions[evict_target_positions.size() - 1] = evict_target_top_left
 			evict_motion_plan.append(
 				"overlay[%d]: start=%s lane=%s target=%s" % [
 					overlay_index,
@@ -813,9 +820,12 @@ func _animate_push_right_then_evict(
 	if not evict_overlays.is_empty():
 		var evict_tween: Tween = create_tween()
 		evict_tween.set_parallel(true)
-		for overlay: Panel in evict_overlays:
+		for index: int in range(evict_overlays.size()):
+			var overlay: Panel = evict_overlays[index]
 			if overlay == null:
 				continue
+			if index < evict_target_positions.size():
+				evict_tween.tween_property(overlay, "position", evict_target_positions[index], evict_duration).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 			evict_tween.tween_property(overlay, "scale", Vector2(evict_scale, evict_scale), evict_duration)
 			evict_tween.tween_property(overlay, "modulate:a", 0.0, evict_duration)
 		await evict_tween.finished
