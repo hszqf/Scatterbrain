@@ -398,6 +398,7 @@ func _play_compile_trace(trace: Array[Dictionary]) -> void:
 	_replay_controller.begin_trace_playback(trace, _defaults)
 	var focused_queue_index: int = -1
 	var pending_queue_update_item: Dictionary = {}
+	var should_reset_on_queue_restart: bool = false
 	for trace_index: int in range(trace.size()):
 		var item: Dictionary = trace[trace_index]
 		var kind: String = String(item.get("kind", ""))
@@ -423,19 +424,23 @@ func _play_compile_trace(trace: Array[Dictionary]) -> void:
 			_append_board_trace("board:trace:%s" % kind)
 			await _replay_controller.play_trace_item(item, _replay_controller.memory_beat_duration)
 			if not pending_queue_update_item.is_empty() and (kind == "move" or kind == "ghostify" or kind == "beat_empty"):
-				await _play_pending_queue_update(pending_queue_update_item, trace, trace_index + 1)
+				await _play_pending_queue_update(pending_queue_update_item)
+				should_reset_on_queue_restart = true
 				pending_queue_update_item = {}
+			if kind == "queue_restart" and should_reset_on_queue_restart:
+				_replay_controller.reset_subjects_for_next_pass(trace, trace_index + 1)
+				should_reset_on_queue_restart = false
 			if (kind == "move" or kind == "ghostify" or kind == "beat_empty") and focused_queue_index >= 0:
 				_queue_view.end_focus_on_slot(focused_queue_index)
 				focused_queue_index = -1
 	if not pending_queue_update_item.is_empty():
-		await _play_pending_queue_update(pending_queue_update_item, trace, trace.size())
+		await _play_pending_queue_update(pending_queue_update_item)
 	if focused_queue_index >= 0:
 		_queue_view.end_focus_on_slot(focused_queue_index)
 	_replay_controller.end_trace_playback()
 
 
-func _play_pending_queue_update(item: Dictionary, trace: Array[Dictionary], next_trace_index: int) -> void:
+func _play_pending_queue_update(item: Dictionary) -> void:
 	var before_entries: Array[ChangeRecord] = item.get("before_queue_entries", [])
 	var after_entries: Array[ChangeRecord] = item.get("after_queue_entries", [])
 	var evicted_changes: Array[ChangeRecord] = item.get("evicted_changes", [])
@@ -461,7 +466,6 @@ func _play_pending_queue_update(item: Dictionary, trace: Array[Dictionary], next
 	)
 	_append_replay_queue_trace(_queue_view.get_last_animation_trace())
 	_save_queue_animation_plan_lines()
-	_replay_controller.reset_subjects_for_next_pass(trace, next_trace_index)
 
 
 func _save_queue_animation_plan_lines() -> void:

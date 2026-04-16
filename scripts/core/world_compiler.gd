@@ -60,39 +60,39 @@ func compile(defaults: WorldDefaults, queue: ChangeQueue, player_position: Vecto
 					"queue_index": queue_index,
 					"player_at": state.player_position,
 				})
-				continue
-			var events: Array[Dictionary] = []
-			_interpreter.interpret([entry], state, context, events)
-			var player_before_entry: Vector2i = state.player_position
-			if entry.type == ChangeRecord.ChangeType.POSITION:
-				state.player_position += entry.move_delta
-			for event: Dictionary in events:
-				var change: ChangeRecord = event.get("change")
-				if change == null:
-					continue
-				if change.type == ChangeRecord.ChangeType.POSITION:
-					replay_trace.append({
-						"kind": "move",
-						"pass_index": pass_index,
-						"queue_index": queue_index,
-						"subject": change.subject_id,
-						"from": event.get("from", Vector2i.ZERO),
-						"to": event.get("to", Vector2i.ZERO),
-						"is_conflict": bool(event.get("is_conflict", false)),
-						"ends_as_ghost": bool(event.get("ends_as_ghost", false)),
-						"player_from": player_before_entry,
-						"player_to": state.player_position,
-					})
-				elif change.type == ChangeRecord.ChangeType.GHOST:
-					replay_trace.append({
-						"kind": "ghostify",
-						"pass_index": pass_index,
-						"queue_index": queue_index,
-						"subject": change.subject_id,
-						"at": event.get("from", Vector2i.ZERO),
-						"is_conflict": true,
-						"player_at": state.player_position,
-					})
+			else:
+				var events: Array[Dictionary] = []
+				_interpreter.interpret([entry], state, context, events)
+				var player_before_entry: Vector2i = state.player_position
+				if entry.type == ChangeRecord.ChangeType.POSITION:
+					state.player_position += entry.move_delta
+				for event: Dictionary in events:
+					var change: ChangeRecord = event.get("change")
+					if change == null:
+						continue
+					if change.type == ChangeRecord.ChangeType.POSITION:
+						replay_trace.append({
+							"kind": "move",
+							"pass_index": pass_index,
+							"queue_index": queue_index,
+							"subject": change.subject_id,
+							"from": event.get("from", Vector2i.ZERO),
+							"to": event.get("to", Vector2i.ZERO),
+							"is_conflict": bool(event.get("is_conflict", false)),
+							"ends_as_ghost": bool(event.get("ends_as_ghost", false)),
+							"player_from": player_before_entry,
+							"player_to": state.player_position,
+						})
+					elif change.type == ChangeRecord.ChangeType.GHOST:
+						replay_trace.append({
+							"kind": "ghostify",
+							"pass_index": pass_index,
+							"queue_index": queue_index,
+							"subject": change.subject_id,
+							"at": event.get("from", Vector2i.ZERO),
+							"is_conflict": true,
+							"player_at": state.player_position,
+						})
 
 			var generated_after_entry: Array[ChangeRecord] = _detect_generated_changes_after_entry(state, queue_entries, context, pass_index, queue_index)
 			print(
