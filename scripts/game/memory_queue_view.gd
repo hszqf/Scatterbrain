@@ -71,6 +71,10 @@ func play_queue_transition(
 	_last_animation_plan_lines = []
 	_clear_geometry_points_buffer()
 	render_queue(previous_entries, capacity, obsession_capacity)
+	await get_tree().process_frame
+	_capture_stable_queue_anchors()
+	_append_geo_raw_line("queue_transition", "queue_layout_stabilized=true")
+	_append_geo_line("queue_transition", "stable_slot0_before", _point_pair(_stable_slot0_top_left, _stable_slot0_center))
 	var appended_changes: Array[ChangeRecord] = _compute_appended_changes(previous_entries, new_entries, evicted_changes.size())
 	var has_pending_incoming_overlay: bool = _pending_incoming_overlay != null and is_instance_valid(_pending_incoming_overlay)
 	var animated_appended_changes: Array[ChangeRecord] = appended_changes.duplicate()
@@ -104,6 +108,9 @@ func play_queue_transition(
 	elif animation_mode == "incoming_plus_shift" or animation_mode == "append_only":
 		_last_animation_trace.append("queue:append")
 	render_queue(new_entries, capacity, obsession_capacity)
+	await get_tree().process_frame
+	_capture_stable_queue_anchors()
+	_append_geo_line("queue_transition", "stable_slot0_after", _point_pair(_stable_slot0_top_left, _stable_slot0_center))
 	_last_animation_trace.append("queue:settle")
 	await animate_queue_settle()
 
@@ -198,6 +205,10 @@ func play_queue_update(
 	_last_animation_plan_lines = []
 	_clear_geometry_points_buffer()
 	render_queue(before_entries, capacity, obsession_capacity)
+	await get_tree().process_frame
+	_capture_stable_queue_anchors()
+	_append_geo_raw_line("queue_update", "queue_layout_stabilized=true")
+	_append_geo_line("queue_update", "stable_slot0_before", _point_pair(_stable_slot0_top_left, _stable_slot0_center))
 	var appended: Array[ChangeRecord] = appended_changes.duplicate()
 	if appended.is_empty():
 		appended = _compute_appended_changes(before_entries, after_entries, evicted_changes.size())
@@ -238,6 +249,9 @@ func play_queue_update(
 		"queue_update"
 	)
 	render_queue(after_entries, capacity, obsession_capacity)
+	await get_tree().process_frame
+	_capture_stable_queue_anchors()
+	_append_geo_line("queue_update", "stable_slot0_after", _point_pair(_stable_slot0_top_left, _stable_slot0_center))
 	_last_animation_trace.append("queue:settle")
 	await animate_queue_settle()
 
@@ -764,7 +778,6 @@ func _animate_push_right_then_evict(
 	var stable_slot0_geo: Dictionary = _pending_incoming_geometry_points.get("stable_slot0", {})
 	var stable_handoff_geo: Dictionary = _pending_incoming_geometry_points.get("stable_handoff", {})
 	if stable_slot0_geo.is_empty() or stable_handoff_geo.is_empty():
-		_capture_stable_queue_anchors()
 		stable_slot0_geo = _point_pair(_stable_slot0_top_left, _stable_slot0_center)
 		stable_handoff_geo = _point_pair(_stable_handoff_top_left, _stable_handoff_center)
 	var handoff_center: Vector2 = stable_handoff_geo.get("center", Vector2.INF)
