@@ -7,9 +7,11 @@ func build_animation_coordinate_snapshot(
 	last_replay_display_steps: Array[Dictionary],
 	presentation_trace: Array[String] = [],
 	queue_animation_plan: Array[String] = [],
+	queue_geometry_points: Array[String] = [],
 	pre_recompile_queue_trace: Array[String] = [],
 	replay_queue_trace: Array[String] = [],
-	board_trace: Array[String] = []
+	board_trace: Array[String] = [],
+	geometry_capture_stage: String = "none"
 ) -> String:
 	var lines: Array[String] = []
 	lines.append("[AnimationSegments]")
@@ -44,16 +46,17 @@ func build_animation_coordinate_snapshot(
 		for index: int in range(queue_animation_plan.size()):
 			lines.append("plan_%d=%s" % [index, queue_animation_plan[index]])
 	lines.append("[QueueGeometryPoints]")
-	var geometry_lines: Array[String] = _extract_queue_geometry_lines(queue_animation_plan)
-	if geometry_lines.is_empty():
+	if queue_geometry_points.is_empty():
 		var has_queue_transaction: bool = _contains_queue_transaction(pre_recompile_queue_trace) or _contains_queue_transaction(replay_queue_trace)
 		if has_queue_transaction:
 			lines.append("geometry_missing_for_transaction=true")
+			lines.append("geometry_capture_failed=true")
+			lines.append("geometry_capture_stage=%s" % geometry_capture_stage)
 		else:
 			lines.append("geometry=none")
 	else:
-		for index: int in range(geometry_lines.size()):
-			lines.append("geo_%d=%s" % [index, geometry_lines[index]])
+		for index: int in range(queue_geometry_points.size()):
+			lines.append("geo_%d=%s" % [index, queue_geometry_points[index]])
 	return "\n".join(lines)
 
 
@@ -63,14 +66,6 @@ func _append_flow_phase(lines: Array[String], phase_name: String, phase_trace: A
 		return
 	for index: int in range(phase_trace.size()):
 		lines.append("%s_%d=%s" % [phase_name, index, phase_trace[index]])
-
-
-func _extract_queue_geometry_lines(queue_animation_plan: Array[String]) -> Array[String]:
-	var lines: Array[String] = []
-	for line: String in queue_animation_plan:
-		if line.begins_with("geo."):
-			lines.append(line)
-	return lines
 
 
 func _contains_queue_transaction(phase_trace: Array[String]) -> bool:
