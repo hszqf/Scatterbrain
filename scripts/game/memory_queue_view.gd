@@ -41,6 +41,10 @@ var _incoming_fx_nodes: Array[Control] = []
 var _pending_incoming_overlay: Control
 var _pending_incoming_geometry_points: Dictionary = {}
 var _last_geometry_capture_stage: String = "none"
+var _stable_slot0_top_left: Vector2 = Vector2.INF
+var _stable_slot0_center: Vector2 = Vector2.INF
+var _stable_handoff_top_left: Vector2 = Vector2.INF
+var _stable_handoff_center: Vector2 = Vector2.INF
 
 
 func _ready() -> void:
@@ -314,12 +318,15 @@ func play_incoming_change_fx(change: ChangeRecord, source_global_pos: Vector2, c
 	if target_slot == null:
 		_last_animation_trace.append("queue:incoming_fx:skip_no_target")
 		return
-	var newest_center: Vector2 = _slot_center_in_local(target_slot)
-	var newest_pos: Vector2 = _slot_top_left_in_local(target_slot)
-	var shift_step: Vector2 = _slot_shift_vector()
-	var handoff_geometry: Dictionary = _left_handoff_geometry(newest_center, newest_pos, shift_step)
-	var target_slot_center: Vector2 = handoff_geometry["center"]
-	var target_slot_top_left: Vector2 = handoff_geometry["top_left"]
+	_capture_stable_queue_anchors()
+	var target_slot_center: Vector2 = _stable_handoff_center
+	var target_slot_top_left: Vector2 = _stable_handoff_top_left
+	if target_slot_center == Vector2.INF or target_slot_top_left == Vector2.INF:
+		var fallback_center: Vector2 = _slot_center_in_local(target_slot)
+		var fallback_top_left: Vector2 = _slot_top_left_in_local(target_slot)
+		var fallback_handoff: Dictionary = _left_handoff_geometry(fallback_center, fallback_top_left, _slot_shift_vector())
+		target_slot_center = fallback_handoff["center"]
+		target_slot_top_left = fallback_handoff["top_left"]
 	var queue_entry_center: Vector2 = target_slot_center
 	var particle: Control = _build_incoming_badge(change)
 	particle.position = _to_local_canvas(source_global_pos) - particle.size * 0.5
@@ -344,6 +351,8 @@ func play_incoming_change_fx(change: ChangeRecord, source_global_pos: Vector2, c
 		"push_entry": _point_pair_from_center(push_entry),
 		"incoming_fx_target_slot": _point_pair(target_slot_top_left, target_slot_center),
 		"overlay_start": _point_pair_from_center(push_entry),
+		"stable_slot0": _point_pair(_stable_slot0_top_left, _stable_slot0_center),
+		"stable_handoff": _point_pair(_stable_handoff_top_left, _stable_handoff_center),
 	}
 	_append_geo_line("incoming_fx", "incoming.source", _pending_incoming_geometry_points["source"])
 	_append_geo_line("incoming_fx", "incoming.push_entry", _pending_incoming_geometry_points["push_entry"])
@@ -752,15 +761,28 @@ func _animate_push_right_then_evict(
 	var incoming_from_center: Vector2 = incoming_overlay.position + incoming_overlay.size * 0.5
 	var incoming_from_top_left: Vector2 = incoming_overlay.position
 	var shift_step: Vector2 = _slot_shift_vector()
-	var handoff_geometry: Dictionary = _left_handoff_geometry(newest_center, newest_pos, shift_step)
-	var handoff_center: Vector2 = handoff_geometry["center"]
-	var handoff_top_left: Vector2 = handoff_geometry["top_left"]
+	var stable_slot0_geo: Dictionary = _pending_incoming_geometry_points.get("stable_slot0", {})
+	var stable_handoff_geo: Dictionary = _pending_incoming_geometry_points.get("stable_handoff", {})
+	if stable_slot0_geo.is_empty() or stable_handoff_geo.is_empty():
+		_capture_stable_queue_anchors()
+		stable_slot0_geo = _point_pair(_stable_slot0_top_left, _stable_slot0_center)
+		stable_handoff_geo = _point_pair(_stable_handoff_top_left, _stable_handoff_center)
+	var handoff_center: Vector2 = stable_handoff_geo.get("center", Vector2.INF)
+	var handoff_top_left: Vector2 = stable_handoff_geo.get("top_left", Vector2.INF)
+	var target_slot_center: Vector2 = stable_slot0_geo.get("center", Vector2.INF)
+	var target_slot_top_left: Vector2 = stable_slot0_geo.get("top_left", Vector2.INF)
+	if handoff_center == Vector2.INF or handoff_top_left == Vector2.INF or target_slot_center == Vector2.INF or target_slot_top_left == Vector2.INF:
+		var handoff_geometry: Dictionary = _left_handoff_geometry(newest_center, newest_pos, shift_step)
+		handoff_center = handoff_geometry["center"]
+		handoff_top_left = handoff_geometry["top_left"]
+		target_slot_center = newest_center
+		target_slot_top_left = newest_pos
 	if not had_pending_overlay:
 		incoming_overlay.position = handoff_top_left
 		incoming_from_center = incoming_overlay.position + incoming_overlay.size * 0.5
 		incoming_from_top_left = incoming_overlay.position
-	var incoming_to_center: Vector2 = newest_center
-	var incoming_to_top_left: Vector2 = newest_pos
+	var incoming_to_center: Vector2 = target_slot_center
+	var incoming_to_top_left: Vector2 = target_slot_top_left
 	var lock_incoming_at_slot: bool = had_pending_overlay and (
 		diff_classification == "append_plus_evict"
 		or diff_classification == "pre_recompile_append_plus_evict"
@@ -783,7 +805,7 @@ func _animate_push_right_then_evict(
 		var incoming_move_time: float = move_time
 		if lock_incoming_at_slot:
 			incoming_move_time = minf(move_time, 0.12)
-		move_tween.tween_property(incoming_overlay, "position", newest_pos, incoming_move_time).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		move_tween.tween_property(incoming_overlay, "position", incoming_to_top_left, incoming_move_time).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	for overlay_index: int in range(existing_overlays.size()):
 		var overlay: Panel = existing_overlays[overlay_index]
 		if overlay == null:
@@ -797,7 +819,7 @@ func _animate_push_right_then_evict(
 	var push_entry_geo: Dictionary = _pending_incoming_geometry_points.get("push_entry", {})
 	if push_entry_geo.is_empty():
 		push_entry_geo = _point_pair(handoff_top_left, handoff_center)
-	var target_geo: Dictionary = _point_pair(newest_pos, newest_center)
+	var target_geo: Dictionary = _point_pair(incoming_to_top_left, incoming_to_center)
 	var incoming_fx_target_geo: Dictionary = _pending_incoming_geometry_points.get("incoming_fx_target_slot", {})
 	_append_geo_line(geometry_stage_name, "incoming.source", source_geo)
 	_append_geo_line(geometry_stage_name, "incoming.push_entry", push_entry_geo)
@@ -1075,6 +1097,23 @@ func _clear_pending_incoming_overlay() -> void:
 		_pending_incoming_overlay.queue_free()
 	_incoming_fx_nodes.erase(_pending_incoming_overlay)
 	_pending_incoming_overlay = null
+
+
+func _capture_stable_queue_anchors() -> void:
+	if _slot_nodes.is_empty() or _slot_nodes[0] == null:
+		return
+	var slot0: Panel = _slot_nodes[0]
+	var slot0_top_left: Vector2 = _slot_top_left_in_local(slot0)
+	var slot0_center: Vector2 = _slot_center_in_local(slot0)
+	var handoff_geometry: Dictionary = _left_handoff_geometry(
+		slot0_center,
+		slot0_top_left,
+		_slot_shift_vector()
+	)
+	_stable_slot0_top_left = slot0_top_left
+	_stable_slot0_center = slot0_center
+	_stable_handoff_top_left = handoff_geometry["top_left"]
+	_stable_handoff_center = handoff_geometry["center"]
 
 
 func _incoming_push_entry_point() -> Vector2:
