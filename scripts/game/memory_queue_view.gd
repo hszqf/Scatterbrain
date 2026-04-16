@@ -757,16 +757,26 @@ func _animate_push_right_then_evict(
 		incoming_from_top_left = incoming_overlay.position
 	var incoming_to_center: Vector2 = newest_center
 	var incoming_to_top_left: Vector2 = newest_pos
+	var overlay_shift_starts: Array[Vector2] = []
+	var overlay_shift_afters: Array[Vector2] = []
+	for overlay: Panel in existing_overlays:
+		if overlay == null:
+			overlay_shift_starts.append(Vector2.INF)
+			overlay_shift_afters.append(Vector2.INF)
+			continue
+		overlay_shift_starts.append(overlay.position)
+		overlay_shift_afters.append(overlay.position + shift_step)
 	var move_tween: Tween = create_tween()
 	move_tween.set_parallel(true)
 	var move_time: float = maxf(push_shift_duration, 0.05)
 	move_tween.tween_property(incoming_overlay, "position", newest_pos, move_time).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	for overlay: Panel in existing_overlays:
+	for overlay_index: int in range(existing_overlays.size()):
+		var overlay: Panel = existing_overlays[overlay_index]
 		if overlay == null:
 			continue
-		move_tween.tween_property(overlay, "position", overlay.position + shift_step, move_time).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		move_tween.tween_property(overlay, "position", overlay_shift_afters[overlay_index], move_time).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	await move_tween.finished
-	var survivor_shift_plan: Array[String] = _existing_overlay_shift_plan(existing_overlays, shift_step)
+	var survivor_shift_plan: Array[String] = _existing_overlay_shift_plan(existing_overlays, overlay_shift_starts, overlay_shift_afters)
 	var source_geo: Dictionary = _pending_incoming_geometry_points.get("source", {})
 	if source_geo.is_empty():
 		source_geo = _point_pair(incoming_from_top_left, incoming_from_center)
@@ -799,19 +809,24 @@ func _animate_push_right_then_evict(
 		evict_overlays.append(evict_overlay)
 		evict_target_positions.append(Vector2.ZERO)
 		if evict_overlay != null:
-			var evict_start_center: Vector2 = evict_overlay.position + evict_overlay.size * 0.5
+			var evict_start_top_left: Vector2 = evict_overlay.position
+			if overlay_index >= 0 and overlay_index < overlay_shift_afters.size() and overlay_shift_afters[overlay_index] != Vector2.INF:
+				evict_start_top_left = overlay_shift_afters[overlay_index]
+			if evict_overlay.position.distance_to(evict_start_top_left) > 0.01:
+				evict_overlay.position = evict_start_top_left
+			var evict_start_center: Vector2 = evict_start_top_left + evict_overlay.size * 0.5
 			var min_lane_center_x: float = evict_start_center.x + maxf(8.0, evict_drop_pixels * 0.5)
 			var lane_center_x: float = maxf(right_lane.x + float(i) * 4.0, min_lane_center_x)
 			var lane_target_x: float = lane_center_x - evict_overlay.size.x * 0.5
 			var target_center_x: float = lane_center_x + maxf(evict_drop_pixels, 8.0)
-			var evict_target_top_left: Vector2 = Vector2(target_center_x - evict_overlay.size.x * 0.5, evict_overlay.position.y)
+			var evict_target_top_left: Vector2 = Vector2(target_center_x - evict_overlay.size.x * 0.5, evict_start_top_left.y)
 			var evict_lane_center: Vector2 = Vector2(lane_target_x + evict_overlay.size.x * 0.5, evict_start_center.y)
 			var evict_target_center: Vector2 = evict_target_top_left + evict_overlay.size * 0.5
 			evict_target_positions[evict_target_positions.size() - 1] = evict_target_top_left
 			evict_motion_plan.append(
 				"overlay[%d]: start=%s lane=%s target=%s" % [
 					overlay_index,
-					_point_pair_str(evict_overlay.position, evict_start_center),
+					_point_pair_str(evict_start_top_left, evict_start_center),
 					_point_pair_str_from_center(evict_lane_center),
 					_point_pair_str(evict_target_top_left, evict_target_center)
 				]
@@ -1074,18 +1089,28 @@ func _slot_center_in_local(slot: Control) -> Vector2:
 	return _to_local_canvas(slot.get_global_rect().get_center())
 
 
-func _existing_overlay_shift_plan(overlays: Array[Panel], shift_step: Vector2) -> Array[String]:
+func _existing_overlay_shift_plan(
+	overlays: Array[Panel],
+	from_top_lefts: Array[Vector2],
+	after_top_lefts: Array[Vector2]
+) -> Array[String]:
 	var lines: Array[String] = []
 	for i: int in range(overlays.size()):
 		var overlay: Panel = overlays[i]
 		if overlay == null:
 			continue
-		var from_center: Vector2 = overlay.position + overlay.size * 0.5
-		var to_center: Vector2 = from_center + shift_step
+		if i < 0 or i >= from_top_lefts.size() or i >= after_top_lefts.size():
+			continue
+		var from_top_left: Vector2 = from_top_lefts[i]
+		var after_top_left: Vector2 = after_top_lefts[i]
+		if from_top_left == Vector2.INF or after_top_left == Vector2.INF:
+			continue
+		var from_center: Vector2 = from_top_left + overlay.size * 0.5
+		var to_center: Vector2 = after_top_left + overlay.size * 0.5
 		lines.append("overlay[%d]: before=%s after=%s" % [
 			i,
-			_point_pair_str(overlay.position, from_center),
-			_point_pair_str(overlay.position + shift_step, to_center)
+			_point_pair_str(from_top_left, from_center),
+			_point_pair_str(after_top_left, to_center)
 		])
 	return lines
 
