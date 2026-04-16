@@ -306,8 +306,11 @@ func play_incoming_change_fx(change: ChangeRecord, source_global_pos: Vector2, c
 	_clear_pending_incoming_overlay()
 	render_queue(current_entries, capacity, obsession_capacity)
 	await get_tree().process_frame
-	var target_index: int = resolve_incoming_slot_index(current_entries, capacity)
+	var target_index: int = 0
 	var target_slot: Panel = _slot_at_display(target_index)
+	if target_slot == null:
+		target_index = resolve_incoming_slot_index(current_entries, capacity)
+		target_slot = _slot_at_display(target_index)
 	if target_slot == null:
 		_last_animation_trace.append("queue:incoming_fx:skip_no_target")
 		return
@@ -756,9 +759,7 @@ func _animate_push_right_then_evict(
 		or diff_classification == "pre_recompile_append_plus_evict"
 		or diff_classification == "incoming_plus_evict"
 	)
-	if lock_incoming_at_slot:
-		incoming_to_center = incoming_from_center
-		incoming_to_top_left = incoming_from_top_left
+	var incoming_needs_handoff_to_slot: bool = incoming_from_top_left.distance_to(newest_pos) > 0.01
 	var overlay_shift_starts: Array[Vector2] = []
 	var overlay_shift_afters: Array[Vector2] = []
 	for overlay: Panel in existing_overlays:
@@ -771,8 +772,11 @@ func _animate_push_right_then_evict(
 	var move_tween: Tween = create_tween()
 	move_tween.set_parallel(true)
 	var move_time: float = maxf(push_shift_duration, 0.05)
-	if not lock_incoming_at_slot:
-		move_tween.tween_property(incoming_overlay, "position", newest_pos, move_time).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	if incoming_needs_handoff_to_slot:
+		var incoming_move_time: float = move_time
+		if lock_incoming_at_slot:
+			incoming_move_time = minf(move_time, 0.12)
+		move_tween.tween_property(incoming_overlay, "position", newest_pos, incoming_move_time).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	for overlay_index: int in range(existing_overlays.size()):
 		var overlay: Panel = existing_overlays[overlay_index]
 		if overlay == null:
