@@ -90,9 +90,21 @@ text = "level X · 关卡大小 5 * 5"
 layout_mode = 2
 text = "保存"
 
+[node name="ExportButton" type="Button" parent="MainHBox/EditorPanel/TopVBox/TitleRow"]
+layout_mode = 2
+text = "导出"
+
 [node name="BackButton" type="Button" parent="MainHBox/EditorPanel/TopVBox/TitleRow"]
 layout_mode = 2
 text = "返回列表"
+
+[node name="MainMenuButton" type="Button" parent="MainHBox/EditorPanel/TopVBox/TitleRow"]
+layout_mode = 2
+text = "返回主菜单"
+
+[node name="ExportFeedbackLabel" type="Label" parent="MainHBox/EditorPanel/TopVBox"]
+layout_mode = 2
+text = ""
 
 [node name="SizeRow" type="HBoxContainer" parent="MainHBox/EditorPanel/TopVBox"]
 layout_mode = 2

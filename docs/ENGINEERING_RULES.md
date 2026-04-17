@@ -202,4 +202,7 @@
 - 关卡编辑区顶部显示当前关卡名与尺寸；尺寸通过 `X/Y + 更新` 按钮触发 `LevelRoot.rebuild_grid()`。
 - 编辑工具分为「放置/删除」模式与工具项（地块/墙/箱子/玩家唯一/过关点唯一）。
 - 玩家与过关点属于唯一对象：放置新对象时先清除旧对象，保持运行时语义与编辑器可视状态一致。
-- 编辑器所有改动直接保存回对应 `LevelNNN.tscn`，运行时仍仅通过 `PackedScene -> LevelRoot.build_runtime_data()` 加载。
+- 编辑器保存/导出必须先基于 `LevelRoot.snapshot_level_state()` 提取纯数据快照，再构建干净 `LevelRoot` 副本落盘或导出，禁止直接打包正在编辑中的 live 节点树。
+- 编辑器导出文本必须基于同一快照数据源，并包含关卡编号、尺寸、memory_capacity、legend 与稳定矩形字符网格（含无地板标记）。
+- 编辑器与运行时都允许通过标准信号 `request_main_menu` 回到主菜单；场景子节点不得自行实例化主菜单。
+- 运行时仍仅通过 `PackedScene -> LevelRoot.build_runtime_data()` 加载。

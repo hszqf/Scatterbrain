@@ -5,6 +5,9 @@ extends Control
 const LEVEL_ROOT_SCENE: PackedScene = preload("res://scenes/levels/LevelRoot.tscn")
 const LEVELS_DIR: String = "res://scenes/levels"
 const LEVEL_FILE_PREFIX: String = "Level"
+const NO_FLOOR_CHAR: String = "_"
+
+signal request_main_menu
 
 enum EditMode {
 	PLACE,
@@ -30,7 +33,10 @@ enum PaintTool {
 @onready var _size_y_spin: SpinBox = $MainHBox/EditorPanel/TopVBox/SizeRow/SizeYSpin
 @onready var _size_update_button: Button = $MainHBox/EditorPanel/TopVBox/SizeRow/UpdateSizeButton
 @onready var _save_button: Button = $MainHBox/EditorPanel/TopVBox/TitleRow/SaveButton
+@onready var _export_button: Button = $MainHBox/EditorPanel/TopVBox/TitleRow/ExportButton
 @onready var _back_button: Button = $MainHBox/EditorPanel/TopVBox/TitleRow/BackButton
+@onready var _main_menu_button: Button = $MainHBox/EditorPanel/TopVBox/TitleRow/MainMenuButton
+@onready var _export_feedback_label: Label = $MainHBox/EditorPanel/TopVBox/ExportFeedbackLabel
 @onready var _canvas_panel: Panel = $MainHBox/EditorPanel/TopVBox/CanvasPanel
 @onready var _mode_place_button: Button = $MainHBox/EditorPanel/TopVBox/ToolbarVBox/ModeRow/PlaceModeButton
 @onready var _mode_delete_button: Button = $MainHBox/EditorPanel/TopVBox/ToolbarVBox/ModeRow/DeleteModeButton
@@ -70,7 +76,9 @@ func _bind_buttons() -> void:
 	_add_level_button.pressed.connect(_on_add_level_pressed)
 	_size_update_button.pressed.connect(_on_update_size_pressed)
 	_save_button.pressed.connect(_on_save_pressed)
+	_export_button.pressed.connect(_on_export_pressed)
 	_back_button.pressed.connect(_on_back_pressed)
+	_main_menu_button.pressed.connect(_on_main_menu_pressed)
 	_canvas_panel.gui_input.connect(_on_canvas_gui_input)
 
 	_mode_place_button.button_group = _mode_group
@@ -180,6 +188,10 @@ func _on_back_pressed() -> void:
 	_close_editor()
 
 
+func _on_main_menu_pressed() -> void:
+	request_main_menu.emit()
+
+
 func _on_update_size_pressed() -> void:
 	if _current_level_root == null:
 		return
@@ -196,10 +208,15 @@ func _on_save_pressed() -> void:
 	_save_current_level()
 
 
+func _on_export_pressed() -> void:
+	_export_current_level_to_clipboard()
+
+
 func _save_current_level() -> void:
 	if _current_level_root == null or _current_level_path.is_empty():
 		return
-	_save_level_root(_current_level_root, _current_level_path)
+	var snapshot: Dictionary = _snapshot_level_data(_current_level_root)
+	_save_level_snapshot(snapshot, _current_level_path)
 	_refresh_level_list()
 
 
@@ -216,6 +233,122 @@ func _save_level_root(level_root: LevelRoot, level_path: String) -> bool:
 		push_error("[LevelEditor] Save scene failed: %s (code %d)" % [level_path, save_error])
 		return false
 	return true
+
+
+func _snapshot_level_data(level_root: LevelRoot) -> Dictionary:
+	if level_root == null:
+		return {}
+	var snapshot: Dictionary = level_root.snapshot_level_state()
+	snapshot["level_name"] = level_root.name
+	return snapshot
+
+
+func _build_clean_level_root_from_snapshot(snapshot: Dictionary) -> LevelRoot:
+	var clean_root: LevelRoot = LEVEL_ROOT_SCENE.instantiate()
+	clean_root.auto_rebuild_in_editor = false
+	clean_root.name = String(snapshot.get("level_name", "Level"))
+	clean_root.apply_snapshot(snapshot)
+	return clean_root
+
+
+func _save_level_snapshot(snapshot: Dictionary, level_path: String) -> bool:
+	if snapshot.is_empty():
+		return false
+	var clean_root: LevelRoot = _build_clean_level_root_from_snapshot(snapshot)
+	var is_saved: bool = _save_level_root(clean_root, level_path)
+	clean_root.queue_free()
+	return is_saved
+
+
+func _export_current_level_to_clipboard() -> void:
+	if _current_level_root == null:
+		return
+	var snapshot: Dictionary = _snapshot_level_data(_current_level_root)
+	if snapshot.is_empty():
+		_show_export_feedback("导出失败")
+		return
+	var export_text: String = _build_export_text(snapshot)
+	DisplayServer.clipboard_set(export_text)
+	if DisplayServer.clipboard_get() == export_text:
+		_show_export_feedback("已复制导出文本")
+	else:
+		_show_export_feedback("复制失败，已输出到控制台")
+		print(export_text)
+
+
+func _show_export_feedback(text: String) -> void:
+	_export_feedback_label.text = text
+
+
+func _build_export_text(snapshot: Dictionary) -> String:
+	var level_name: String = String(snapshot.get("level_name", _current_level_name))
+	var level_index: int = _parse_level_index(level_name)
+	var grid_size: Vector3i = snapshot.get("grid_size", Vector3i.ONE)
+	var memory_capacity: int = int(snapshot.get("memory_capacity", 1))
+	var grid_rows: Array[String] = _build_export_grid_rows(snapshot)
+	var lines: Array[String] = [
+		level_name,
+		"第%d关" % level_index,
+		"size=%dx%d" % [grid_size.x, grid_size.y],
+		"memory_capacity=%d" % memory_capacity,
+		"legend: # wall, . floor, B box, P player, E exit, %s no_floor" % NO_FLOOR_CHAR,
+		"",
+	]
+	lines.append_array(grid_rows)
+	return "\n".join(lines)
+
+
+func _build_export_grid_rows(snapshot: Dictionary) -> Array[String]:
+	var grid_size: Vector3i = snapshot.get("grid_size", Vector3i.ONE)
+	var cell_lookup: Dictionary = _snapshot_cell_lookup(snapshot)
+	var rows: Array[String] = []
+	for y: int in range(grid_size.y):
+		var chars: Array[String] = []
+		for x: int in range(grid_size.x):
+			var coord := Vector3i(x, y, 0)
+			var cell_data: Dictionary = cell_lookup.get(coord, {})
+			chars.append(_cell_char_from_snapshot_cell(cell_data))
+		rows.append("".join(chars))
+	return rows
+
+
+func _snapshot_cell_lookup(snapshot: Dictionary) -> Dictionary:
+	var lookup: Dictionary = {}
+	var cells: Array = snapshot.get("cells", [])
+	for cell_data_variant: Variant in cells:
+		if cell_data_variant is not Dictionary:
+			continue
+		var cell_data: Dictionary = cell_data_variant
+		var coord: Vector3i = cell_data.get("coord", Vector3i.ZERO)
+		lookup[coord] = cell_data
+	return lookup
+
+
+func _cell_char_from_snapshot_cell(cell_data: Dictionary) -> String:
+	if cell_data.is_empty():
+		return NO_FLOOR_CHAR
+	var has_floor: bool = bool(cell_data.get("has_floor", false))
+	if not has_floor:
+		return NO_FLOOR_CHAR
+	var content_type: int = int(cell_data.get("content_type", LevelCell.CellContentType.EMPTY))
+	var is_player_spawn: bool = bool(cell_data.get("is_player_spawn", false))
+	var is_exit: bool = bool(cell_data.get("is_exit", false))
+	if content_type == LevelCell.CellContentType.WALL:
+		return "#"
+	if is_player_spawn:
+		return "P"
+	if is_exit:
+		return "E"
+	if content_type == LevelCell.CellContentType.BOX:
+		return "B"
+	return "."
+
+
+func _parse_level_index(level_name: String) -> int:
+	var suffix: String = level_name.trim_prefix(LEVEL_FILE_PREFIX)
+	if suffix.is_valid_int():
+		return suffix.to_int()
+	return 0
 
 
 func _sync_level_header() -> void:
@@ -373,7 +506,9 @@ func _all_cells() -> Array[LevelCell]:
 	for slice_node: Node in grid.get_children():
 		for cell_node: Node in slice_node.get_children():
 			if cell_node is LevelCell:
-				cells.append(cell_node)
+				var cell: LevelCell = cell_node
+				if not cell.is_queued_for_deletion():
+					cells.append(cell)
 	return cells
 
 

@@ -133,6 +133,62 @@ func build_runtime_data() -> LevelRuntimeData:
 	return data
 
 
+func snapshot_level_state() -> Dictionary:
+	var snapshot: Dictionary = {
+		"grid_size": grid_size,
+		"memory_capacity": memory_capacity,
+		"cell_size": cell_size,
+		"cells": [],
+	}
+	var cells: Array[Dictionary] = []
+	for cell: LevelCell in _all_cells():
+		if cell == null or cell.is_queued_for_deletion():
+			continue
+		cells.append({
+			"coord": cell.coord,
+			"has_floor": cell.has_floor,
+			"content_type": int(cell.content_type),
+			"is_player_spawn": cell.is_player_spawn,
+			"is_exit": cell.is_exit,
+		})
+	cells.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var ac: Vector3i = a.get("coord", Vector3i.ZERO)
+		var bc: Vector3i = b.get("coord", Vector3i.ZERO)
+		if ac.z != bc.z:
+			return ac.z < bc.z
+		if ac.y != bc.y:
+			return ac.y < bc.y
+		return ac.x < bc.x
+	)
+	snapshot["cells"] = cells
+	return snapshot
+
+
+func apply_snapshot(snapshot: Dictionary) -> void:
+	grid_size = snapshot.get("grid_size", grid_size)
+	memory_capacity = int(snapshot.get("memory_capacity", memory_capacity))
+	cell_size = int(snapshot.get("cell_size", cell_size))
+	rebuild_grid()
+	clear_contents()
+	fill_floor()
+	var cell_lookup: Dictionary = {}
+	for cell: LevelCell in _all_cells():
+		cell_lookup[cell.coord] = cell
+	var cells: Array = snapshot.get("cells", [])
+	for cell_data_variant: Variant in cells:
+		if cell_data_variant is not Dictionary:
+			continue
+		var cell_data: Dictionary = cell_data_variant
+		var coord: Vector3i = cell_data.get("coord", Vector3i.ZERO)
+		var target: LevelCell = cell_lookup.get(coord)
+		if target == null:
+			continue
+		target.has_floor = bool(cell_data.get("has_floor", true))
+		target.content_type = int(cell_data.get("content_type", LevelCell.CellContentType.EMPTY))
+		target.is_player_spawn = bool(cell_data.get("is_player_spawn", false))
+		target.is_exit = bool(cell_data.get("is_exit", false))
+
+
 func _ensure_slice(z: int) -> Node2D:
 	var grid: Node2D = _resolve_grid()
 	var slice_name: String = "Slice_%d" % z

@@ -208,6 +208,14 @@ offset_right = -8.0
 offset_bottom = 34.0
 text = "LOG"
 
+[node name="MainMenuButton" type="Button" parent="CanvasLayer/UIRoot"]
+layout_mode = 1
+offset_left = 8.0
+offset_top = 6.0
+offset_right = 120.0
+offset_bottom = 38.0
+text = "主菜单"
+
 [node name="CopyLogFeedback" type="Label" parent="CanvasLayer/UIRoot"]
 layout_mode = 1
 anchors_preset = 1
@@ -226,3 +234,4 @@ horizontal_alignment = 2
 [connection signal="pressed" from="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomVBox/BottomRow/MovePad/DownButton" to="." method="on_move_down_pressed"]
 [connection signal="pressed" from="CanvasLayer/UIRoot/MainVBox/BottomPanel/BottomVBox/BottomRow/ActionColumn/RestartButton" to="." method="on_restart_pressed"]
 [connection signal="pressed" from="CanvasLayer/UIRoot/CopyLogButton" to="." method="on_copy_log_pressed"]
+[connection signal="pressed" from="CanvasLayer/UIRoot/MainMenuButton" to="." method="on_main_menu_pressed"]
