@@ -52,8 +52,13 @@ func _ready() -> void:
 
 
 func rebuild_grid() -> void:
-	if not is_node_ready():
+	var grid: Node2D = _resolve_grid()
+	if grid == null:
 		return
+	_rebuild_grid_internal(grid)
+
+
+func _rebuild_grid_internal(grid: Node2D) -> void:
 	for z: int in range(grid_size.z):
 		var slice: Node2D = _ensure_slice(z)
 		_rebuild_slice_cells(slice, z)
@@ -168,7 +173,11 @@ func apply_snapshot(snapshot: Dictionary) -> void:
 	grid_size = snapshot.get("grid_size", grid_size)
 	memory_capacity = int(snapshot.get("memory_capacity", memory_capacity))
 	cell_size = int(snapshot.get("cell_size", cell_size))
-	rebuild_grid()
+	var grid: Node2D = _resolve_grid()
+	if grid == null:
+		push_error("[LevelRoot] apply_snapshot failed: Grid node is missing.")
+		return
+	_rebuild_grid_internal(grid)
 	clear_contents()
 	fill_floor()
 	var cell_lookup: Dictionary = {}
