@@ -432,6 +432,10 @@ func _play_compile_trace(trace: Array[Dictionary]) -> void:
 			pending_queue_update_item = item.duplicate(true)
 			continue
 		if kind == "queue_restart":
+			if not pending_queue_update_item.is_empty():
+				await _play_pending_queue_update(pending_queue_update_item)
+				should_reset_on_queue_restart = true
+				pending_queue_update_item = {}
 			if focused_queue_index >= 0:
 				_queue_view.end_focus_on_slot(focused_queue_index)
 				focused_queue_index = -1
@@ -441,7 +445,6 @@ func _play_compile_trace(trace: Array[Dictionary]) -> void:
 			await _replay_controller.play_trace_item(item, _replay_controller.memory_beat_duration)
 			if not pending_queue_update_item.is_empty() and (kind == "move" or kind == "ghostify" or kind == "beat_empty"):
 				await _play_pending_queue_update(pending_queue_update_item)
-				should_reset_on_queue_restart = true
 				pending_queue_update_item = {}
 			if kind == "queue_restart" and should_reset_on_queue_restart:
 				_replay_controller.reset_subjects_for_next_pass(trace, trace_index + 1)
