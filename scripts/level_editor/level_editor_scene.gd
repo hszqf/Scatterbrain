@@ -2,9 +2,10 @@
 class_name LevelEditorScene
 extends Control
 
-const LEVEL_ROOT_SCENE: PackedScene = preload("res://scenes/levels/LevelRoot.tscn")
+const LEVEL_ROOT_SCENE: PackedScene = preload("res://scenes/level_editor/LevelRootTemplate.tscn")
 const LEVELS_DIR: String = "res://scenes/levels"
 const LEVEL_FILE_PREFIX: String = "Level"
+const LEVEL_FILE_PATTERN: String = "^Level\\d+\\.tscn$"
 const NO_FLOOR_CHAR: String = "_"
 
 signal request_main_menu
@@ -110,6 +111,8 @@ func _refresh_level_list() -> void:
 	for child: Node in _list_container.get_children():
 		child.queue_free()
 	for level_path: String in _list_level_paths():
+		var level_file_name: String = level_path.get_file()
+		var can_delete: bool = _is_valid_level_file_name(level_file_name)
 		var row := HBoxContainer.new()
 		var level_label := Label.new()
 		level_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -122,7 +125,8 @@ func _refresh_level_list() -> void:
 		delete_button.pressed.connect(func() -> void: _delete_level(level_path))
 		row.add_child(level_label)
 		row.add_child(edit_button)
-		row.add_child(delete_button)
+		if can_delete:
+			row.add_child(delete_button)
 		_list_container.add_child(row)
 
 
@@ -161,6 +165,10 @@ func _open_level(level_path: String) -> void:
 
 
 func _delete_level(level_path: String) -> void:
+	var level_file_name: String = level_path.get_file()
+	if not _is_valid_level_file_name(level_file_name):
+		push_error("[LevelEditor] Refuse to delete non-level asset: %s" % level_path)
+		return
 	if _current_level_path == level_path:
 		_close_editor()
 	var error: int = DirAccess.remove_absolute(level_path)
@@ -587,12 +595,21 @@ func _list_level_paths() -> Array[String]:
 			break
 		if dir.current_is_dir():
 			continue
-		if not file_name.begins_with(LEVEL_FILE_PREFIX) or not file_name.ends_with(".tscn"):
+		if not _is_valid_level_file_name(file_name):
 			continue
 		result.append("%s/%s" % [LEVELS_DIR, file_name])
 	dir.list_dir_end()
 	result.sort()
 	return result
+
+
+func _is_valid_level_file_name(file_name: String) -> bool:
+	var regex := RegEx.new()
+	var compile_error: int = regex.compile(LEVEL_FILE_PATTERN)
+	if compile_error != OK:
+		push_error("[LevelEditor] Invalid level file regex pattern: %s" % LEVEL_FILE_PATTERN)
+		return false
+	return regex.search(file_name) != null
 
 
 func _next_level_number() -> int:
