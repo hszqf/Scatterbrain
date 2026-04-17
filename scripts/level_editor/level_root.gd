@@ -231,20 +231,22 @@ func sync_layout_from_grid() -> bool:
 
 func _runtime_layout_data() -> LevelLayoutData:
 	if _has_layout_cells(level_layout):
-		_adopt_runtime_properties_from_layout(level_layout)
+		_sync_root_properties_from_layout(level_layout)
 		return level_layout
 	if _has_legacy_cells():
 		_migrate_legacy_cells_to_layout()
+		_sync_root_properties_from_layout(level_layout)
 		return level_layout
 	return null
 
 
 func _ensure_layout_data(context: String) -> bool:
 	if _has_layout_cells(level_layout):
-		_adopt_runtime_properties_from_layout(level_layout)
+		_sync_root_properties_from_layout(level_layout)
 		return true
 	if _has_legacy_cells():
 		_migrate_legacy_cells_to_layout()
+		_sync_root_properties_from_layout(level_layout)
 		return true
 	push_error("[LevelRoot] %s: level data missing (layout + legacy cells both empty)." % context)
 	return false
@@ -328,7 +330,7 @@ func _layout_from_snapshot(snapshot: Dictionary) -> LevelLayoutData:
 	return layout
 
 
-func _adopt_runtime_properties_from_layout(layout: LevelLayoutData) -> void:
+func _sync_root_properties_from_layout(layout: LevelLayoutData) -> void:
 	if layout == null:
 		return
 	grid_size = Vector3i(max(layout.grid_size.x, 1), max(layout.grid_size.y, 1), max(layout.grid_size.z, 1))
