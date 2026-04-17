@@ -52,10 +52,15 @@ func _ready() -> void:
 
 
 func rebuild_grid() -> void:
+	_rebuild_grid_for_snapshot_state()
+
+
+func _rebuild_grid_for_snapshot_state() -> bool:
 	var grid: Node2D = _resolve_grid()
 	if grid == null:
-		return
+		return false
 	_rebuild_grid_internal(grid)
+	return true
 
 
 func _rebuild_grid_internal(grid: Node2D) -> void:
@@ -173,11 +178,9 @@ func apply_snapshot(snapshot: Dictionary) -> void:
 	grid_size = snapshot.get("grid_size", grid_size)
 	memory_capacity = int(snapshot.get("memory_capacity", memory_capacity))
 	cell_size = int(snapshot.get("cell_size", cell_size))
-	var grid: Node2D = _resolve_grid()
-	if grid == null:
+	if not _rebuild_grid_for_snapshot_state():
 		push_error("[LevelRoot] apply_snapshot failed: Grid node is missing.")
 		return
-	_rebuild_grid_internal(grid)
 	clear_contents()
 	fill_floor()
 	var cell_lookup: Dictionary = {}
@@ -206,7 +209,7 @@ func _ensure_slice(z: int) -> Node2D:
 	var node := Node2D.new()
 	node.name = slice_name
 	grid.add_child(node)
-	node.owner = owner
+	node.owner = _resolve_persistent_owner()
 	return node
 
 
@@ -226,7 +229,7 @@ func _rebuild_slice_cells(slice: Node2D, z: int) -> void:
 			instance.cell_size = cell_size
 			instance.has_floor = true
 			slice.add_child(instance)
-			instance.owner = owner
+			instance.owner = _resolve_persistent_owner()
 	_remove_out_of_range_cells(slice, z)
 
 
@@ -271,3 +274,9 @@ func _resolve_grid() -> Node2D:
 	if _grid == null and has_node("Grid"):
 		_grid = get_node("Grid")
 	return _grid
+
+
+func _resolve_persistent_owner() -> Node:
+	if owner != null:
+		return owner
+	return self
