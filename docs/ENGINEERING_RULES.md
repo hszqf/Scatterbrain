@@ -34,7 +34,8 @@
 - 不做旧 Resource 关卡兼容，原因：避免双通路、双语义、双维护成本污染工程。
 
 ## 5) Scene-based 关卡编辑约定
-- `LevelRoot` 为 `@tool` 主节点，导出 `grid_size: Vector3i`、`memory_capacity`、`cell_size` 等字段。
+- `LevelRoot` 为 `@tool` 主节点，导出 `grid_size: Vector3i`、`memory_capacity`、`cell_size`、`level_layout: LevelLayoutData` 等字段。
+- `LevelLayoutData(LevelCellData[])` 是关卡唯一持久化真源；`Grid/Slice_z/Cell_x_y_z` 仅作为编辑可视层，由 `level_layout` 重建。
 - `LevelRoot` 固定网格层级：`Grid/Slice_z/Cell_x_y_z`，即使当前只编辑 `z=0` 也保留切片结构。
 - `LevelCell` 为 `@tool` 子节点，维护单格数据：
   - `coord: Vector3i`
@@ -204,7 +205,9 @@
 - 编辑工具分为「放置/删除」模式与工具项（地块/墙/箱子/玩家唯一/过关点唯一）。
 - 玩家与过关点属于唯一对象：放置新对象时先清除旧对象，保持运行时语义与编辑器可视状态一致。
 - 编辑器保存/导出必须先基于 `LevelRoot.snapshot_level_state()` 提取纯数据快照，再构建干净 `LevelRoot` 副本落盘或导出，禁止直接打包正在编辑中的 live 节点树。
+- 保存落盘时必须保证 `.tscn` 至少可靠持久化 `level_layout`，不得依赖动态 `Cell_*` 节点是否被 pack。
 - 编辑器保存必须执行三段 roundtrip 对比：`editor live snapshot -> clean root apply_snapshot snapshot -> saved scene load snapshot`，任一差异都必须报错并输出 `EDITOR_SAVE` 分类日志，禁止静默成功。
+- 打开关卡时禁止“无条件 rebuild 默认网格”掩盖坏数据：优先加载 `level_layout`，旧场景可从 legacy `Cell_*` 迁移；若两者都缺失必须明确报错。
 - 编辑器导出文本必须基于同一快照数据源，并包含关卡编号、尺寸、memory_capacity、legend 与稳定矩形字符网格（含无地板标记）。
 - 编辑器与运行时都允许通过标准信号 `request_main_menu` 回到主菜单；场景子节点不得自行实例化主菜单。
 - 运行时仍仅通过 `PackedScene -> LevelRoot.build_runtime_data()` 加载。

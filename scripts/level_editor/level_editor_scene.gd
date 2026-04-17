@@ -157,7 +157,12 @@ func _open_level(level_path: String) -> void:
 	_current_level_name = _level_name_from_path(level_path)
 	_level_host.add_child(_current_level_root)
 	_current_level_root.auto_rebuild_in_editor = false
-	_current_level_root.rebuild_grid()
+	var has_visual_grid: bool = _current_level_root.ensure_editor_grid_from_layout_or_legacy()
+	if not has_visual_grid:
+		_show_export_feedback("关卡数据缺失：未发现 level_layout，也没有旧 Cell 节点")
+		push_error("[LevelEditor] Invalid level data: %s" % level_path)
+	else:
+		_show_export_feedback("")
 	_align_level_root()
 	_sync_level_header()
 	_list_panel.visible = false
@@ -223,8 +228,15 @@ func _on_export_pressed() -> void:
 func _save_current_level() -> void:
 	if _current_level_root == null or _current_level_path.is_empty():
 		return
+	if not _current_level_root.sync_layout_from_grid() and _current_level_root.level_layout == null:
+		push_error("[LevelEditor] Save aborted: level data missing for %s" % _current_level_path)
+		_show_export_feedback("保存失败：关卡数据缺失")
+		return
 	var snapshot: Dictionary = _snapshot_level_data(_current_level_root)
-	_save_level_snapshot(snapshot, _current_level_path)
+	if _save_level_snapshot(snapshot, _current_level_path):
+		_show_export_feedback("保存成功")
+	else:
+		_show_export_feedback("保存失败")
 	_refresh_level_list()
 
 
@@ -626,19 +638,24 @@ func _create_default_level_root(level_name: String) -> LevelRoot:
 	var root: LevelRoot = LEVEL_ROOT_SCENE.instantiate()
 	root.name = level_name
 	root.auto_rebuild_in_editor = false
-	root.grid_size = Vector3i(default_level_size.x, default_level_size.y, 1)
-	root.rebuild_grid()
-	for cell: LevelCell in _all_cells_for(root):
-		cell.has_floor = true
-		cell.content_type = LevelCell.CellContentType.EMPTY
-		cell.is_player_spawn = false
-		cell.is_exit = false
-	var spawn_cell: LevelCell = _find_cell_in(root, Vector3i(0, 0, 0))
-	if spawn_cell != null:
-		spawn_cell.is_player_spawn = true
-	var exit_cell: LevelCell = _find_cell_in(root, Vector3i(default_level_size.x - 1, default_level_size.y - 1, 0))
-	if exit_cell != null:
-		exit_cell.is_exit = true
+	var width: int = maxi(default_level_size.x, 1)
+	var height: int = maxi(default_level_size.y, 1)
+	var cells: Array[Dictionary] = []
+	for y: int in range(height):
+		for x: int in range(width):
+			cells.append({
+				"coord": Vector3i(x, y, 0),
+				"has_floor": true,
+				"content_type": LevelCell.CellContentType.EMPTY,
+				"is_player_spawn": x == 0 and y == 0,
+				"is_exit": x == (width - 1) and y == (height - 1),
+			})
+	root.apply_snapshot({
+		"grid_size": Vector3i(width, height, 1),
+		"memory_capacity": root.memory_capacity,
+		"cell_size": root.cell_size,
+		"cells": cells,
+	})
 	return root
 
 
@@ -865,7 +882,6 @@ func _load_saved_roundtrip_snapshot(level_path: String) -> Dictionary:
 		return {}
 	var root: LevelRoot = instance
 	root.auto_rebuild_in_editor = false
-	root.rebuild_grid()
 	var snapshot: Dictionary = _canonicalize_snapshot(_snapshot_level_data(root))
 	root.queue_free()
 	return snapshot
