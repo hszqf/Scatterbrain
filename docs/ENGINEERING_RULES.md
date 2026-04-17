@@ -208,6 +208,7 @@
 - 保存落盘时必须保证 `.tscn` 至少可靠持久化 `level_layout`，不得依赖动态 `Cell_*` 节点是否被 pack。
 - 编辑器保存必须执行三段 roundtrip 对比：`editor live snapshot -> clean root apply_snapshot snapshot -> saved scene load snapshot`，任一差异都必须报错并输出 `EDITOR_SAVE` 分类日志，禁止静默成功。
 - 打开关卡时禁止“无条件 rebuild 默认网格”掩盖坏数据：优先加载 `level_layout`，旧场景可从 legacy `Cell_*` 迁移；若两者都缺失必须明确报错。
+- 当关卡属于“空壳损坏场景”（`level_layout` 与 legacy `Cell_*` 都缺失）时：禁止自动伪造网格；编辑器应进入“恢复模式”，允许用户通过显式“重建关卡”按钮按当前尺寸初始化全新空白布局，再手动保存覆盖原文件。
 - 编辑器导出文本必须基于同一快照数据源，并包含关卡编号、尺寸、memory_capacity、legend 与稳定矩形字符网格（含无地板标记）。
 - 编辑器与运行时都允许通过标准信号 `request_main_menu` 回到主菜单；场景子节点不得自行实例化主菜单。
 - 运行时仍仅通过 `PackedScene -> LevelRoot.build_runtime_data()` 加载。

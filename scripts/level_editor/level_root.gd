@@ -231,7 +231,7 @@ func sync_layout_from_grid() -> bool:
 
 func _runtime_layout_data() -> LevelLayoutData:
 	if _has_layout_cells(level_layout):
-		_sync_runtime_properties_to_layout(level_layout)
+		_adopt_runtime_properties_from_layout(level_layout)
 		return level_layout
 	if _has_legacy_cells():
 		_migrate_legacy_cells_to_layout()
@@ -241,7 +241,7 @@ func _runtime_layout_data() -> LevelLayoutData:
 
 func _ensure_layout_data(context: String) -> bool:
 	if _has_layout_cells(level_layout):
-		_sync_runtime_properties_to_layout(level_layout)
+		_adopt_runtime_properties_from_layout(level_layout)
 		return true
 	if _has_legacy_cells():
 		_migrate_legacy_cells_to_layout()
@@ -328,10 +328,12 @@ func _layout_from_snapshot(snapshot: Dictionary) -> LevelLayoutData:
 	return layout
 
 
-func _sync_runtime_properties_to_layout(layout: LevelLayoutData) -> void:
-	layout.grid_size = grid_size
-	layout.memory_capacity = memory_capacity
-	layout.cell_size = cell_size
+func _adopt_runtime_properties_from_layout(layout: LevelLayoutData) -> void:
+	if layout == null:
+		return
+	grid_size = Vector3i(max(layout.grid_size.x, 1), max(layout.grid_size.y, 1), max(layout.grid_size.z, 1))
+	memory_capacity = max(layout.memory_capacity, 1)
+	cell_size = max(layout.cell_size, 8)
 
 
 func _has_legacy_cells() -> bool:

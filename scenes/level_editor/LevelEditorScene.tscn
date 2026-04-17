@@ -94,6 +94,11 @@ text = "保存"
 layout_mode = 2
 text = "导出"
 
+[node name="RepairButton" type="Button" parent="MainHBox/EditorPanel/TopVBox/TitleRow"]
+layout_mode = 2
+text = "重建关卡"
+visible = false
+
 [node name="BackButton" type="Button" parent="MainHBox/EditorPanel/TopVBox/TitleRow"]
 layout_mode = 2
 text = "返回列表"

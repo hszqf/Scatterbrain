@@ -35,6 +35,7 @@ enum PaintTool {
 @onready var _size_update_button: Button = $MainHBox/EditorPanel/TopVBox/SizeRow/UpdateSizeButton
 @onready var _save_button: Button = $MainHBox/EditorPanel/TopVBox/TitleRow/SaveButton
 @onready var _export_button: Button = $MainHBox/EditorPanel/TopVBox/TitleRow/ExportButton
+@onready var _repair_button: Button = $MainHBox/EditorPanel/TopVBox/TitleRow/RepairButton
 @onready var _back_button: Button = $MainHBox/EditorPanel/TopVBox/TitleRow/BackButton
 @onready var _main_menu_button: Button = $MainHBox/EditorPanel/TopVBox/TitleRow/MainMenuButton
 @onready var _export_feedback_label: Label = $MainHBox/EditorPanel/TopVBox/ExportFeedbackLabel
@@ -59,6 +60,7 @@ var _paint_tool: PaintTool = PaintTool.FLOOR
 var _is_panning_canvas: bool = false
 var _last_pan_mouse_position: Vector2 = Vector2.ZERO
 var _canvas_zoom: float = 1.0
+var _current_level_missing_data: bool = false
 
 const MIN_CANVAS_ZOOM: float = 0.4
 const MAX_CANVAS_ZOOM: float = 2.4
@@ -78,6 +80,7 @@ func _bind_buttons() -> void:
 	_size_update_button.pressed.connect(_on_update_size_pressed)
 	_save_button.pressed.connect(_on_save_pressed)
 	_export_button.pressed.connect(_on_export_pressed)
+	_repair_button.pressed.connect(_on_repair_pressed)
 	_back_button.pressed.connect(_on_back_pressed)
 	_main_menu_button.pressed.connect(_on_main_menu_pressed)
 	_canvas_panel.gui_input.connect(_on_canvas_gui_input)
@@ -158,13 +161,15 @@ func _open_level(level_path: String) -> void:
 	_level_host.add_child(_current_level_root)
 	_current_level_root.auto_rebuild_in_editor = false
 	var has_visual_grid: bool = _current_level_root.ensure_editor_grid_from_layout_or_legacy()
-	if not has_visual_grid:
-		_show_export_feedback("关卡数据缺失：未发现 level_layout，也没有旧 Cell 节点")
-		push_error("[LevelEditor] Invalid level data: %s" % level_path)
+	_current_level_missing_data = not has_visual_grid
+	if _current_level_missing_data:
+		_show_export_feedback("关卡数据缺失：这是一个空壳场景。请点击“重建关卡”以重新初始化。")
+		push_error("[LevelEditor] Missing level data: %s" % level_path)
 	else:
 		_show_export_feedback("")
 	_align_level_root()
 	_sync_level_header()
+	_refresh_editor_mode_ui()
 	_list_panel.visible = false
 	_editor_panel.visible = true
 
@@ -186,6 +191,7 @@ func _close_editor() -> void:
 	_close_level_root()
 	_current_level_path = ""
 	_current_level_name = ""
+	_current_level_missing_data = false
 	_is_panning_canvas = false
 	_list_panel.visible = true
 	_editor_panel.visible = false
@@ -211,6 +217,10 @@ func _on_update_size_pressed() -> void:
 	var width: int = maxi(int(_size_x_spin.value), 1)
 	var height: int = maxi(int(_size_y_spin.value), 1)
 	_current_level_root.grid_size = Vector3i(width, height, 1)
+	if _current_level_missing_data:
+		_sync_level_header()
+		_show_export_feedback("已更新重建尺寸：点击“重建关卡”以初始化空白布局")
+		return
 	_current_level_root.rebuild_grid()
 	_align_level_root()
 	_sync_level_header()
@@ -225,8 +235,15 @@ func _on_export_pressed() -> void:
 	_export_current_level_to_clipboard()
 
 
+func _on_repair_pressed() -> void:
+	_repair_missing_level()
+
+
 func _save_current_level() -> void:
 	if _current_level_root == null or _current_level_path.is_empty():
+		return
+	if _current_level_missing_data:
+		_show_export_feedback("保存失败：请先点击“重建关卡”初始化布局")
 		return
 	if not _current_level_root.sync_layout_from_grid() and _current_level_root.level_layout == null:
 		push_error("[LevelEditor] Save aborted: level data missing for %s" % _current_level_path)
@@ -315,6 +332,9 @@ func _save_level_snapshot(snapshot: Dictionary, level_path: String) -> bool:
 
 func _export_current_level_to_clipboard() -> void:
 	if _current_level_root == null:
+		return
+	if _current_level_missing_data:
+		_show_export_feedback("导出失败：请先点击“重建关卡”初始化布局")
 		return
 	var snapshot: Dictionary = _snapshot_level_data(_current_level_root)
 	if snapshot.is_empty():
@@ -415,6 +435,10 @@ func _sync_level_header() -> void:
 func _on_canvas_gui_input(event: InputEvent) -> void:
 	if _current_level_root == null:
 		return
+	if _current_level_missing_data:
+		if event is InputEventMouseButton:
+			_handle_canvas_mouse_button(event)
+		return
 	if event is InputEventMouseButton:
 		_handle_canvas_mouse_button(event)
 		return
@@ -433,6 +457,9 @@ func _handle_canvas_mouse_button(event: InputEventMouseButton) -> void:
 		accept_event()
 		return
 	if event.button_index != MOUSE_BUTTON_LEFT:
+		return
+	if _current_level_missing_data:
+		_is_panning_canvas = false
 		return
 	if event.pressed:
 		var coord: Vector3i = _mouse_to_coord(event.position)
@@ -459,6 +486,8 @@ func _handle_canvas_mouse_motion(event: InputEventMouseMotion) -> void:
 func _mouse_to_coord(local_mouse_pos: Vector2) -> Vector3i:
 	if _current_level_root == null:
 		return Vector3i(-1, -1, -1)
+	if _current_level_missing_data:
+		return Vector3i(-1, -1, -1)
 	var local_to_level: Vector2 = (local_mouse_pos - _current_level_root.position) / _current_level_root.scale
 	var cell_size: int = maxi(_current_level_root.cell_size, 1)
 	var x: int = int(floor(local_to_level.x / float(cell_size)))
@@ -470,6 +499,8 @@ func _mouse_to_coord(local_mouse_pos: Vector2) -> Vector3i:
 
 func _apply_tool_at(coord: Vector3i) -> void:
 	if _current_level_root == null:
+		return
+	if _current_level_missing_data:
 		return
 	var cell: LevelCell = _find_cell(coord)
 	if cell == null:
@@ -589,6 +620,52 @@ func _set_tool(tool: PaintTool) -> void:
 	_tool_box_button.button_pressed = tool == PaintTool.BOX
 	_tool_player_button.button_pressed = tool == PaintTool.PLAYER
 	_tool_exit_button.button_pressed = tool == PaintTool.EXIT
+
+
+func _refresh_editor_mode_ui() -> void:
+	var is_missing: bool = _current_level_missing_data
+	_repair_button.visible = is_missing
+	_repair_button.disabled = not is_missing
+	_save_button.disabled = is_missing
+	_export_button.disabled = is_missing
+	_mode_place_button.disabled = is_missing
+	_mode_delete_button.disabled = is_missing
+	_tool_floor_button.disabled = is_missing
+	_tool_wall_button.disabled = is_missing
+	_tool_box_button.disabled = is_missing
+	_tool_player_button.disabled = is_missing
+	_tool_exit_button.disabled = is_missing
+
+
+func _repair_missing_level() -> void:
+	if _current_level_root == null:
+		return
+	if not _current_level_missing_data:
+		return
+	var width: int = maxi(int(_size_x_spin.value), 1)
+	var height: int = maxi(int(_size_y_spin.value), 1)
+	var safe_memory_capacity: int = maxi(_current_level_root.memory_capacity, 1)
+	var cells: Array[Dictionary] = []
+	for y: int in range(height):
+		for x: int in range(width):
+			cells.append({
+				"coord": Vector3i(x, y, 0),
+				"has_floor": true,
+				"content_type": LevelCell.CellContentType.EMPTY,
+				"is_player_spawn": x == 0 and y == 0,
+				"is_exit": x == (width - 1) and y == (height - 1),
+			})
+	_current_level_root.apply_snapshot({
+		"grid_size": Vector3i(width, height, 1),
+		"memory_capacity": safe_memory_capacity,
+		"cell_size": _current_level_root.cell_size,
+		"cells": cells,
+	})
+	_current_level_missing_data = false
+	_align_level_root()
+	_sync_level_header()
+	_refresh_editor_mode_ui()
+	_show_export_feedback("已重建空关卡，请保存")
 
 
 func _level_name_from_path(path: String) -> String:
