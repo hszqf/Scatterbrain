@@ -2,10 +2,10 @@
 
 [ext_resource type="Script" path="res://scripts/level_editor/level_root.gd" id="1"]
 
-[node name="Level002" type="Node2D" unique_id=387589426]
+[node name="Level002" type="Node2D" unique_id=219648622]
 script = ExtResource("1")
 grid_size = Vector3i(5, 7, 1)
 memory_capacity = 1
 auto_rebuild_in_editor = false
 
-[node name="Grid" type="Node2D" parent="." unique_id=41342904]
+[node name="Grid" type="Node2D" parent="." unique_id=772267744]
