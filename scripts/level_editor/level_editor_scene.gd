@@ -161,15 +161,15 @@ func _open_level(level_path: String) -> void:
 	_level_host.add_child(_current_level_root)
 	_current_level_root.auto_rebuild_in_editor = false
 	var has_visual_grid: bool = _current_level_root.ensure_editor_grid_from_layout_or_legacy()
-	_current_level_missing_data = not has_visual_grid
-	if _current_level_missing_data:
-		_show_export_feedback("关卡数据缺失：这是一个空壳场景。请点击“重建关卡”以重新初始化。")
-		push_error("[LevelEditor] Missing level data: %s" % level_path)
-	else:
+	if has_visual_grid:
+		_set_missing_data_mode(false)
 		_show_export_feedback("")
+	else:
+		_set_missing_data_mode(true)
+		_show_export_feedback("关卡数据缺失：这是一个空壳场景。请点击“重建关卡”初始化新布局。")
+		push_error("[LevelEditor] Missing level data: %s" % level_path)
 	_align_level_root()
 	_sync_level_header()
-	_refresh_editor_mode_ui()
 	_list_panel.visible = false
 	_editor_panel.visible = true
 
@@ -191,7 +191,7 @@ func _close_editor() -> void:
 	_close_level_root()
 	_current_level_path = ""
 	_current_level_name = ""
-	_current_level_missing_data = false
+	_set_missing_data_mode(false)
 	_is_panning_canvas = false
 	_list_panel.visible = true
 	_editor_panel.visible = false
@@ -622,12 +622,13 @@ func _set_tool(tool: PaintTool) -> void:
 	_tool_exit_button.button_pressed = tool == PaintTool.EXIT
 
 
-func _refresh_editor_mode_ui() -> void:
-	var is_missing: bool = _current_level_missing_data
+func _set_missing_data_mode(is_missing: bool) -> void:
+	_current_level_missing_data = is_missing
 	_repair_button.visible = is_missing
 	_repair_button.disabled = not is_missing
 	_save_button.disabled = is_missing
 	_export_button.disabled = is_missing
+	_canvas_panel.mouse_default_cursor_shape = Control.CURSOR_ARROW if is_missing else Control.CURSOR_POINTING_HAND
 	_mode_place_button.disabled = is_missing
 	_mode_delete_button.disabled = is_missing
 	_tool_floor_button.disabled = is_missing
@@ -661,10 +662,9 @@ func _repair_missing_level() -> void:
 		"cell_size": _current_level_root.cell_size,
 		"cells": cells,
 	})
-	_current_level_missing_data = false
+	_set_missing_data_mode(false)
 	_align_level_root()
 	_sync_level_header()
-	_refresh_editor_mode_ui()
 	_show_export_feedback("已重建空关卡，请保存")
 
 
