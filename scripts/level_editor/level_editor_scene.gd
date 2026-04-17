@@ -37,6 +37,9 @@ enum PaintTool {
 @onready var _back_button: Button = $MainHBox/EditorPanel/TopVBox/TitleRow/BackButton
 @onready var _main_menu_button: Button = $MainHBox/EditorPanel/TopVBox/TitleRow/MainMenuButton
 @onready var _export_feedback_label: Label = $MainHBox/EditorPanel/TopVBox/ExportFeedbackLabel
+@onready var _export_dialog: AcceptDialog = $ExportDialog
+@onready var _export_dialog_tip_label: Label = $ExportDialog/ExportDialogVBox/ExportDialogTipLabel
+@onready var _export_dialog_text: TextEdit = $ExportDialog/ExportDialogVBox/ExportDialogTextEdit
 @onready var _canvas_panel: Panel = $MainHBox/EditorPanel/TopVBox/CanvasPanel
 @onready var _mode_place_button: Button = $MainHBox/EditorPanel/TopVBox/ToolbarVBox/ModeRow/PlaceModeButton
 @onready var _mode_delete_button: Button = $MainHBox/EditorPanel/TopVBox/ToolbarVBox/ModeRow/DeleteModeButton
@@ -255,6 +258,11 @@ func _save_level_snapshot(snapshot: Dictionary, level_path: String) -> bool:
 	if snapshot.is_empty():
 		return false
 	var clean_root: LevelRoot = _build_clean_level_root_from_snapshot(snapshot)
+	var roundtrip_snapshot: Dictionary = clean_root.snapshot_level_state()
+	if not _is_snapshot_roundtrip_valid(snapshot, roundtrip_snapshot):
+		push_error("[LevelEditor] Save aborted: snapshot roundtrip mismatch for %s" % level_path)
+		clean_root.queue_free()
+		return false
 	var is_saved: bool = _save_level_root(clean_root, level_path)
 	clean_root.queue_free()
 	return is_saved
@@ -269,15 +277,18 @@ func _export_current_level_to_clipboard() -> void:
 		return
 	var export_text: String = _build_export_text(snapshot)
 	DisplayServer.clipboard_set(export_text)
-	if DisplayServer.clipboard_get() == export_text:
-		_show_export_feedback("已复制导出文本")
-	else:
-		_show_export_feedback("复制失败，已输出到控制台")
-		print(export_text)
+	_show_export_feedback("已尝试复制，可直接粘贴")
+	_show_export_dialog(export_text)
 
 
 func _show_export_feedback(text: String) -> void:
 	_export_feedback_label.text = text
+
+
+func _show_export_dialog(export_text: String) -> void:
+	_export_dialog_tip_label.text = "若未复制成功，请手动复制下方文本"
+	_export_dialog_text.text = export_text
+	_export_dialog.popup_centered_ratio(0.82)
 
 
 func _build_export_text(snapshot: Dictionary) -> String:
@@ -613,3 +624,37 @@ func _find_cell_in(level_root: LevelRoot, coord: Vector3i) -> LevelCell:
 		if cell.coord == coord:
 			return cell
 	return null
+
+
+func _is_snapshot_roundtrip_valid(original: Dictionary, roundtrip: Dictionary) -> bool:
+	if original.get("grid_size", Vector3i.ZERO) != roundtrip.get("grid_size", Vector3i.ZERO):
+		return false
+	if int(original.get("memory_capacity", -1)) != int(roundtrip.get("memory_capacity", -1)):
+		return false
+	return _canonicalize_snapshot_cells(original) == _canonicalize_snapshot_cells(roundtrip)
+
+
+func _canonicalize_snapshot_cells(snapshot: Dictionary) -> Array[Dictionary]:
+	var rows: Array[Dictionary] = []
+	var cells: Array = snapshot.get("cells", [])
+	for cell_data_variant: Variant in cells:
+		if cell_data_variant is not Dictionary:
+			continue
+		var cell_data: Dictionary = cell_data_variant
+		rows.append({
+			"coord": cell_data.get("coord", Vector3i.ZERO),
+			"has_floor": bool(cell_data.get("has_floor", false)),
+			"content_type": int(cell_data.get("content_type", LevelCell.CellContentType.EMPTY)),
+			"is_player_spawn": bool(cell_data.get("is_player_spawn", false)),
+			"is_exit": bool(cell_data.get("is_exit", false)),
+		})
+	rows.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var ac: Vector3i = a.get("coord", Vector3i.ZERO)
+		var bc: Vector3i = b.get("coord", Vector3i.ZERO)
+		if ac.z != bc.z:
+			return ac.z < bc.z
+		if ac.y != bc.y:
+			return ac.y < bc.y
+		return ac.x < bc.x
+	)
+	return rows

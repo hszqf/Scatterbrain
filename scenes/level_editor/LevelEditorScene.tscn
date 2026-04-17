@@ -197,3 +197,25 @@ text = "玩家(唯一)"
 custom_minimum_size = Vector2(120, 44)
 layout_mode = 2
 text = "过关点(唯一)"
+
+[node name="ExportDialog" type="AcceptDialog" parent="."]
+title = "导出文本"
+ok_button_text = "关闭"
+dialog_hide_on_ok = true
+
+[node name="ExportDialogVBox" type="VBoxContainer" parent="ExportDialog"]
+custom_minimum_size = Vector2(760, 500)
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="ExportDialogTipLabel" type="Label" parent="ExportDialog/ExportDialogVBox"]
+layout_mode = 2
+autowrap_mode = 3
+text = "若未复制成功，请手动复制下方文本"
+
+[node name="ExportDialogTextEdit" type="TextEdit" parent="ExportDialog/ExportDialogVBox"]
+custom_minimum_size = Vector2(0, 420)
+layout_mode = 2
+size_flags_vertical = 3
+context_menu_enabled = true
+editable = false
