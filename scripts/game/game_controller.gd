@@ -205,7 +205,7 @@ func copy_debug_log() -> void:
 	if DisplayServer.clipboard_get() == text:
 		_debug_feedback_label.text = "LOG copied"
 	else:
-		print(text)
+		DebugLog.log(DebugLog.ANIMATION, text)
 		_debug_feedback_label.text = "Copy failed; printed log"
 	_feedback_clear_at_msec = Time.get_ticks_msec() + 1400
 
@@ -325,7 +325,7 @@ func _recompile_world(reason: String) -> void:
 	_last_queue_geometry_capture_stage = "none"
 	_pending_pre_recompile_trace.clear()
 	_mark_trace_generation("recompile:clear_pending_pre_trace")
-	print("[Recompile] begin reason=%s" % reason)
+	DebugLog.log(DebugLog.ANIMATION, "[Recompile] begin reason=%s" % reason)
 	var current_player_position: Vector2i = _world.player_position
 	var previous_queue_entries: Array[ChangeRecord] = _queue.entries()
 	var result: CompileResult = _compiler.compile(_defaults, _queue, current_player_position)
@@ -404,7 +404,7 @@ func _recompile_world(reason: String) -> void:
 
 	if result.reached_safety_limit:
 		push_error("compile reached safety limit")
-	print("[Recompile] end iterations=%d queue=%d" % [result.iterations, _queue.size()])
+	DebugLog.log(DebugLog.ANIMATION, "[Recompile] end iterations=%d queue=%d" % [result.iterations, _queue.size()])
 	_input_locked = false
 
 
@@ -610,6 +610,9 @@ func _build_defaults() -> WorldDefaults:
 
 	add_child(root)
 	var runtime_data: LevelRuntimeData = (root as LevelRoot).build_runtime_data()
+	var scene_name: String = _resolve_scene_name(active_scene, root)
+	DebugLog.log(DebugLog.LEVEL_LOAD, "build_defaults level=%s scene=%s" % [_format_level_label(), scene_name])
+	DebugLog.log(DebugLog.LEVEL_LOAD, _build_runtime_data_summary(scene_name, runtime_data))
 	remove_child(root)
 	root.queue_free()
 	var defaults: WorldDefaults = WorldDefaults.from_runtime_data(runtime_data)
@@ -646,6 +649,67 @@ func _advance_level_index() -> void:
 
 func _format_level_label() -> String:
 	return "LEVEL %d" % (_current_level_index + 1)
+
+
+func _resolve_scene_name(active_scene: PackedScene, root: Node) -> String:
+	if active_scene != null and not active_scene.resource_path.is_empty():
+		return active_scene.resource_path.get_file().trim_suffix(".tscn")
+	return root.name
+
+
+func _build_runtime_data_summary(scene_name: String, data: LevelRuntimeData) -> String:
+	var rows: Array[String] = _runtime_rows(data)
+	var floor_lookup: Dictionary = {}
+	for coord: Vector3i in data.floor_cells:
+		floor_lookup[coord] = true
+	var floor_count: int = data.floor_cells.size()
+	var wall_count: int = data.walls.size()
+	var box_count: int = data.boxes.size()
+	var spawn_count: int = 1 if floor_lookup.has(data.player_start) else 0
+	var exit_count: int = 1 if floor_lookup.has(data.exit_position) else 0
+	return "runtime_data_summary\nlevel_scene_name=%s\nsize=%dx%d\nmemory_capacity=%d\nrows=%s\nfloor=%d wall=%d box=%d spawn=%d exit=%d" % [
+		scene_name,
+		data.grid_size.x,
+		data.grid_size.y,
+		data.memory_capacity,
+		"|".join(rows),
+		floor_count,
+		wall_count,
+		box_count,
+		spawn_count,
+		exit_count,
+	]
+
+
+func _runtime_rows(data: LevelRuntimeData) -> Array[String]:
+	var rows: Array[String] = []
+	var floor_lookup: Dictionary = {}
+	var wall_lookup: Dictionary = {}
+	var box_lookup: Dictionary = {}
+	for coord: Vector3i in data.floor_cells:
+		floor_lookup[coord] = true
+	for coord: Vector3i in data.walls:
+		wall_lookup[coord] = true
+	for coord: Vector3i in data.boxes:
+		box_lookup[coord] = true
+	for y: int in range(data.grid_size.y):
+		var chars: Array[String] = []
+		for x: int in range(data.grid_size.x):
+			var coord := Vector3i(x, y, 0)
+			if not floor_lookup.has(coord):
+				chars.append("_")
+			elif wall_lookup.has(coord):
+				chars.append("#")
+			elif data.player_start == coord:
+				chars.append("P")
+			elif data.exit_position == coord:
+				chars.append("E")
+			elif box_lookup.has(coord):
+				chars.append("B")
+			else:
+				chars.append(".")
+		rows.append("".join(chars))
+	return rows
 
 
 

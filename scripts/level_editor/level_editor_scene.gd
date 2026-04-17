@@ -37,9 +37,6 @@ enum PaintTool {
 @onready var _back_button: Button = $MainHBox/EditorPanel/TopVBox/TitleRow/BackButton
 @onready var _main_menu_button: Button = $MainHBox/EditorPanel/TopVBox/TitleRow/MainMenuButton
 @onready var _export_feedback_label: Label = $MainHBox/EditorPanel/TopVBox/ExportFeedbackLabel
-@onready var _export_dialog: AcceptDialog = $ExportDialog
-@onready var _export_dialog_tip_label: Label = $ExportDialog/ExportDialogVBox/ExportDialogTipLabel
-@onready var _export_dialog_text: TextEdit = $ExportDialog/ExportDialogVBox/ExportDialogTextEdit
 @onready var _canvas_panel: Panel = $MainHBox/EditorPanel/TopVBox/CanvasPanel
 @onready var _mode_place_button: Button = $MainHBox/EditorPanel/TopVBox/ToolbarVBox/ModeRow/PlaceModeButton
 @onready var _mode_delete_button: Button = $MainHBox/EditorPanel/TopVBox/ToolbarVBox/ModeRow/DeleteModeButton
@@ -257,15 +254,43 @@ func _build_clean_level_root_from_snapshot(snapshot: Dictionary) -> LevelRoot:
 func _save_level_snapshot(snapshot: Dictionary, level_path: String) -> bool:
 	if snapshot.is_empty():
 		return false
+	var editor_snapshot: Dictionary = _canonicalize_snapshot(snapshot)
+	DebugLog.log(DebugLog.EDITOR_SAVE, _build_snapshot_summary("editor_live_snapshot", editor_snapshot))
 	var clean_root: LevelRoot = _build_clean_level_root_from_snapshot(snapshot)
-	var roundtrip_snapshot: Dictionary = clean_root.snapshot_level_state()
-	if not _is_snapshot_roundtrip_valid(snapshot, roundtrip_snapshot):
-		push_error("[LevelEditor] Save aborted: snapshot roundtrip mismatch for %s" % level_path)
+	var clean_roundtrip_snapshot: Dictionary = _canonicalize_snapshot(clean_root.snapshot_level_state())
+	DebugLog.log(DebugLog.EDITOR_SAVE, _build_snapshot_summary("clean_root_roundtrip_snapshot", clean_roundtrip_snapshot))
+	var editor_vs_clean: bool = _snapshots_match(editor_snapshot, clean_roundtrip_snapshot)
+	DebugLog.log(
+		DebugLog.EDITOR_SAVE,
+		"compare editor_vs_clean=%s\n%s" % [_same_or_diff(editor_vs_clean), _snapshot_diff_summary(editor_snapshot, clean_roundtrip_snapshot)]
+	)
+	if not editor_vs_clean:
+		push_error("[LevelEditor] Save aborted: editor/clean mismatch for %s" % level_path)
 		clean_root.queue_free()
 		return false
 	var is_saved: bool = _save_level_root(clean_root, level_path)
 	clean_root.queue_free()
-	return is_saved
+	if not is_saved:
+		return false
+	var saved_roundtrip_snapshot: Dictionary = _load_saved_roundtrip_snapshot(level_path)
+	if saved_roundtrip_snapshot.is_empty():
+		push_error("[LevelEditor] Save aborted: cannot load saved scene for %s" % level_path)
+		return false
+	DebugLog.log(DebugLog.EDITOR_SAVE, _build_snapshot_summary("saved_scene_roundtrip_snapshot", saved_roundtrip_snapshot))
+	var clean_vs_saved: bool = _snapshots_match(clean_roundtrip_snapshot, saved_roundtrip_snapshot)
+	DebugLog.log(
+		DebugLog.EDITOR_SAVE,
+		"compare clean_vs_saved=%s\n%s" % [_same_or_diff(clean_vs_saved), _snapshot_diff_summary(clean_roundtrip_snapshot, saved_roundtrip_snapshot)]
+	)
+	var editor_vs_saved: bool = _snapshots_match(editor_snapshot, saved_roundtrip_snapshot)
+	DebugLog.log(
+		DebugLog.EDITOR_SAVE,
+		"compare editor_vs_saved=%s\n%s" % [_same_or_diff(editor_vs_saved), _snapshot_diff_summary(editor_snapshot, saved_roundtrip_snapshot)]
+	)
+	if not clean_vs_saved or not editor_vs_saved:
+		push_error("[LevelEditor] Save mismatch after disk roundtrip for %s" % level_path)
+		return false
+	return true
 
 
 func _export_current_level_to_clipboard() -> void:
@@ -277,18 +302,11 @@ func _export_current_level_to_clipboard() -> void:
 		return
 	var export_text: String = _build_export_text(snapshot)
 	DisplayServer.clipboard_set(export_text)
-	_show_export_feedback("已尝试复制，可直接粘贴")
-	_show_export_dialog(export_text)
+	_show_export_feedback("已尝试复制")
 
 
 func _show_export_feedback(text: String) -> void:
 	_export_feedback_label.text = text
-
-
-func _show_export_dialog(export_text: String) -> void:
-	_export_dialog_tip_label.text = "若未复制成功，请手动复制下方文本"
-	_export_dialog_text.text = export_text
-	_export_dialog.popup_centered_ratio(0.82)
 
 
 func _build_export_text(snapshot: Dictionary) -> String:
@@ -626,15 +644,13 @@ func _find_cell_in(level_root: LevelRoot, coord: Vector3i) -> LevelCell:
 	return null
 
 
-func _is_snapshot_roundtrip_valid(original: Dictionary, roundtrip: Dictionary) -> bool:
-	if original.get("grid_size", Vector3i.ZERO) != roundtrip.get("grid_size", Vector3i.ZERO):
-		return false
-	if int(original.get("memory_capacity", -1)) != int(roundtrip.get("memory_capacity", -1)):
-		return false
-	return _canonicalize_snapshot_cells(original) == _canonicalize_snapshot_cells(roundtrip)
-
-
-func _canonicalize_snapshot_cells(snapshot: Dictionary) -> Array[Dictionary]:
+func _canonicalize_snapshot(snapshot: Dictionary) -> Dictionary:
+	var canonical: Dictionary = {
+		"level_name": String(snapshot.get("level_name", _current_level_name)),
+		"grid_size": snapshot.get("grid_size", Vector3i.ZERO),
+		"memory_capacity": int(snapshot.get("memory_capacity", -1)),
+		"cells": [],
+	}
 	var rows: Array[Dictionary] = []
 	var cells: Array = snapshot.get("cells", [])
 	for cell_data_variant: Variant in cells:
@@ -657,4 +673,190 @@ func _canonicalize_snapshot_cells(snapshot: Dictionary) -> Array[Dictionary]:
 			return ac.y < bc.y
 		return ac.x < bc.x
 	)
-	return rows
+	canonical["cells"] = rows
+	return canonical
+
+
+func _snapshots_match(left: Dictionary, right: Dictionary) -> bool:
+	return left == right
+
+
+func _same_or_diff(is_same: bool) -> String:
+	return "same" if is_same else "diff"
+
+
+func _snapshot_diff_summary(source: Dictionary, target: Dictionary) -> String:
+	var src_grid: Vector3i = source.get("grid_size", Vector3i.ZERO)
+	var dst_grid: Vector3i = target.get("grid_size", Vector3i.ZERO)
+	var src_memory: int = int(source.get("memory_capacity", -1))
+	var dst_memory: int = int(target.get("memory_capacity", -1))
+	var lines: Array[String] = []
+	if src_grid != dst_grid:
+		lines.append("grid_size mismatch: %s vs %s" % [src_grid, dst_grid])
+	if src_memory != dst_memory:
+		lines.append("memory_capacity mismatch: %d vs %d" % [src_memory, dst_memory])
+	var src_cells: Dictionary = _canonical_cell_map(source)
+	var dst_cells: Dictionary = _canonical_cell_map(target)
+	var floor_diff: Dictionary = _coord_set_diff(_coords_by_flag(src_cells, "has_floor", true), _coords_by_flag(dst_cells, "has_floor", true))
+	lines.append("missing floor coords: %s" % _join_coords(floor_diff.get("missing", [])))
+	lines.append("extra floor coords: %s" % _join_coords(floor_diff.get("extra", [])))
+	lines.append("spawn mismatch: %s" % _join_coords(_spawn_exit_mismatch(src_cells, dst_cells, "is_player_spawn")))
+	lines.append("exit mismatch: %s" % _join_coords(_spawn_exit_mismatch(src_cells, dst_cells, "is_exit")))
+	lines.append("content mismatch: %s" % _join_content_mismatches(src_cells, dst_cells))
+	return "\n".join(lines)
+
+
+func _canonical_cell_map(snapshot: Dictionary) -> Dictionary:
+	var map: Dictionary = {}
+	for cell_data: Dictionary in snapshot.get("cells", []):
+		map[cell_data.get("coord", Vector3i.ZERO)] = cell_data
+	return map
+
+
+func _coords_by_flag(cell_map: Dictionary, key: String, expected: bool) -> Array[Vector3i]:
+	var result: Array[Vector3i] = []
+	for coord: Variant in cell_map.keys():
+		var cell_data: Dictionary = cell_map.get(coord, {})
+		if bool(cell_data.get(key, false)) == expected:
+			result.append(coord)
+	result.sort_custom(_compare_coord)
+	return result
+
+
+func _coord_set_diff(left: Array[Vector3i], right: Array[Vector3i]) -> Dictionary:
+	var left_map: Dictionary = {}
+	for coord: Vector3i in left:
+		left_map[coord] = true
+	var right_map: Dictionary = {}
+	for coord: Vector3i in right:
+		right_map[coord] = true
+	var missing: Array[Vector3i] = []
+	var extra: Array[Vector3i] = []
+	for coord: Vector3i in left:
+		if not right_map.has(coord):
+			missing.append(coord)
+	for coord: Vector3i in right:
+		if not left_map.has(coord):
+			extra.append(coord)
+	missing.sort_custom(_compare_coord)
+	extra.sort_custom(_compare_coord)
+	return {"missing": missing, "extra": extra}
+
+
+func _spawn_exit_mismatch(src_cells: Dictionary, dst_cells: Dictionary, flag_key: String) -> Array[Vector3i]:
+	var mismatches: Array[Vector3i] = []
+	for coord: Variant in src_cells.keys():
+		var src: Dictionary = src_cells.get(coord, {})
+		var dst: Dictionary = dst_cells.get(coord, {})
+		if bool(src.get(flag_key, false)) != bool(dst.get(flag_key, false)):
+			mismatches.append(coord)
+	for coord: Variant in dst_cells.keys():
+		if src_cells.has(coord):
+			continue
+		var dst_only: Dictionary = dst_cells.get(coord, {})
+		if bool(dst_only.get(flag_key, false)):
+			mismatches.append(coord)
+	mismatches.sort_custom(_compare_coord)
+	return mismatches
+
+
+func _join_content_mismatches(src_cells: Dictionary, dst_cells: Dictionary) -> String:
+	var mismatches: Array[String] = []
+	for coord: Variant in src_cells.keys():
+		var src: Dictionary = src_cells.get(coord, {})
+		var dst: Dictionary = dst_cells.get(coord, {})
+		var src_type: int = int(src.get("content_type", LevelCell.CellContentType.EMPTY))
+		var dst_type: int = int(dst.get("content_type", LevelCell.CellContentType.EMPTY))
+		if src_type != dst_type:
+			mismatches.append("%s:%d->%d" % [coord, src_type, dst_type])
+	for coord: Variant in dst_cells.keys():
+		if src_cells.has(coord):
+			continue
+		var dst_only: Dictionary = dst_cells.get(coord, {})
+		var dst_type: int = int(dst_only.get("content_type", LevelCell.CellContentType.EMPTY))
+		if dst_type != LevelCell.CellContentType.EMPTY:
+			mismatches.append("%s:%d->%d" % [coord, LevelCell.CellContentType.EMPTY, dst_type])
+	if mismatches.is_empty():
+		return "-"
+	return ", ".join(mismatches)
+
+
+func _join_coords(coords: Array) -> String:
+	if coords.is_empty():
+		return "-"
+	var parts: Array[String] = []
+	for coord: Variant in coords:
+		parts.append(str(coord))
+	return ", ".join(parts)
+
+
+func _build_snapshot_summary(label: String, snapshot: Dictionary) -> String:
+	var grid_size: Vector3i = snapshot.get("grid_size", Vector3i.ZERO)
+	var memory_capacity: int = int(snapshot.get("memory_capacity", -1))
+	var rows: Array[String] = _build_export_grid_rows(snapshot)
+	var stats: Dictionary = _snapshot_stats(snapshot)
+	return "%s\nlevel=%s\nsize=%dx%d\nmemory_capacity=%d\nrows=%s\nfloor=%d wall=%d box=%d spawn=%d exit=%d" % [
+		label,
+		String(snapshot.get("level_name", _current_level_name)),
+		grid_size.x,
+		grid_size.y,
+		memory_capacity,
+		"|".join(rows),
+		int(stats.get("floor", 0)),
+		int(stats.get("wall", 0)),
+		int(stats.get("box", 0)),
+		int(stats.get("spawn", 0)),
+		int(stats.get("exit", 0)),
+	]
+
+
+func _snapshot_stats(snapshot: Dictionary) -> Dictionary:
+	var floor_count: int = 0
+	var wall_count: int = 0
+	var box_count: int = 0
+	var spawn_count: int = 0
+	var exit_count: int = 0
+	for cell_data: Dictionary in snapshot.get("cells", []):
+		var has_floor: bool = bool(cell_data.get("has_floor", false))
+		if has_floor:
+			floor_count += 1
+		var content_type: int = int(cell_data.get("content_type", LevelCell.CellContentType.EMPTY))
+		if content_type == LevelCell.CellContentType.WALL:
+			wall_count += 1
+		elif content_type == LevelCell.CellContentType.BOX:
+			box_count += 1
+		if bool(cell_data.get("is_player_spawn", false)):
+			spawn_count += 1
+		if bool(cell_data.get("is_exit", false)):
+			exit_count += 1
+	return {
+		"floor": floor_count,
+		"wall": wall_count,
+		"box": box_count,
+		"spawn": spawn_count,
+		"exit": exit_count,
+	}
+
+
+func _load_saved_roundtrip_snapshot(level_path: String) -> Dictionary:
+	var packed: PackedScene = load(level_path)
+	if packed == null:
+		return {}
+	var instance: Node = packed.instantiate()
+	if instance is not LevelRoot:
+		instance.queue_free()
+		return {}
+	var root: LevelRoot = instance
+	root.auto_rebuild_in_editor = false
+	root.rebuild_grid()
+	var snapshot: Dictionary = _canonicalize_snapshot(_snapshot_level_data(root))
+	root.queue_free()
+	return snapshot
+
+
+func _compare_coord(a: Vector3i, b: Vector3i) -> bool:
+	if a.z != b.z:
+		return a.z < b.z
+	if a.y != b.y:
+		return a.y < b.y
+	return a.x < b.x

@@ -17,16 +17,16 @@ func compile(defaults: WorldDefaults, queue: ChangeQueue, player_position: Vecto
 	while iteration < MAX_ITERATIONS:
 		iteration += 1
 		var pass_index: int = iteration - 1
-		print("[Recompile][Diag] pass_index=%d queue_entries_before_normalize=%s" % [pass_index, _describe_changes(queue_entries)])
+		DebugLog.log(DebugLog.ANIMATION, "[Recompile][Diag] pass_index=%d queue_entries_before_normalize=%s" % [pass_index, _describe_changes(queue_entries)])
 		var temp_queue := ChangeQueue.new()
 		for entry: ChangeRecord in queue_entries:
 			temp_queue.append(entry)
 		var removed: Array[ChangeRecord] = temp_queue.normalize_to_capacity(defaults.memory_capacity)
-		print("[Recompile][Diag] pass_index=%d removed_by_normalize=%s" % [pass_index, _describe_changes(removed)])
+		DebugLog.log(DebugLog.ANIMATION, "[Recompile][Diag] pass_index=%d removed_by_normalize=%s" % [pass_index, _describe_changes(removed)])
 		if iteration == 1:
 			result.pushed_out_changes.append_array(removed)
 		queue_entries = temp_queue.entries()
-		print("[Recompile][Diag] pass_index=%d queue_entries_after_normalize=%s" % [pass_index, _describe_changes(queue_entries)])
+		DebugLog.log(DebugLog.ANIMATION, "[Recompile][Diag] pass_index=%d queue_entries_after_normalize=%s" % [pass_index, _describe_changes(queue_entries)])
 
 		replay_trace.append({
 			"kind": "pass_begin",
@@ -36,11 +36,11 @@ func compile(defaults: WorldDefaults, queue: ChangeQueue, player_position: Vecto
 
 		context.clear_generated()
 		var replay_player_start: Vector2i = _derive_replay_player_start(player_position, queue_entries)
-		print("[Recompile][Diag] pass_index=%d replay_player_start=%s" % [pass_index, replay_player_start])
+		DebugLog.log(DebugLog.ANIMATION, "[Recompile][Diag] pass_index=%d replay_player_start=%s" % [pass_index, replay_player_start])
 		var state := SimulationState.new()
 		state.setup_from_defaults(defaults, replay_player_start)
-		print("[Recompile][Diag] pass_index=%d pass_begin_player_position=%s" % [pass_index, state.player_position])
-		print("[Recompile][Diag] pass_index=%d pass_begin_position_by_subject=%s" % [pass_index, state.position_by_subject])
+		DebugLog.log(DebugLog.ANIMATION, "[Recompile][Diag] pass_index=%d pass_begin_player_position=%s" % [pass_index, state.player_position])
+		DebugLog.log(DebugLog.ANIMATION, "[Recompile][Diag] pass_index=%d pass_begin_position_by_subject=%s" % [pass_index, state.position_by_subject])
 		var generated_this_pass: Array[ChangeRecord] = []
 		var pass_interrupted: bool = false
 		for queue_index: int in range(queue_entries.size()):
@@ -95,7 +95,8 @@ func compile(defaults: WorldDefaults, queue: ChangeQueue, player_position: Vecto
 						})
 
 			var generated_after_entry: Array[ChangeRecord] = _detect_generated_changes_after_entry(state, queue_entries, context, pass_index, queue_index)
-			print(
+			DebugLog.log(
+				DebugLog.ANIMATION,
 				"[Recompile][Diag] pass_index=%d queue_index=%d generated_after_entry=%s" %
 				[pass_index, queue_index, _describe_changes(generated_after_entry)]
 			)
@@ -162,8 +163,8 @@ func compile(defaults: WorldDefaults, queue: ChangeQueue, player_position: Vecto
 	final_queue.normalize_to_capacity(defaults.memory_capacity)
 	result.queue_entries = final_queue.entries()
 	result.replay_trace = replay_trace
-	print("[Recompile][Diag] result_generated_ghost_changes=%s" % [_describe_changes(result.generated_ghost_changes)])
-	print("[Recompile][Diag] replay_trace_kinds_summary=%s" % [_summarize_trace_kinds(replay_trace)])
+	DebugLog.log(DebugLog.ANIMATION, "[Recompile][Diag] result_generated_ghost_changes=%s" % [_describe_changes(result.generated_ghost_changes)])
+	DebugLog.log(DebugLog.ANIMATION, "[Recompile][Diag] replay_trace_kinds_summary=%s" % [_summarize_trace_kinds(replay_trace)])
 	return result
 
 
@@ -196,7 +197,8 @@ func _detect_generated_changes_after_entry(
 		var can_land_solid: bool = PlacementRules.can_land_solid(state, subject_id, position)
 		var ghost_change: ChangeRecord = ConflictRules.ghostify_change(subject_id, position, "placement_conflict")
 		var filtered_by_same_change: bool = _has_same_change(queue_entries, ghost_change)
-		print(
+		DebugLog.log(
+			DebugLog.ANIMATION,
 			"[Recompile][Diag] pass_index=%d queue_index=%d detect subject_id=%s position=%s player_position=%s can_land_solid=%s filtered_by_has_same_change=%s ghost_change=%s" %
 			[
 				pass_index,
