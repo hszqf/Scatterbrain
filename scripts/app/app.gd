@@ -32,6 +32,8 @@ func _open_level_editor() -> void:
 func _replace_with_scene(scene: PackedScene) -> void:
 	_clear_current_screen()
 	_current_screen = scene.instantiate()
+	if _current_screen.has_signal("request_main_menu"):
+		_current_screen.connect("request_main_menu", _open_main_menu)
 	add_child(_current_screen)
 
 

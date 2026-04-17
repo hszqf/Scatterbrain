@@ -1,6 +1,8 @@
 class_name GameController
 extends Node
 
+signal request_main_menu
+
 ## Orchestrates level runtime, input handling, change queue updates, and recompiles.
 @export var level_scene: PackedScene
 @export var board_view_path: NodePath
@@ -166,6 +168,10 @@ func on_restart_pressed() -> void:
 
 func on_copy_log_pressed() -> void:
 	copy_debug_log()
+
+
+func on_main_menu_pressed() -> void:
+	request_main_menu.emit()
 
 
 func copy_debug_log() -> void:
