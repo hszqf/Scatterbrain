@@ -2,7 +2,7 @@
 class_name LevelRoot
 extends Node2D
 
-const CELL_SCENE: PackedScene = preload("res://scenes/levels/LevelCell.tscn")
+const CELL_SCENE: PackedScene = preload("res://scenes/level_editor/LevelCellTemplate.tscn")
 
 @export var grid_size: Vector3i = Vector3i(6, 3, 1):
 	set(value):

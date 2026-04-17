@@ -11,7 +11,7 @@
 - **重编译（Recompile）**：以默认世界为基准，顺序应用当前队列变化构建现实。
 - **幽灵态（Ghost）**：变化无法实体落地时的落地形式，不占实体格。
 - **执念（Obsession）**：将变化钉住，使其不被正常挤出（本版仅预留字段/展示）。
-- **Scene-based Level**：以 `LevelRoot.tscn + LevelCell.tscn` 在编辑器内可视化摆格子的关卡表达。
+- **Scene-based Level**：以 `LevelRootTemplate.tscn + LevelCellTemplate.tscn` 作为编辑模板，在编辑器内可视化摆格子的关卡表达。
 
 ## 3) 目录结构约定
 - `scripts/core/`：纯数据与纯规则，不依赖场景节点。
@@ -19,7 +19,8 @@
 - `scripts/entities/`：实体 View 的纯表现脚本。
 - `scripts/level_editor/`：关卡编辑脚本与关卡数据提取（仅编辑器表现与关卡数据，不含玩法规则）。
 - `scenes/game/`：关卡运行时场景。
-- `scenes/levels/`：可视化关卡编辑场景（`LevelRoot`、`LevelCell` 与具体关卡场景）。
+- `scenes/levels/`：仅存放实际关卡场景（`LevelNNN.tscn`）。
+- `scenes/level_editor/`：关卡编辑器场景与模板资产（如 `LevelRootTemplate`、`LevelCellTemplate`）。
 - `levels/`：历史遗留目录，不得作为运行时关卡入口。
 - `docs/`：架构与规范文档，改架构必须更新本文件。
 - `scripts/tests/`：headless 逻辑测试入口（文本断言，不做画面比较）。
@@ -196,7 +197,7 @@
 
 
 ## 21) 关卡编辑器工作流（2026-04）
-- 关卡文件统一保存在 `scenes/levels/LevelNNN.tscn`，由 `LevelRoot` 作为根节点。
+- 关卡文件统一保存在 `scenes/levels/LevelNNN.tscn`，由 `LevelRootTemplate` 实例化并保存为 `LevelRoot` 根节点。
 - 编辑入口场景为 `scenes/level_editor/LevelEditorScene.tscn`：左侧列出现有关卡并提供编辑/删除，底部提供新增关卡。
 - 新增关卡使用顺序编号策略：扫描现有 `LevelNNN`，创建 `max+1`（如 `Level003`）。
 - 关卡编辑区顶部显示当前关卡名与尺寸；尺寸通过 `X/Y + 更新` 按钮触发 `LevelRoot.rebuild_grid()`。
