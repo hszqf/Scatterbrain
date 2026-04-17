@@ -139,14 +139,15 @@
 - 第一版未开放执念操作，仅保留队列字段与 UI 展示位。
 
 ## 14) Headless 逻辑测试
-- 逻辑测试必须通过 headless 脚本执行，不依赖编辑器手动操作。
-- 基础回归入口：`godot --headless --path . --script scripts/tests/headless_logic_harness.gd`。
+- `scripts/tests/headless_logic_harness.gd` 作为可选的历史逻辑测试入口保留。
+- 当前默认验证流程不包含 headless harness，不依赖编辑器手动操作。
 - 每个 case 必须输出：case name、initial state、action、final state、queue state、PASS/FAIL，并通过进程退出码表达整体成功/失败。
 - harness 的职责边界：
   - 覆盖 `LevelRoot.build_runtime_data() -> WorldDefaults.from_runtime_data() -> WorldCompiler.compile()` 的正式数据链路。
   - 覆盖 `CompiledWorld` 的 floor/wall 查询与玩家/箱子语义查询。
   - 覆盖正式玩法路径：移动、阻挡、推箱落地、推箱落空、重编译后玩家位置保持。
-- 禁止把测试降级成只测 resolver 的局部单测；必须包含生产路径中的数据构建与重编译步骤。
+- 仅在明确需要排查逻辑回归时，手动运行 `godot --headless --path . --script scripts/tests/headless_logic_harness.gd`。
+- 禁止把该可选测试降级成只测 resolver 的局部单测；应保持对生产路径数据构建与重编译步骤的覆盖能力。
 - 该 harness 不进行截图或视觉断言，只做文本断言。
 
 ## 15) 当前逻辑回归命令
@@ -154,7 +155,6 @@
 1. `godot --version`
 2. `godot --headless --import --path .`
 3. `godot --headless --path . --quit`
-4. `godot --headless --path . --script scripts/tests/headless_logic_harness.gd`
 
 ## 16) 竖屏 UI 结构（Web/手机优先）
 - 运行时 UI 采用竖屏优先布局：顶部状态与变化队列、中部棋盘、底部操作区。
