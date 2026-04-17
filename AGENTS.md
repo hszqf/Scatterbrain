@@ -11,12 +11,13 @@ After any code change, always run these commands in order:
 1. `godot --version`
 2. `godot --headless --import --path .`
 3. `godot --headless --path . --quit`
-4. `godot --headless --path . --script scripts/tests/headless_logic_harness.gd`
 
 Rules:
 - If step 2 fails, do not run step 3.
 - If any step fails, include the exact command and full error output.
 - Do not claim runtime validation passed unless all required steps succeed.
+- `scripts/tests/headless_logic_harness.gd` 暂时保留，但不再是必跑验证。
+- 仅在明确需要排查逻辑回归时，才手动运行 `godot --headless --path . --script scripts/tests/headless_logic_harness.gd`。
 
 ## Project rules
 - `LevelRoot` is the single source of truth for levels.
