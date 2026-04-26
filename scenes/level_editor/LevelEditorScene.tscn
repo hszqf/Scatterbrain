@@ -25,7 +25,7 @@ grow_vertical = 2
 theme_override_constants/separation = 10
 
 [node name="ListPanel" type="Panel" parent="MainHBox"]
-custom_minimum_size = Vector2(320, 0)
+custom_minimum_size = Vector2(380, 0)
 layout_mode = 2
 size_flags_vertical = 3
 
@@ -44,7 +44,7 @@ theme_override_constants/separation = 8
 
 [node name="ListTitle" type="Label" parent="MainHBox/ListPanel/ListVBox"]
 layout_mode = 2
-text = "关卡列表"
+text = "Levels"
 
 [node name="ListScroll" type="ScrollContainer" parent="MainHBox/ListPanel/ListVBox"]
 layout_mode = 2
@@ -57,7 +57,9 @@ theme_override_constants/separation = 6
 
 [node name="AddLevelButton" type="Button" parent="MainHBox/ListPanel/ListVBox"]
 layout_mode = 2
-text = "新增关卡"
+text = "Add Level"
+custom_minimum_size = Vector2(0, 72)
+theme_override_font_sizes/font_size = 24
 
 [node name="EditorPanel" type="Panel" parent="MainHBox"]
 layout_mode = 2
@@ -84,28 +86,39 @@ theme_override_constants/separation = 8
 [node name="LevelTitle" type="Label" parent="MainHBox/EditorPanel/TopVBox/TitleRow"]
 layout_mode = 2
 size_flags_horizontal = 3
-text = "level X · 关卡大小 5 * 5"
+text = "Level X · Size 5 × 5"
+theme_override_font_sizes/font_size = 26
 
 [node name="SaveButton" type="Button" parent="MainHBox/EditorPanel/TopVBox/TitleRow"]
 layout_mode = 2
-text = "保存"
+custom_minimum_size = Vector2(130, 56)
+text = "Save"
+theme_override_font_sizes/font_size = 22
 
 [node name="ExportButton" type="Button" parent="MainHBox/EditorPanel/TopVBox/TitleRow"]
 layout_mode = 2
-text = "导出"
+custom_minimum_size = Vector2(130, 56)
+text = "Export"
+theme_override_font_sizes/font_size = 22
 
 [node name="RepairButton" type="Button" parent="MainHBox/EditorPanel/TopVBox/TitleRow"]
 layout_mode = 2
-text = "重建关卡"
+custom_minimum_size = Vector2(180, 56)
+text = "Rebuild Level"
+theme_override_font_sizes/font_size = 22
 visible = false
 
 [node name="BackButton" type="Button" parent="MainHBox/EditorPanel/TopVBox/TitleRow"]
 layout_mode = 2
-text = "返回列表"
+custom_minimum_size = Vector2(160, 56)
+text = "Back to List"
+theme_override_font_sizes/font_size = 22
 
 [node name="MainMenuButton" type="Button" parent="MainHBox/EditorPanel/TopVBox/TitleRow"]
 layout_mode = 2
-text = "返回主菜单"
+custom_minimum_size = Vector2(180, 56)
+text = "Main Menu"
+theme_override_font_sizes/font_size = 22
 
 [node name="ExportFeedbackLabel" type="Label" parent="MainHBox/EditorPanel/TopVBox"]
 layout_mode = 2
@@ -117,10 +130,11 @@ theme_override_constants/separation = 6
 
 [node name="SizeLabel" type="Label" parent="MainHBox/EditorPanel/TopVBox/SizeRow"]
 layout_mode = 2
-text = "关卡大小"
+text = "Level Size"
+theme_override_font_sizes/font_size = 22
 
 [node name="SizeXSpin" type="SpinBox" parent="MainHBox/EditorPanel/TopVBox/SizeRow"]
-custom_minimum_size = Vector2(90, 0)
+custom_minimum_size = Vector2(110, 56)
 layout_mode = 2
 min_value = 1.0
 max_value = 64.0
@@ -131,7 +145,7 @@ layout_mode = 2
 text = "*"
 
 [node name="SizeYSpin" type="SpinBox" parent="MainHBox/EditorPanel/TopVBox/SizeRow"]
-custom_minimum_size = Vector2(90, 0)
+custom_minimum_size = Vector2(110, 56)
 layout_mode = 2
 min_value = 1.0
 max_value = 64.0
@@ -139,7 +153,9 @@ value = 5.0
 
 [node name="UpdateSizeButton" type="Button" parent="MainHBox/EditorPanel/TopVBox/SizeRow"]
 layout_mode = 2
-text = "更新"
+custom_minimum_size = Vector2(140, 56)
+text = "Apply Size"
+theme_override_font_sizes/font_size = 22
 
 [node name="CanvasPanel" type="Panel" parent="MainHBox/EditorPanel/TopVBox"]
 custom_minimum_size = Vector2(0, 520)
@@ -158,18 +174,23 @@ theme_override_constants/separation = 6
 
 [node name="ModeLabel" type="Label" parent="MainHBox/EditorPanel/TopVBox/ToolbarVBox/ModeRow"]
 layout_mode = 2
-text = "模式"
+text = "Mode"
+theme_override_font_sizes/font_size = 22
 
 [node name="PlaceModeButton" type="Button" parent="MainHBox/EditorPanel/TopVBox/ToolbarVBox/ModeRow"]
 layout_mode = 2
-text = "放置"
+custom_minimum_size = Vector2(140, 56)
+text = "Place"
+theme_override_font_sizes/font_size = 22
 
 [node name="DeleteModeButton" type="Button" parent="MainHBox/EditorPanel/TopVBox/ToolbarVBox/ModeRow"]
 layout_mode = 2
-text = "删除"
+custom_minimum_size = Vector2(140, 56)
+text = "Delete"
+theme_override_font_sizes/font_size = 22
 
 [node name="ToolScroll" type="ScrollContainer" parent="MainHBox/EditorPanel/TopVBox/ToolbarVBox"]
-custom_minimum_size = Vector2(0, 56)
+custom_minimum_size = Vector2(0, 72)
 layout_mode = 2
 horizontal_scroll_mode = 1
 vertical_scroll_mode = 0
@@ -179,33 +200,38 @@ layout_mode = 2
 theme_override_constants/separation = 6
 
 [node name="FloorToolButton" type="Button" parent="MainHBox/EditorPanel/TopVBox/ToolbarVBox/ToolScroll/ToolRow"]
-custom_minimum_size = Vector2(120, 44)
+custom_minimum_size = Vector2(180, 60)
 layout_mode = 2
-text = "地块"
+text = "Floor"
+theme_override_font_sizes/font_size = 22
 
 [node name="WallToolButton" type="Button" parent="MainHBox/EditorPanel/TopVBox/ToolbarVBox/ToolScroll/ToolRow"]
-custom_minimum_size = Vector2(120, 44)
+custom_minimum_size = Vector2(180, 60)
 layout_mode = 2
-text = "墙"
+text = "Wall"
+theme_override_font_sizes/font_size = 22
 
 [node name="BoxToolButton" type="Button" parent="MainHBox/EditorPanel/TopVBox/ToolbarVBox/ToolScroll/ToolRow"]
-custom_minimum_size = Vector2(120, 44)
+custom_minimum_size = Vector2(180, 60)
 layout_mode = 2
-text = "箱子"
+text = "Box"
+theme_override_font_sizes/font_size = 22
 
 [node name="PlayerToolButton" type="Button" parent="MainHBox/EditorPanel/TopVBox/ToolbarVBox/ToolScroll/ToolRow"]
-custom_minimum_size = Vector2(120, 44)
+custom_minimum_size = Vector2(180, 60)
 layout_mode = 2
-text = "玩家(唯一)"
+text = "Player (Unique)"
+theme_override_font_sizes/font_size = 22
 
 [node name="ExitToolButton" type="Button" parent="MainHBox/EditorPanel/TopVBox/ToolbarVBox/ToolScroll/ToolRow"]
-custom_minimum_size = Vector2(120, 44)
+custom_minimum_size = Vector2(180, 60)
 layout_mode = 2
-text = "过关点(唯一)"
+text = "Exit (Unique)"
+theme_override_font_sizes/font_size = 22
 
 [node name="ExportDialog" type="AcceptDialog" parent="."]
-title = "导出文本"
-ok_button_text = "关闭"
+title = "Export Text"
+ok_button_text = "Close"
 dialog_hide_on_ok = true
 
 [node name="ExportDialogVBox" type="VBoxContainer" parent="ExportDialog"]
@@ -216,7 +242,7 @@ theme_override_constants/separation = 8
 [node name="ExportDialogTipLabel" type="Label" parent="ExportDialog/ExportDialogVBox"]
 layout_mode = 2
 autowrap_mode = 3
-text = "若未复制成功，请手动复制下方文本"
+text = "If clipboard copy fails, copy the text below manually."
 
 [node name="ExportDialogTextEdit" type="TextEdit" parent="ExportDialog/ExportDialogVBox"]
 custom_minimum_size = Vector2(0, 420)

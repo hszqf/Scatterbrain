@@ -213,6 +213,8 @@
 - 编辑器导出文本必须基于同一快照数据源，并包含关卡编号、尺寸、memory_capacity、legend 与稳定矩形字符网格（含无地板标记）。
 - 编辑器与运行时都允许通过标准信号 `request_main_menu` 回到主菜单；场景子节点不得自行实例化主菜单。
 - 运行时仍仅通过 `PackedScene -> LevelRoot.build_runtime_data()` 加载。
+- Web 导出下关卡列表不得依赖 `DirAccess` 运行时枚举 `res://`：编辑器必须使用内置打包关卡清单提供可见列表，避免空白列表。
+- Web 导出下编辑器属于“可编辑但受限”模式：可打开/编辑内存布局并导出文本，但不得假装支持对项目 `res://scenes/levels/*.tscn` 的新增、删除、保存落盘。
 
 ## 22) 调试日志分类（2026-04）
 - 统一通过 `scripts/debug/debug_log.gd` 输出分类日志，当前分类为：`EDITOR_SAVE`、`LEVEL_LOAD`、`ANIMATION`。

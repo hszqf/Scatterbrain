@@ -7,6 +7,10 @@ const LEVELS_DIR: String = "res://scenes/levels"
 const LEVEL_FILE_PREFIX: String = "Level"
 const LEVEL_FILE_PATTERN: String = "^Level\\d+\\.tscn$"
 const NO_FLOOR_CHAR: String = "_"
+const BUILTIN_LEVEL_PATHS: Array[String] = [
+	"res://scenes/levels/Level001.tscn",
+	"res://scenes/levels/Level002.tscn",
+]
 
 signal request_main_menu
 
@@ -61,6 +65,7 @@ var _is_panning_canvas: bool = false
 var _last_pan_mouse_position: Vector2 = Vector2.ZERO
 var _canvas_zoom: float = 1.0
 var _current_level_missing_data: bool = false
+var _is_web_runtime: bool = false
 
 const MIN_CANVAS_ZOOM: float = 0.4
 const MAX_CANVAS_ZOOM: float = 2.4
@@ -70,7 +75,9 @@ const CANVAS_ZOOM_STEP: float = 0.1
 func _ready() -> void:
 	if not Engine.is_editor_hint():
 		pass
+	_is_web_runtime = OS.has_feature("web")
 	_bind_buttons()
+	_configure_storage_capabilities()
 	_refresh_level_list()
 	_close_editor()
 
@@ -121,19 +128,26 @@ func _refresh_level_list() -> void:
 		level_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		level_label.text = _level_name_from_path(level_path)
 		var edit_button := Button.new()
-		edit_button.text = "编辑"
+		edit_button.text = "Edit"
+		edit_button.custom_minimum_size = Vector2(120, 52)
+		edit_button.add_theme_font_size_override("font_size", 20)
 		edit_button.pressed.connect(func() -> void: _open_level(level_path))
 		var delete_button := Button.new()
-		delete_button.text = "删除"
+		delete_button.text = "Delete"
+		delete_button.custom_minimum_size = Vector2(120, 52)
+		delete_button.add_theme_font_size_override("font_size", 20)
 		delete_button.pressed.connect(func() -> void: _delete_level(level_path))
 		row.add_child(level_label)
 		row.add_child(edit_button)
-		if can_delete:
+		if can_delete and not _is_web_runtime:
 			row.add_child(delete_button)
 		_list_container.add_child(row)
 
 
 func _on_add_level_pressed() -> void:
+	if _is_web_runtime:
+		_show_export_feedback("Web build: creating new project level files is unavailable.")
+		return
 	var level_number: int = _next_level_number()
 	var level_name: String = "%s%03d" % [LEVEL_FILE_PREFIX, level_number]
 	var level_path: String = "%s/%s.tscn" % [LEVELS_DIR, level_name]
@@ -166,7 +180,7 @@ func _open_level(level_path: String) -> void:
 		_show_export_feedback("")
 	else:
 		_set_missing_data_mode(true)
-		_show_export_feedback("关卡数据缺失：这是一个空壳场景。请点击“重建关卡”初始化新布局。")
+		_show_export_feedback("Level data is missing. This scene shell cannot be edited until you rebuild the level.")
 		push_error("[LevelEditor] Missing level data: %s" % level_path)
 	_align_level_root()
 	_sync_level_header()
@@ -175,6 +189,9 @@ func _open_level(level_path: String) -> void:
 
 
 func _delete_level(level_path: String) -> void:
+	if _is_web_runtime:
+		_show_export_feedback("Web build: deleting project level files is unavailable.")
+		return
 	var level_file_name: String = level_path.get_file()
 	if not _is_valid_level_file_name(level_file_name):
 		push_error("[LevelEditor] Refuse to delete non-level asset: %s" % level_path)
@@ -219,11 +236,14 @@ func _on_update_size_pressed() -> void:
 	_current_level_root.grid_size = Vector3i(width, height, 1)
 	if _current_level_missing_data:
 		_sync_level_header()
-		_show_export_feedback("已更新重建尺寸：点击“重建关卡”以初始化空白布局")
+		_show_export_feedback("Rebuild size updated. Click Rebuild Level to initialize a blank layout.")
 		return
 	_current_level_root.rebuild_grid()
 	_align_level_root()
 	_sync_level_header()
+	if _is_web_runtime:
+		_show_export_feedback("Size updated in memory. Use Export to copy the current layout.")
+		return
 	_save_current_level()
 
 
@@ -242,18 +262,21 @@ func _on_repair_pressed() -> void:
 func _save_current_level() -> void:
 	if _current_level_root == null or _current_level_path.is_empty():
 		return
+	if _is_web_runtime:
+		_show_export_feedback("Web build: Save is disabled. Use Export to copy level text.")
+		return
 	if _current_level_missing_data:
-		_show_export_feedback("保存失败：请先点击“重建关卡”初始化布局")
+		_show_export_feedback("Save failed: rebuild the level first.")
 		return
 	if not _current_level_root.sync_layout_from_grid() and _current_level_root.level_layout == null:
 		push_error("[LevelEditor] Save aborted: level data missing for %s" % _current_level_path)
-		_show_export_feedback("保存失败：关卡数据缺失")
+		_show_export_feedback("Save failed: level data is missing.")
 		return
 	var snapshot: Dictionary = _snapshot_level_data(_current_level_root)
 	if _save_level_snapshot(snapshot, _current_level_path):
-		_show_export_feedback("保存成功")
+		_show_export_feedback("Saved.")
 	else:
-		_show_export_feedback("保存失败")
+		_show_export_feedback("Save failed.")
 	_refresh_level_list()
 
 
@@ -334,15 +357,15 @@ func _export_current_level_to_clipboard() -> void:
 	if _current_level_root == null:
 		return
 	if _current_level_missing_data:
-		_show_export_feedback("导出失败：请先点击“重建关卡”初始化布局")
+		_show_export_feedback("Export failed: rebuild the level first.")
 		return
 	var snapshot: Dictionary = _snapshot_level_data(_current_level_root)
 	if snapshot.is_empty():
-		_show_export_feedback("导出失败")
+		_show_export_feedback("Export failed.")
 		return
 	var export_text: String = _build_export_text(snapshot)
 	DisplayServer.clipboard_set(export_text)
-	_show_export_feedback("已尝试复制")
+	_show_export_feedback("Copied to clipboard (if supported by this browser).")
 
 
 func _show_export_feedback(text: String) -> void:
@@ -357,7 +380,7 @@ func _build_export_text(snapshot: Dictionary) -> String:
 	var grid_rows: Array[String] = _build_export_grid_rows(snapshot)
 	var lines: Array[String] = [
 		level_name,
-		"第%d关" % level_index,
+		"Level %d" % level_index,
 		"size=%dx%d" % [grid_size.x, grid_size.y],
 		"memory_capacity=%d" % memory_capacity,
 		"legend: # wall, . floor, B box, P player, E exit, %s no_floor" % NO_FLOOR_CHAR,
@@ -423,7 +446,7 @@ func _parse_level_index(level_name: String) -> int:
 func _sync_level_header() -> void:
 	if _current_level_root == null:
 		return
-	_level_title_label.text = "%s · 关卡大小 %d * %d" % [
+	_level_title_label.text = "%s · Size %d × %d" % [
 		_current_level_name,
 		_current_level_root.grid_size.x,
 		_current_level_root.grid_size.y,
@@ -626,7 +649,7 @@ func _set_missing_data_mode(is_missing: bool) -> void:
 	_current_level_missing_data = is_missing
 	_repair_button.visible = is_missing
 	_repair_button.disabled = not is_missing
-	_save_button.disabled = is_missing
+	_save_button.disabled = is_missing or _is_web_runtime
 	_export_button.disabled = is_missing
 	_canvas_panel.mouse_default_cursor_shape = Control.CURSOR_ARROW if is_missing else Control.CURSOR_POINTING_HAND
 	_mode_place_button.disabled = is_missing
@@ -665,7 +688,7 @@ func _repair_missing_level() -> void:
 	_set_missing_data_mode(false)
 	_align_level_root()
 	_sync_level_header()
-	_show_export_feedback("已重建空关卡，请保存")
+	_show_export_feedback("Blank level rebuilt. Save to persist this layout.")
 
 
 func _level_name_from_path(path: String) -> String:
@@ -673,6 +696,8 @@ func _level_name_from_path(path: String) -> String:
 
 
 func _list_level_paths() -> Array[String]:
+	if _is_web_runtime:
+		return _list_builtin_level_paths()
 	var result: Array[String] = []
 	var dir: DirAccess = DirAccess.open(LEVELS_DIR)
 	if dir == null:
@@ -690,6 +715,25 @@ func _list_level_paths() -> Array[String]:
 	dir.list_dir_end()
 	result.sort()
 	return result
+
+
+func _list_builtin_level_paths() -> Array[String]:
+	var result: Array[String] = []
+	for level_path: String in BUILTIN_LEVEL_PATHS:
+		if ResourceLoader.exists(level_path):
+			result.append(level_path)
+	result.sort()
+	return result
+
+
+func _configure_storage_capabilities() -> void:
+	if not _is_web_runtime:
+		return
+	_add_level_button.disabled = true
+	_add_level_button.tooltip_text = "Unavailable on Web build"
+	_save_button.disabled = true
+	_save_button.tooltip_text = "Unavailable on Web build"
+	_show_export_feedback("Web build: open and edit built-in levels, then use Export.")
 
 
 func _is_valid_level_file_name(file_name: String) -> bool:
